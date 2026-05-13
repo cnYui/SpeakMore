@@ -3,15 +3,19 @@ import HomeIcon from '@mui/icons-material/Home'
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
 import SettingsIcon from '@mui/icons-material/Settings'
 import BugReportIcon from '@mui/icons-material/BugReport'
+import { pages, type Page } from '../navigation'
 
-type Page = 'home' | 'history' | 'settings' | 'diagnostics'
+const iconByPage: Record<Page, React.ReactNode> = {
+  home: <HomeIcon sx={{ fontSize: 18 }} />,
+  history: <FormatListBulletedIcon sx={{ fontSize: 18 }} />,
+  settings: <SettingsIcon sx={{ fontSize: 18 }} />,
+  diagnostics: <BugReportIcon sx={{ fontSize: 18 }} />,
+}
 
-const navItems: { label: string; page: Page; icon: React.ReactNode }[] = [
-  { label: 'Home', page: 'home', icon: <HomeIcon sx={{ fontSize: 18 }} /> },
-  { label: 'History', page: 'history', icon: <FormatListBulletedIcon sx={{ fontSize: 18 }} /> },
-  { label: 'Settings', page: 'settings', icon: <SettingsIcon sx={{ fontSize: 18 }} /> },
-  { label: 'Diagnostics', page: 'diagnostics', icon: <BugReportIcon sx={{ fontSize: 18 }} /> },
-]
+const navItems: { label: string; page: Page; icon: React.ReactNode }[] = pages.map((item) => ({
+  ...item,
+  icon: iconByPage[item.page],
+}))
 
 interface Props {
   activePage: Page

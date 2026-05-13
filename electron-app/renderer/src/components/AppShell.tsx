@@ -5,8 +5,7 @@ import Dashboard from '../pages/Dashboard'
 import History from '../pages/History'
 import Settings from '../pages/Settings'
 import Diagnostics from '../pages/Diagnostics'
-
-type Page = 'home' | 'history' | 'settings' | 'diagnostics'
+import { type Page } from '../navigation'
 
 export default function AppShell() {
   const [page, setPage] = useState<Page>('home')

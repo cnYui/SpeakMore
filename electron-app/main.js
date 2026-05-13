@@ -26,10 +26,12 @@ let rightAltListenerStdout = '';
 let voiceServerProcess = null;
 let voiceServerStartPromise = null;
 let keyboardStateEmitTimer = null;
+let floatingBarCompletedHideTimer = null;
 const keyboardStateByName = new Map();
 
 const DEFAULT_LANGUAGE = 'zh-CN';
 const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
+const FLOATING_BAR_COMPLETED_HIDE_DELAY_MS = 1200;
 
 const WS_PATCH_SCRIPT = `
 (function() {
@@ -134,22 +136,36 @@ function sendToFloatingBar(channel, payload) {
   }
 }
 
+function clearFloatingBarCompletedHideTimer() {
+  if (!floatingBarCompletedHideTimer) return;
+  clearTimeout(floatingBarCompletedHideTimer);
+  floatingBarCompletedHideTimer = null;
+}
+
 function showFloatingBar() {
   if (!floatingBar || floatingBar.isDestroyed()) return;
+  clearFloatingBarCompletedHideTimer();
   floatingBar.setIgnoreMouseEvents(false);
   floatingBar.show();
 }
 
 function hideFloatingBar() {
   if (!floatingBar || floatingBar.isDestroyed()) return;
+  clearFloatingBarCompletedHideTimer();
   floatingBar.setIgnoreMouseEvents(true, { forward: true });
   floatingBar.hide();
+}
+
+function scheduleFloatingBarCompletedHide() {
+  clearFloatingBarCompletedHideTimer();
+  floatingBarCompletedHideTimer = setTimeout(() => {
+    hideFloatingBar();
+  }, FLOATING_BAR_COMPLETED_HIDE_DELAY_MS);
 }
 
 function updateFloatingBarVisibility(keys) {
   const hasActiveKey = Array.isArray(keys) && keys.some((key) => key?.isKeydown);
   if (hasActiveKey) showFloatingBar();
-  else hideFloatingBar();
 }
 
 function createRightAltKeyDownEvent() {
@@ -197,6 +213,7 @@ function createRightShiftKeyboardEvent(isKeydown) {
 }
 
 function keyboardEventFromListenerPayload(payload) {
+  if (payload.key === 'Space') return createSpaceKeyboardEvent(Boolean(payload.isKeydown));
   if (payload.key === 'RightShift') return createRightShiftKeyboardEvent(Boolean(payload.isKeydown));
   return payload.isKeydown ? createRightAltKeyDownEvent() : createRightAltKeyUpEvent();
 }
@@ -239,18 +256,33 @@ function handleRightAltListenerLine(line) {
 
   try {
     const payload = JSON.parse(line);
-    if (payload.key !== 'RightAlt' && payload.key !== 'RightShift') return;
+    if (payload.key !== 'RightAlt' && payload.key !== 'RightShift' && payload.key !== 'Space') return;
 
     if (payload.isKeydown) {
+      if (payload.key !== 'RightAlt' && !keyboardStateByName.has('RightAlt')) return;
       keyboardStateByName.set(payload.key, keyboardEventFromListenerPayload(payload));
-      if (payload.key === 'RightShift' && keyboardStateByName.has('RightAlt')) {
-        emitActiveKeyboardState();
-      } else {
+      if (payload.key === 'RightAlt') {
         scheduleActiveKeyboardStateEmit();
+      } else {
+        emitActiveKeyboardState();
       }
       return;
     }
 
+    if (payload.key === 'RightAlt') {
+      keyboardStateByName.delete('RightAlt');
+      keyboardStateByName.delete('RightShift');
+      keyboardStateByName.delete('Space');
+      emitKeyboardState([
+        createRightAltKeyUpEvent(),
+        createRightShiftKeyboardEvent(false),
+        createSpaceKeyboardEvent(false),
+      ]);
+      setTimeout(() => emitKeyboardState([]), 40);
+      return;
+    }
+
+    if (!keyboardStateByName.has(payload.key)) return;
     keyboardStateByName.delete(payload.key);
     emitKeyboardState([keyboardEventFromListenerPayload(payload)]);
     setTimeout(() => emitKeyboardState(Array.from(keyboardStateByName.values())), 40);
@@ -558,6 +590,7 @@ function createFloatingBar() {
   floatingBar.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   floatingBar.setFullScreenable(false);
   floatingBar.on('closed', () => {
+    clearFloatingBarCompletedHideTimer();
     floatingBar = null;
   });
 }
@@ -697,6 +730,20 @@ function registerIpcHandlers() {
     return true;
   });
   ipcMain.handle('page:floating-bar-click', () => true);
+  ipcMain.on('voice-state', (_, payload = {}) => {
+    sendToFloatingBar('voice-state', payload);
+    if (payload.status === 'completed') {
+      showFloatingBar();
+      scheduleFloatingBarCompletedHide();
+      return;
+    }
+    if (payload.visible) {
+      clearFloatingBarCompletedHideTimer();
+      showFloatingBar();
+      return;
+    }
+    hideFloatingBar();
+  });
   ipcMain.handle('page:floating-bar-update-positions', (_, payload = []) => {
     if (floatingBar && !floatingBar.isDestroyed()) {
       const positions = Array.isArray(payload) ? payload : payload?.positions;
@@ -827,16 +874,6 @@ app.whenReady().then(() => {
   createFloatingBar();
   startRightAltListener();
   ensureVoiceServer().catch((error) => console.error('语音后端预启动失败:', error));
-
-  globalShortcut.register('Alt+Space', () => {
-    emitKeyboardState([createRightAltKeyDownEvent(), createSpaceKeyboardEvent(true)]);
-    setTimeout(() => {
-      emitKeyboardState([createRightAltKeyUpEvent(), createSpaceKeyboardEvent(false)]);
-      setTimeout(() => emitKeyboardState([]), 40);
-    }, 120);
-    sendToFloatingBar('toggle-recording');
-    sendToMain('toggle-recording');
-  });
 });
 
 app.on('window-all-closed', (event) => event.preventDefault());

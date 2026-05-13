@@ -66,22 +66,39 @@ html, body { background: transparent; overflow: hidden; pointer-events: none; }
   </div>
 </div>
 <script>
-let recording = false;
-function toggle() {
-  recording = !recording;
-  document.getElementById('dot').className = recording ? 'active' : '';
-  document.getElementById('text').textContent = recording ? 'Listening...' : 'Right Alt 录音';
-  document.querySelectorAll('.lv').forEach(el => el.className = recording ? 'lv active' : 'lv');
-}
-if (window.ipcRenderer) {
-  window.ipcRenderer.on('global-keyboard', (_e, data) => {
-    const keys = Array.isArray(data) ? data : [];
-    const rightAlt = keys.find(key => key.keyName === 'RightAlt');
-    if (rightAlt && rightAlt.isKeydown) toggle();
+const dot = document.getElementById('dot');
+const text = document.getElementById('text');
+const levels = Array.from(document.querySelectorAll('.lv'));
+
+function setActive(active) {
+  dot.className = active ? 'active' : '';
+  levels.forEach((element) => {
+    element.className = active ? 'lv active' : 'lv';
   });
 }
-if (window.electronAPI && window.electronAPI.onToggleRecording) {
-  window.electronAPI.onToggleRecording(() => toggle());
+
+function applyVoiceState(state) {
+  const status = state && typeof state.status === 'string' ? state.status : 'idle';
+  const errorMessage = state && typeof state.errorMessage === 'string' ? state.errorMessage : '';
+
+  if (status === 'recording') {
+    setActive(true);
+    text.textContent = 'Listening...';
+    return;
+  }
+
+  setActive(false);
+
+  if (status === 'connecting') text.textContent = 'Connecting...';
+  else if (status === 'stopping') text.textContent = 'Stopping...';
+  else if (status === 'transcribing') text.textContent = 'Transcribing...';
+  else if (status === 'completed') text.textContent = 'Done';
+  else if (status === 'error') text.textContent = errorMessage || 'Error';
+  else text.textContent = 'Right Alt 录音';
+}
+
+if (window.ipcRenderer) {
+  window.ipcRenderer.on('voice-state', (_event, state) => applyVoiceState(state));
 }
 </script>
 </body>
