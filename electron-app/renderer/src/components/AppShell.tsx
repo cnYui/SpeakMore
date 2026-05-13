@@ -1,15 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Box, Typography } from '@mui/material'
 import Sidebar from './Sidebar'
 import Dashboard from '../pages/Dashboard'
 import History from '../pages/History'
 import Settings from '../pages/Settings'
 import Diagnostics from '../pages/Diagnostics'
-
-type Page = 'home' | 'history' | 'settings' | 'diagnostics'
+import { type Page } from '../navigation'
+import { ipcClient } from '../services/ipc'
+import { loadSettings } from '../services/settingsStore'
 
 export default function AppShell() {
   const [page, setPage] = useState<Page>('home')
+
+  useEffect(() => {
+    const settings = loadSettings()
+    ipcClient.invoke('page:set-floating-bar-enabled', { enabled: settings.showFloatingBar }).catch(() => undefined)
+  }, [])
 
   const content = {
     home: <Dashboard />,

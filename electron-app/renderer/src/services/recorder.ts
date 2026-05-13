@@ -1,88 +1,275 @@
+import { ipcClient } from './ipc'
+import {
+  createVoiceError,
+  initialVoiceSession,
+  toFloatingBarState,
+  toVoiceFlowMode,
+  type VoiceError,
+  type VoiceMode,
+  type VoiceSession,
+  type VoiceStatus,
+} from './voiceTypes'
+
 const WS_URL = 'ws://localhost:8000/ws/rt_voice_flow'
+const CONNECT_TIMEOUT_MS = 2500
+const TRANSCRIBE_TIMEOUT_MS = 60000
 
-type RecorderCallbacks = {
-  onTranscription: (text: string) => void
-  onRefined: (text: string) => void
-  onStatusChange: (status: string) => void
-  onError: (error: string) => void
-}
+type VoiceSessionListener = (session: VoiceSession) => void
 
+let session: VoiceSession = initialVoiceSession
 let ws: WebSocket | null = null
 let mediaRecorder: MediaRecorder | null = null
-let isRecording = false
-let currentAudioId = ''
+let activeStream: MediaStream | null = null
+let transcribeTimer: number | null = null
+const listeners = new Set<VoiceSessionListener>()
 
-export function toVoiceFlowMode(mode: string) {
-  if (mode === 'Ask') return 'ask_anything'
-  if (mode === 'Translate') return 'translation'
-  return 'transcript'
+export function getVoiceSession() {
+  return session
 }
 
-export function connectWs(callbacks: RecorderCallbacks) {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
-  ws = new WebSocket(WS_URL)
-  ws.binaryType = 'arraybuffer'
-  ws.onopen = () => callbacks.onStatusChange('已连接')
-  ws.onclose = () => { ws = null; setTimeout(() => connectWs(callbacks), 2000) }
-  ws.onerror = () => ws?.close()
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data)
-    if (msg.K === 'transcription') callbacks.onTranscription(msg.V.text || '')
-    else if (msg.K === 'audio_processing_completed') {
-      const text = msg.V.refined_text || msg.V.refine_text || ''
-      callbacks.onRefined(text)
-      // 自动粘贴到焦点应用
-      if (text && (window as any).ipcRenderer) {
-        (window as any).ipcRenderer.invoke('keyboard:type-transcript', text)
-      }
-    }
-  }
+export function subscribeVoiceSession(listener: VoiceSessionListener) {
+  listeners.add(listener)
+  listener(session)
+  return () => listeners.delete(listener)
 }
 
-export async function startRecording(mode: string, callbacks: RecorderCallbacks) {
-  if (isRecording) return
-  connectWs(callbacks)
-  // 等待连接
-  for (let i = 0; i < 20 && (!ws || ws.readyState !== WebSocket.OPEN); i++) {
-    await new Promise(r => setTimeout(r, 100))
-  }
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    callbacks.onError('后端未连接')
+export async function toggleRecording(mode: VoiceMode) {
+  if (session.status === 'recording') {
+    stopRecording()
     return
   }
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { sampleRate: 32000, channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-  })
-  mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
-  currentAudioId = crypto.randomUUID()
-  ws.send(JSON.stringify({ type: 'start_audio', audio_id: currentAudioId, mode: toVoiceFlowMode(mode), audio_context: {}, parameters: {} }))
+  if (session.status === 'connecting' || session.status === 'stopping' || session.status === 'transcribing') {
+    return
+  }
 
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
-      e.data.arrayBuffer().then(buf => ws!.send(buf))
+  await startRecording(mode)
+}
+
+export async function startRecording(mode: VoiceMode) {
+  setSession({
+    ...initialVoiceSession,
+    status: 'connecting',
+    mode,
+    audioId: crypto.randomUUID(),
+  })
+
+  try {
+    const socket = await ensureOpenWebSocket()
+    const stream = await getAudioStream()
+    activeStream = stream
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
+    const audioId = session.audioId
+
+    if (!audioId) throw createVoiceError('recording_start_failed')
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0 && ws?.readyState === WebSocket.OPEN) {
+        event.data.arrayBuffer().then((buffer) => {
+          if (ws?.readyState === WebSocket.OPEN) ws.send(buffer)
+        })
+      }
+    }
+
+    mediaRecorder.onerror = () => failSession(createVoiceError('recording_start_failed'))
+
+    socket.send(JSON.stringify({
+      type: 'start_audio',
+      audio_id: audioId,
+      mode: toVoiceFlowMode(mode),
+      audio_context: {},
+      parameters: {},
+    }))
+
+    mediaRecorder.start(500)
+    setSessionStatus('recording')
+  } catch (error) {
+    cleanupRecording()
+    failSession(normalizeVoiceError(error, 'recording_start_failed'))
+  }
+}
+
+export function stopRecording() {
+  if (!mediaRecorder || session.status !== 'recording') return
+
+  try {
+    setSessionStatus('stopping')
+    mediaRecorder.stop()
+    cleanupStream()
+
+    if (ws?.readyState === WebSocket.OPEN && session.audioId) {
+      ws.send(JSON.stringify({ type: 'end_audio', audio_id: session.audioId }))
+      setSessionStatus('transcribing')
+      startTranscribeTimeout()
+      return
+    }
+
+    failSession(createVoiceError('websocket_closed'))
+  } catch (error) {
+    failSession(normalizeVoiceError(error, 'recording_stop_failed'))
+  } finally {
+    mediaRecorder = null
+  }
+}
+
+export function disposeRecorder() {
+  clearTranscribeTimeout()
+  cleanupRecording()
+  if (ws) {
+    ws.onopen = null
+    ws.onclose = null
+    ws.onerror = null
+    ws.onmessage = null
+    ws.close()
+    ws = null
+  }
+  listeners.clear()
+}
+
+function setSession(next: VoiceSession) {
+  session = next
+  listeners.forEach((listener) => listener(session))
+  ipcClient.send('voice-state', toFloatingBarState(session))
+}
+
+function setSessionStatus(status: VoiceStatus) {
+  setSession({ ...session, status, error: null })
+}
+
+function failSession(error: VoiceError) {
+  clearTranscribeTimeout()
+  cleanupRecording()
+  setSession({ ...session, status: 'error', error })
+}
+
+function completeSession(refinedText: string) {
+  clearTranscribeTimeout()
+  setSession({ ...session, status: 'completed', refinedText, error: null })
+  if (!refinedText) return
+
+  ipcClient.invoke('keyboard:type-transcript', refinedText).catch((error) => {
+    setSession({
+      ...session,
+      status: 'error',
+      error: createVoiceError('paste_failed', error instanceof Error ? error.message : String(error)),
+    })
+  })
+}
+
+function handleRawText(text: string) {
+  setSession({ ...session, rawText: text })
+}
+
+function handleSocketMessage(event: MessageEvent) {
+  try {
+    const msg = JSON.parse(String(event.data))
+    const audioId = msg?.V?.audio_id
+    if (audioId && session.audioId && audioId !== session.audioId) return
+
+    if (msg.K === 'transcription') {
+      handleRawText(msg.V?.text || '')
+      return
+    }
+
+    if (msg.K === 'audio_processing_completed') {
+      const refinedText = msg.V?.refined_text || msg.V?.refine_text || ''
+      if (!refinedText && !session.rawText) {
+        failSession(createVoiceError('audio_empty'))
+        return
+      }
+      completeSession(refinedText || session.rawText)
+    }
+  } catch (error) {
+    failSession(createVoiceError('protocol_invalid', error instanceof Error ? error.message : String(error)))
+  }
+}
+
+function ensureOpenWebSocket(): Promise<WebSocket> {
+  if (ws?.readyState === WebSocket.OPEN) return Promise.resolve(ws)
+  if (ws?.readyState === WebSocket.CONNECTING) return waitForOpenWebSocket(ws)
+
+  ws = new WebSocket(WS_URL)
+  ws.binaryType = 'arraybuffer'
+  ws.onmessage = handleSocketMessage
+  ws.onclose = () => {
+    ws = null
+    if (session.status === 'recording' || session.status === 'transcribing') {
+      failSession(createVoiceError('websocket_closed'))
     }
   }
-  mediaRecorder.start(500)
-  isRecording = true
-  callbacks.onStatusChange('Listening...')
-}
-
-export function stopRecording(callbacks: RecorderCallbacks) {
-  if (!mediaRecorder || !isRecording) return
-  isRecording = false
-  mediaRecorder.stop()
-  mediaRecorder.stream.getTracks().forEach(t => t.stop())
-  mediaRecorder = null
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'end_audio', audio_id: currentAudioId }))
+  ws.onerror = () => {
+    if (ws?.readyState !== WebSocket.CLOSED) ws?.close()
   }
-  callbacks.onStatusChange('Transcribing...')
+
+  return waitForOpenWebSocket(ws)
 }
 
-export function toggleRecording(mode: string, callbacks: RecorderCallbacks) {
-  if (isRecording) stopRecording(callbacks)
-  else startRecording(mode, callbacks)
+function waitForOpenWebSocket(socket: WebSocket): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(createVoiceError('websocket_timeout')), CONNECT_TIMEOUT_MS)
+    socket.addEventListener('open', () => {
+      window.clearTimeout(timer)
+      resolve(socket)
+    }, { once: true })
+    socket.addEventListener('close', () => {
+      window.clearTimeout(timer)
+      reject(createVoiceError('backend_unavailable'))
+    }, { once: true })
+  })
 }
 
-export function getIsRecording() { return isRecording }
+async function getAudioStream() {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 32000,
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    })
+  } catch (error) {
+    const name = error instanceof DOMException ? error.name : ''
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      throw createVoiceError('microphone_permission_denied', String(error))
+    }
+    throw createVoiceError('microphone_unavailable', String(error))
+  }
+}
+
+function startTranscribeTimeout() {
+  clearTranscribeTimeout()
+  transcribeTimer = window.setTimeout(() => {
+    failSession(createVoiceError('websocket_timeout'))
+  }, TRANSCRIBE_TIMEOUT_MS)
+}
+
+function clearTranscribeTimeout() {
+  if (transcribeTimer) window.clearTimeout(transcribeTimer)
+  transcribeTimer = null
+}
+
+function cleanupStream() {
+  activeStream?.getTracks().forEach((track) => track.stop())
+  activeStream = null
+}
+
+function cleanupRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    try {
+      mediaRecorder.stop()
+    } catch {
+      // 避免在已有原始错误时被 stop 的二次异常覆盖。
+    }
+  }
+  mediaRecorder = null
+  cleanupStream()
+}
+
+function normalizeVoiceError(error: unknown, fallbackCode: Parameters<typeof createVoiceError>[0]) {
+  if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+    return error as VoiceError
+  }
+  return createVoiceError(fallbackCode, error instanceof Error ? error.message : String(error))
+}
