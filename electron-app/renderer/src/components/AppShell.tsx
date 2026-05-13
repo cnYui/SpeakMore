@@ -29,13 +29,18 @@ export default function AppShell() {
     ipcClient.invoke('page:set-floating-bar-enabled', { enabled: settings.showFloatingBar }).catch(() => undefined)
   }, [])
 
-  const handleCloseShortcutHint = useCallback(() => {
-    setShortcutGuard((prev) => closeShortcutHint(prev))
+  const applyShortcutGuard = useCallback((nextGuard: typeof shortcutGuard) => {
+    shortcutGuardRef.current = nextGuard
+    setShortcutGuard(nextGuard)
   }, [])
 
+  const handleCloseShortcutHint = useCallback(() => {
+    applyShortcutGuard(closeShortcutHint(shortcutGuardRef.current))
+  }, [applyShortcutGuard])
+
   const handleLongPress = useCallback(() => {
-    setShortcutGuard((prev) => blockByLongPress(prev))
-  }, [])
+    applyShortcutGuard(blockByLongPress(shortcutGuardRef.current))
+  }, [applyShortcutGuard])
 
   useEffect(() => {
     shortcutGuardRef.current = shortcutGuard
@@ -43,19 +48,14 @@ export default function AppShell() {
 
   useEffect(() => {
     return ipcClient.on('global-keyboard', (_event, keys) => {
-      let nextMode: 'Dictate' | 'Ask' | 'Translate' | null = null
+      const next = reduceShortcutGuard(shortcutGuardRef.current, keys, handleLongPress)
+      applyShortcutGuard(next.state)
 
-      setShortcutGuard((prev) => {
-        const next = reduceShortcutGuard(prev, keys, handleLongPress)
-        if (next.action.type === 'start-recording') nextMode = next.action.mode
-        return next.state
-      })
-
-      if (nextMode) {
-        void toggleRecording(nextMode)
+      if (next.action.type === 'start-recording') {
+        void toggleRecording(next.action.mode)
       }
     })
-  }, [handleLongPress])
+  }, [applyShortcutGuard, handleLongPress])
 
   useEffect(() => {
     return () => {
