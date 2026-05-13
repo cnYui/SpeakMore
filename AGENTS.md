@@ -32,3 +32,5 @@
 - 快捷键驱动录音必须基于边沿触发，不要对每次 `global-keyboard` 键态更新直接做 `toggleRecording`。
 - 悬浮条显示开关以主进程状态为准；渲染进程设置变更必须通过 IPC 同步到主进程，而不是只写本地存储。
 - WebSocket 语音流默认输入来自 `audio/webm;codecs=opus`，后端不能把未知音频头直接当 `.wav`；非 wav 输入必须先转码再喂 ASR。
+- ASR 优先复用 `.env` 中配置的本地模型路径；只有配置缺失或无效时，才允许回退到默认下载模型。
+- 开发态 `uvicorn reload` 必须显式由环境变量开启，不要在代码里默认写死 `reload=True`。

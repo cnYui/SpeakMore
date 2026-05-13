@@ -2,7 +2,7 @@
 
 import os
 import asyncio
-from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -10,6 +10,13 @@ load_dotenv()
 
 _model = None
 _model_lock = asyncio.Lock()
+
+
+def resolve_whisper_model_source() -> tuple[str, str]:
+    configured_path = os.getenv("WHISPER_MODEL_PATH", "").strip()
+    if configured_path and Path(configured_path).exists():
+        return configured_path, "local"
+    return "base", "default"
 
 
 def _get_model():
@@ -20,9 +27,22 @@ def _get_model():
 
     from faster_whisper import WhisperModel
 
-    # 先用 base 模型快速启动，后续可换 large-v3-turbo
-    print("[ASR] 加载模型: base (首次会自动下载约 150MB)")
-    _model = WhisperModel("base", device="cpu", compute_type="int8")
+    model_source, source_kind = resolve_whisper_model_source()
+
+    try:
+        if source_kind == "local":
+            print(f"[ASR] 从本地模型加载: {model_source}")
+        else:
+            print("[ASR] 未命中本地模型配置，加载默认模型: base（首次可能自动下载约 150MB）")
+
+        _model = WhisperModel(model_source, device="cpu", compute_type="int8")
+    except Exception as error:
+        if source_kind == "local":
+            print(f"[ASR] 本地模型加载失败，回退到默认模型 base: {error}")
+            _model = WhisperModel("base", device="cpu", compute_type="int8")
+        else:
+            raise
+
     print("[ASR] 模型加载完成")
 
     return _model

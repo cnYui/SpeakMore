@@ -26,6 +26,10 @@ app.add_middleware(
 )
 
 
+def should_enable_reload() -> bool:
+    return os.getenv("UVICORN_RELOAD", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def detect_uploaded_audio_suffix(filename: str | None) -> str:
     suffix = Path(filename or "").suffix.lower()
     if suffix in {".wav", ".ogg", ".webm", ".mp3", ".m4a", ".opus"}:
@@ -252,4 +256,4 @@ if __name__ == "__main__":
     import uvicorn
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("main:app", host=host, port=port, reload=True)
+    uvicorn.run("main:app", host=host, port=port, reload=should_enable_reload())
