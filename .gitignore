@@ -1,0 +1,44 @@
+# 依赖
+node_modules/
+electron-app/renderer/node_modules/
+
+# 构建产物
+dist/
+build/
+electron-app/renderer/dist/
+
+# 本地环境与密钥
+.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+
+# 日志与运行产物
+*.log
+*.err
+*.pid
+electron-app/out-latest.log
+electron-app/err-latest.log
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# TypeScript / Vite 缓存
+*.tsbuildinfo
+.vite/
+
+# 本地 AI 工作上下文
+docs/ai/context/
+
+# 系统与编辑器文件
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 逆向参考资料，仅本地保留
+app-extracted/

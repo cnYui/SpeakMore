@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Typeless Local</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8f9fa; height: 100vh; display: flex; flex-direction: column; }
+.titlebar { height: 32px; background: #fff; -webkit-app-region: drag; border-bottom: 1px solid #eee; display: flex; align-items: center; padding: 0 12px; font-size: 13px; color: #666; }
+.container { flex: 1; display: flex; flex-direction: column; max-width: 700px; margin: 0 auto; width: 100%; padding: 24px; }
+h1 { font-size: 20px; font-weight: 600; margin-bottom: 20px; color: #1a1a1a; }
+.record-section { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; }
+.btn { border: none; border-radius: 8px; padding: 12px 24px; font-size: 15px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+.btn-record { background: #ff4444; color: #fff; width: 100%; }
+.btn-record:hover { background: #e03030; }
+.btn-record.recording { background: #333; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+.status { margin-top: 12px; font-size: 13px; color: #888; min-height: 20px; }
+.result-section { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); flex: 1; display: flex; flex-direction: column; }
+.result-section h3 { font-size: 14px; color: #888; margin-bottom: 8px; }
+.raw-text { font-size: 13px; color: #999; margin-bottom: 12px; padding: 8px; background: #f5f5f5; border-radius: 6px; min-height: 30px; }
+.refined-text { font-size: 16px; color: #1a1a1a; line-height: 1.6; flex: 1; padding: 12px; background: #f0f7ff; border-radius: 8px; min-height: 60px; white-space: pre-wrap; }
+.copy-btn { margin-top: 12px; background: #4a90d9; color: #fff; align-self: flex-end; }
+.copy-btn:hover { background: #3a7bc8; }
+.mode-select { margin-bottom: 16px; display: flex; gap: 8px; }
+.mode-select button { background: #eee; color: #555; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.mode-select button.active { background: #4a90d9; color: #fff; }
+.history { margin-top: 16px; font-size: 12px; color: #aaa; }
+</style>
+</head>
+<body>
+<div class="titlebar">Typeless Local</div>
+<div class="container">
+  <div class="record-section">
+    <div class="mode-select">
+      <button class="active" data-mode="transcript">听写</button>
+      <button data-mode="ask_anything">提问</button>
+      <button data-mode="translation">翻译</button>
+    </div>
+    <button class="btn btn-record" id="recordBtn">按住录音 (或按 Alt)</button>
+    <div class="status" id="status"></div>
+  </div>
+  <div class="result-section">
+    <h3>原始转写</h3>
+    <div class="raw-text" id="rawText"></div>
+    <h3>润色结果</h3>
+    <div class="refined-text" id="refinedText"></div>
+    <button class="btn copy-btn" id="copyBtn" style="display:none">复制</button>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let currentMode = 'transcript';
+
+const recordBtn = document.getElementById('recordBtn');
+const status = document.getElementById('status');
+const rawText = document.getElementById('rawText');
+const refinedText = document.getElementById('refinedText');
+const copyBtn = document.getElementById('copyBtn');
+
+// 模式切换
+document.querySelectorAll('.mode-select button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mode-select button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMode = btn.dataset.mode;
+  });
+});
+
+// 录音
+async function startRecording() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
+  mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+  audioChunks = [];
+  mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+  mediaRecorder.start(100);
+  isRecording = true;
+  recordBtn.textContent = '录音中...松开结束';
+  recordBtn.classList.add('recording');
+  status.textContent = '正在录音...';
+}
+
+async function stopRecording() {
+  if (!mediaRecorder || !isRecording) return;
+  isRecording = false;
+  recordBtn.textContent = '按住录音 (或按 Alt)';
+  recordBtn.classList.remove('recording');
+  
+  return new Promise(resolve => {
+    mediaRecorder.onstop = async () => {
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      mediaRecorder.stream.getTracks().forEach(t => t.stop());
+      resolve(blob);
+    };
+    mediaRecorder.stop();
+  });
+}
+
+async function processAudio(blob) {
+  status.textContent = '转写中...';
+  rawText.textContent = '';
+  refinedText.textContent = '';
+  copyBtn.style.display = 'none';
+
+  const formData = new FormData();
+  formData.append('audio_file', blob, 'recording.webm');
+  formData.append('mode', currentMode);
+  formData.append('audio_context', '{}');
+  formData.append('audio_id', crypto.randomUUID());
+
+  try {
+    const res = await fetch(`${API}/ai/voice_flow`, { method: 'POST', body: formData });
+    const data = await res.json();
+    
+    if (data.data) {
+      rawText.textContent = data.data.user_prompt || '';
+      refinedText.textContent = data.data.refine_text || '';
+      copyBtn.style.display = refinedText.textContent ? 'block' : 'none';
+      status.textContent = '完成';
+    } else {
+      status.textContent = '无结果';
+    }
+  } catch (e) {
+    status.textContent = `错误: ${e.message}`;
+  }
+}
+
+// 鼠标按住录音
+recordBtn.addEventListener('mousedown', startRecording);
+recordBtn.addEventListener('mouseup', async () => {
+  const blob = await stopRecording();
+  if (blob) processAudio(blob);
+});
+recordBtn.addEventListener('mouseleave', async () => {
+  if (isRecording) {
+    const blob = await stopRecording();
+    if (blob) processAudio(blob);
+  }
+});
+
+// 键盘快捷键 (Alt)
+document.addEventListener('keydown', e => {
+  if (e.key === 'Alt' && !isRecording && !e.repeat) { e.preventDefault(); startRecording(); }
+});
+document.addEventListener('keyup', async e => {
+  if (e.key === 'Alt' && isRecording) { e.preventDefault(); const blob = await stopRecording(); if (blob) processAudio(blob); }
+});
+
+// 复制
+copyBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(refinedText.textContent);
+  copyBtn.textContent = '已复制!';
+  setTimeout(() => copyBtn.textContent = '复制', 1500);
+});
+</script>
+</body>
+</html>

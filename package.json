@@ -1,0 +1,11 @@
+{
+  "name": "typeless-local",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "electron ./electron-app",
+    "server": "cd server && python main.py"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11"
+  }
+}

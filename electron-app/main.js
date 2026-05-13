@@ -1,0 +1,855 @@
+const {
+  app,
+  BrowserWindow,
+  globalShortcut,
+  Tray,
+  Menu,
+  nativeImage,
+  ipcMain,
+  clipboard,
+  shell,
+  screen,
+  session,
+} = require('electron');
+const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
+
+let mainWindow = null;
+let floatingBar = null;
+let tray = null;
+let registeredIpc = false;
+let rightAltReleaseTimer = null;
+let rightAltListener = null;
+let rightAltListenerStdout = '';
+let voiceServerProcess = null;
+let voiceServerStartPromise = null;
+let keyboardStateEmitTimer = null;
+const keyboardStateByName = new Map();
+
+const DEFAULT_LANGUAGE = 'zh-CN';
+const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
+
+const WS_PATCH_SCRIPT = `
+(function() {
+  const Orig = window.WebSocket;
+  const LOCAL = 'ws://localhost:8000/ws/rt_voice_flow';
+  window.WebSocket = function(url, protocols) {
+    let target = url;
+    try { if (new URL(url).pathname.includes('/ws/rt_voice_flow')) target = LOCAL; } catch(e) {}
+    return protocols !== undefined ? new Orig(target, protocols) : new Orig(target);
+  };
+  window.WebSocket.prototype = Orig.prototype;
+  window.WebSocket.CONNECTING = Orig.CONNECTING;
+  window.WebSocket.OPEN = Orig.OPEN;
+  window.WebSocket.CLOSING = Orig.CLOSING;
+  window.WebSocket.CLOSED = Orig.CLOSED;
+})();
+`;
+
+const localStores = {
+  'app-onboarding': {
+    isCompleted: true,
+    onboardingIsCompleted: true,
+    onboardingStep: null,
+    onboardingMaxReachedStep: null,
+  },
+  'app-settings': {
+    keyboardShortcut: {
+      pushToTalk: 'RightAlt',
+      handlesFreeMode: 'RightAlt+Space',
+      pasteLastTranscript: 'LeftCtrl+RightShift+V',
+      translationMode: 'RightAlt+RightShift',
+    },
+    microphoneDevices: [],
+    selectedMicrophoneDevice: null,
+    preferredLanguage: DEFAULT_LANGUAGE,
+    selectedLanguages: [],
+    autoSelectLanguages: false,
+    launchAtSystemStartup: false,
+    showFlowBarOnDesktop: true,
+    enableInteractionSoundEffects: true,
+    enableShowAppInDock: true,
+    historyDurationSeconds: -1,
+    enabledMuteBackgroundAudio: true,
+    enabledOpusCompression: false,
+  },
+  'app-storage': {},
+};
+
+const localUser = {
+  user_id: 'local-user',
+  client_user_id: 'local-user',
+  email: 'local@typeless.local',
+  name: 'Typeless Local',
+  plan: 'pro',
+  subscription: {
+    plan: 'pro',
+    status: 'active',
+  },
+};
+
+function extractedPath(...segments) {
+  return path.join(__dirname, '..', 'app-extracted', ...segments);
+}
+
+function extractedRendererPath(fileName) {
+  return extractedPath('dist', 'renderer', fileName);
+}
+
+function preloadPath() {
+  return path.join(__dirname, 'preload.js');
+}
+
+function iconPath() {
+  return extractedPath('build', 'icons', 'png', '32x32.png');
+}
+
+function trayIconPath() {
+  return extractedPath('build', 'tray-win32.png');
+}
+
+function rightAltListenerPath() {
+  return path.join(__dirname, 'right-alt-listener.ps1');
+}
+
+function serverPath() {
+  return path.join(__dirname, '..', 'server');
+}
+
+function loadExtractedPage(windowInstance, fileName) {
+  windowInstance.loadFile(extractedRendererPath(fileName));
+}
+
+function sendToMain(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
+
+function sendToFloatingBar(channel, payload) {
+  if (floatingBar && !floatingBar.isDestroyed()) {
+    floatingBar.webContents.send(channel, payload);
+  }
+}
+
+function showFloatingBar() {
+  if (!floatingBar || floatingBar.isDestroyed()) return;
+  floatingBar.setIgnoreMouseEvents(false);
+  floatingBar.show();
+}
+
+function hideFloatingBar() {
+  if (!floatingBar || floatingBar.isDestroyed()) return;
+  floatingBar.setIgnoreMouseEvents(true, { forward: true });
+  floatingBar.hide();
+}
+
+function updateFloatingBarVisibility(keys) {
+  const hasActiveKey = Array.isArray(keys) && keys.some((key) => key?.isKeydown);
+  if (hasActiveKey) showFloatingBar();
+  else hideFloatingBar();
+}
+
+function createRightAltKeyDownEvent() {
+  return {
+    keyCode: 165,
+    keyName: 'RightAlt',
+    enKeyName: 'RightAlt',
+    isKeydown: true,
+    isBlocked: false,
+    timestamp: Date.now(),
+  };
+}
+
+function createRightAltKeyUpEvent() {
+  return {
+    keyCode: 165,
+    keyName: 'RightAlt',
+    enKeyName: 'RightAlt',
+    isKeydown: false,
+    isBlocked: false,
+    timestamp: Date.now(),
+  };
+}
+
+function createSpaceKeyboardEvent(isKeydown) {
+  return {
+    keyCode: 32,
+    keyName: 'Space',
+    enKeyName: 'Space',
+    isKeydown,
+    isBlocked: false,
+    timestamp: Date.now(),
+  };
+}
+
+function createRightShiftKeyboardEvent(isKeydown) {
+  return {
+    keyCode: 161,
+    keyName: 'RightShift',
+    enKeyName: 'RightShift',
+    isKeydown,
+    isBlocked: false,
+    timestamp: Date.now(),
+  };
+}
+
+function keyboardEventFromListenerPayload(payload) {
+  if (payload.key === 'RightShift') return createRightShiftKeyboardEvent(Boolean(payload.isKeydown));
+  return payload.isKeydown ? createRightAltKeyDownEvent() : createRightAltKeyUpEvent();
+}
+
+function emitActiveKeyboardState() {
+  if (keyboardStateEmitTimer) {
+    clearTimeout(keyboardStateEmitTimer);
+    keyboardStateEmitTimer = null;
+  }
+
+  emitKeyboardState(Array.from(keyboardStateByName.values()));
+}
+
+function scheduleActiveKeyboardStateEmit() {
+  if (keyboardStateEmitTimer) clearTimeout(keyboardStateEmitTimer);
+  keyboardStateEmitTimer = setTimeout(emitActiveKeyboardState, 90);
+}
+
+function emitKeyboardState(keys) {
+  updateFloatingBarVisibility(keys);
+  sendToFloatingBar('global-keyboard', keys);
+  sendToMain('global-keyboard', keys);
+}
+
+function emitRightAltPulse() {
+  if (rightAltReleaseTimer) {
+    clearTimeout(rightAltReleaseTimer);
+  }
+
+  emitKeyboardState([createRightAltKeyDownEvent()]);
+  rightAltReleaseTimer = setTimeout(() => {
+    emitKeyboardState([createRightAltKeyUpEvent()]);
+    setTimeout(() => emitKeyboardState([]), 40);
+    rightAltReleaseTimer = null;
+  }, 900);
+}
+
+function handleRightAltListenerLine(line) {
+  if (!line.trim()) return;
+
+  try {
+    const payload = JSON.parse(line);
+    if (payload.key !== 'RightAlt' && payload.key !== 'RightShift') return;
+
+    if (payload.isKeydown) {
+      keyboardStateByName.set(payload.key, keyboardEventFromListenerPayload(payload));
+      if (payload.key === 'RightShift' && keyboardStateByName.has('RightAlt')) {
+        emitActiveKeyboardState();
+      } else {
+        scheduleActiveKeyboardStateEmit();
+      }
+      return;
+    }
+
+    keyboardStateByName.delete(payload.key);
+    emitKeyboardState([keyboardEventFromListenerPayload(payload)]);
+    setTimeout(() => emitKeyboardState(Array.from(keyboardStateByName.values())), 40);
+  } catch (error) {
+    console.error('Right Alt 监听器输出解析失败:', error);
+  }
+}
+
+function startRightAltListener() {
+  if (process.platform !== 'win32') return false;
+  if (rightAltListener && !rightAltListener.killed) return true;
+
+  rightAltListener = spawn('powershell.exe', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-WindowStyle',
+    'Hidden',
+    '-File',
+    rightAltListenerPath(),
+  ], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    env: {
+      SystemRoot: process.env.SystemRoot,
+      PATH: process.env.PATH,
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+      USERPROFILE: process.env.USERPROFILE,
+      APPDATA: process.env.APPDATA,
+    },
+  });
+
+  rightAltListener.stdout.on('data', (chunk) => {
+    rightAltListenerStdout += chunk.toString('utf8');
+    const lines = rightAltListenerStdout.split(/\r?\n/);
+    rightAltListenerStdout = lines.pop() || '';
+    lines.forEach(handleRightAltListenerLine);
+  });
+
+  rightAltListener.stderr.on('data', (chunk) => {
+    console.error(`Right Alt 监听器错误: ${chunk.toString('utf8').trim()}`);
+  });
+
+  rightAltListener.on('exit', () => {
+    rightAltListener = null;
+    rightAltListenerStdout = '';
+  });
+
+  return true;
+}
+
+function stopRightAltListener() {
+  if (!rightAltListener || rightAltListener.killed) return;
+  rightAltListener.kill();
+  rightAltListener = null;
+}
+
+function minimalProcessEnv(extra = {}) {
+  return {
+    SystemRoot: process.env.SystemRoot,
+    PATH: process.env.PATH,
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
+    USERPROFILE: process.env.USERPROFILE,
+    APPDATA: process.env.APPDATA,
+    LOCALAPPDATA: process.env.LOCALAPPDATA,
+    ...extra,
+  };
+}
+
+async function isVoiceServerReady() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 700);
+
+  try {
+    const response = await fetch(`${VOICE_SERVER_URL}/health`, { signal: controller.signal });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitForVoiceServer() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (await isVoiceServerReady()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
+async function ensureVoiceServer() {
+  if (await isVoiceServerReady()) return true;
+  if (voiceServerStartPromise) return voiceServerStartPromise;
+
+  voiceServerStartPromise = new Promise((resolve) => {
+    const child = spawn(process.env.PYTHON || 'python', ['main.py'], {
+      cwd: serverPath(),
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: minimalProcessEnv({ PYTHONUNBUFFERED: '1' }),
+    });
+
+    voiceServerProcess = child;
+
+    child.stdout.on('data', (chunk) => {
+      console.log(`语音后端: ${chunk.toString('utf8').trim()}`);
+    });
+    child.stderr.on('data', (chunk) => {
+      console.error(`语音后端错误: ${chunk.toString('utf8').trim()}`);
+    });
+    child.on('error', (error) => {
+      console.error('语音后端启动失败:', error);
+      voiceServerProcess = null;
+      voiceServerStartPromise = null;
+      resolve(false);
+    });
+    child.on('exit', () => {
+      voiceServerProcess = null;
+      voiceServerStartPromise = null;
+    });
+
+    waitForVoiceServer().then(resolve);
+  });
+
+  return voiceServerStartPromise;
+}
+
+function stopVoiceServer() {
+  if (!voiceServerProcess || voiceServerProcess.killed) return;
+  voiceServerProcess.kill();
+  voiceServerProcess = null;
+  voiceServerStartPromise = null;
+}
+
+function normalizeVoiceMode(mode) {
+  const normalized = String(mode || 'transcript').toLowerCase();
+  if (normalized === 'dictate' || normalized === 'dictation') return 'transcript';
+  if (normalized === 'ask' || normalized === 'ask_anything') return 'ask_anything';
+  if (normalized === 'translate' || normalized === 'translation') return 'translation';
+  return 'transcript';
+}
+
+function bufferFromVoicePayload(payload = {}) {
+  const candidates = [
+    payload.arrayBuffer,
+    payload.audioBuffer,
+    payload.buffer,
+    payload.data,
+    payload.audio,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (Buffer.isBuffer(candidate)) return candidate;
+    if (candidate instanceof ArrayBuffer) return Buffer.from(candidate);
+    if (ArrayBuffer.isView(candidate)) {
+      return Buffer.from(candidate.buffer, candidate.byteOffset, candidate.byteLength);
+    }
+    if (candidate.type === 'Buffer' && Array.isArray(candidate.data)) {
+      return Buffer.from(candidate.data);
+    }
+    if (typeof candidate === 'string') {
+      return Buffer.from(candidate, 'base64');
+    }
+  }
+
+  return null;
+}
+
+function appendJsonFormField(formData, name, value, fallback = {}) {
+  if (typeof value === 'string') {
+    formData.append(name, value || JSON.stringify(fallback));
+    return;
+  }
+  formData.append(name, JSON.stringify(value || fallback));
+}
+
+function buildVoiceFlowFormData(payload = {}) {
+  const audioBuffer = bufferFromVoicePayload(payload);
+  if (!audioBuffer || audioBuffer.length === 0) {
+    throw new Error('缺少音频数据');
+  }
+
+  const mimeType = payload.mimeType || payload.contentType || 'audio/webm;codecs=opus';
+  const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('wav') ? 'wav' : 'webm';
+  const audioId = payload.audioId || payload.audio_id || crypto.randomUUID();
+  const formData = new FormData();
+  const audioBlob = new Blob([audioBuffer], { type: mimeType });
+
+  formData.append('audio_file', audioBlob, `${audioId}.${extension}`);
+  formData.append('audio_id', audioId);
+  formData.append('mode', normalizeVoiceMode(payload.mode));
+  appendJsonFormField(formData, 'audio_context', payload.audioContext || payload.audio_context);
+  appendJsonFormField(formData, 'audio_metadata', payload.audioMetadata || payload.audio_metadata);
+  appendJsonFormField(formData, 'parameters', payload.parameters);
+  formData.append('is_retry', String(Boolean(payload.isRetry || payload.is_retry)));
+  formData.append('device_name', payload.deviceName || payload.device_name || '');
+  formData.append('send_time', String(Date.now()));
+
+  return formData;
+}
+
+async function callVoiceFlowBackend(payload = {}) {
+  await ensureVoiceServer();
+
+  const response = await fetch(`${VOICE_SERVER_URL}/ai/voice_flow`, {
+    method: 'POST',
+    body: buildVoiceFlowFormData(payload),
+  });
+  const result = await response.json();
+
+  if (!response.ok || result.status === 'ERROR') {
+    return {
+      success: false,
+      aborted: false,
+      debug: result,
+      error: result?.data?.refine_text || `语音后端请求失败: ${response.status}`,
+    };
+  }
+
+  return {
+    success: true,
+    aborted: false,
+    debug: result,
+    data: result.data || {},
+    ...result.data,
+  };
+}
+
+function createMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus();
+    return;
+  }
+
+  mainWindow = new BrowserWindow({
+    width: 1080,
+    height: 750,
+    minWidth: 988,
+    minHeight: 658,
+    title: 'Typeless',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#ffffff00', symbolColor: 'rgba(0, 0, 0, 0.9)', height: 48 },
+    backgroundColor: '#ffffff',
+    hasShadow: true,
+    transparent: false,
+    icon: iconPath(),
+    webPreferences: {
+      preload: preloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+      session: session.fromPartition('persist:no-proxy-session'),
+    },
+  });
+
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'dist', 'index.html'));
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+  mainWindow.on('blur', () => sendToMain('page-event--hub--window-blurred'));
+}
+
+function createFloatingBar() {
+  if (floatingBar && !floatingBar.isDestroyed()) return;
+
+  const display = screen.getPrimaryDisplay();
+  const { x, y, width, height } = display.workArea;
+  const windowWidth = 500;
+  const windowHeight = 500;
+  const capsuleHeight = 48;
+  const capsuleBottomGap = 32;
+  const windowTopToCapsuleBottom = (windowHeight + capsuleHeight) / 2;
+
+  floatingBar = new BrowserWindow({
+    type: 'panel',
+    width: windowWidth,
+    height: windowHeight,
+    x: Math.floor(x + (width - windowWidth) / 2),
+    y: Math.floor(y + height - windowTopToCapsuleBottom - capsuleBottomGap),
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    hasShadow: false,
+    maximizable: false,
+    minimizable: false,
+    resizable: false,
+    show: false,
+    skipTaskbar: true,
+    focusable: false,
+    fullscreen: false,
+    webPreferences: {
+      preload: preloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  floatingBar.loadFile(path.join(__dirname, 'renderer', 'dist', 'floating-bar.html'));
+  floatingBar.setIgnoreMouseEvents(true, { forward: true });
+  floatingBar.setAlwaysOnTop(true, 'screen-saver', 1);
+  floatingBar.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  floatingBar.setFullScreenable(false);
+  floatingBar.on('closed', () => {
+    floatingBar = null;
+  });
+}
+
+function createTray() {
+  const image = nativeImage.createFromPath(trayIconPath()).resize({ width: 16, height: 16 });
+  tray = new Tray(image);
+  tray.setToolTip('Typeless Local');
+  tray.on('click', createMainWindow);
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '打开主窗口', click: createMainWindow },
+    { label: '显示悬浮条', click: createFloatingBar },
+    { label: '退出', click: () => app.quit() },
+  ]));
+}
+
+function handleStoreUse(_, payload = {}) {
+  const { action, store, key, value } = payload;
+  const targetStore = localStores[store];
+  if (!targetStore) return null;
+
+  if (action === 'get-all') return { ...targetStore };
+  if (action === 'get') return key ? targetStore[key] : null;
+  if (action === 'set') {
+    targetStore[key] = key === 'preferredLanguage' ? DEFAULT_LANGUAGE : value;
+    sendToMain('app-settings-updated', {});
+    sendToFloatingBar('app-settings-updated', {});
+    return value;
+  }
+  if (action === 'delete') {
+    delete targetStore[key];
+    return true;
+  }
+  return null;
+}
+
+function openExternalUrl(url) {
+  if (typeof url !== 'string' || !url) return false;
+  if (url.startsWith('http:') || url.startsWith('https:') || url.startsWith('ms-settings:')) {
+    shell.openExternal(url);
+    return true;
+  }
+  return false;
+}
+
+function registerIpcHandlers() {
+  if (registeredIpc) return;
+  registeredIpc = true;
+
+  ipcMain.handle('clipboard-write', (_, text) => {
+    clipboard.writeText(String(text || ''));
+    return true;
+  });
+  ipcMain.handle('clipboard:write-text', (_, text) => {
+    clipboard.writeText(String(text || ''));
+    return { success: true };
+  });
+
+  ipcMain.handle('user:get-current', () => localUser);
+  ipcMain.handle('user:is-logged-in', () => true);
+  ipcMain.handle('user:logout', () => true);
+
+  ipcMain.handle('db:get-device-id', () => crypto.createHash('sha256').update(os.hostname()).digest('hex'));
+  ipcMain.handle('db:history-list', (_, cursor, limit) => (
+    cursor !== undefined || limit !== undefined ? { data: [], total: 0, hasMore: false } : []
+  ));
+  ipcMain.handle('db:history-latest-id', () => ({ success: false, id: '' }));
+  ipcMain.handle('db:history-latest-id-for-error-tracking', () => ({ success: false, reason: 'empty' }));
+  ipcMain.handle('db:history-latest', () => ({ success: false, data: null, error: 'empty' }));
+  ipcMain.handle('db:history-get', () => ({ success: false, error: 'not_found' }));
+  ipcMain.handle('db:history-clear', () => ({ success: true }));
+  ipcMain.handle('db:history-delete', () => ({ success: true }));
+  ipcMain.handle('db:history-delete-by-duration', () => ({ success: true }));
+  ipcMain.handle('db:history-save-audio', () => ({ success: true }));
+  ipcMain.handle('db:history-upsert', (_, history) => ({ success: true, data: history || null }));
+  ipcMain.handle('db:history-upsert-client-metadata', () => ({ success: true }));
+  ipcMain.handle('db:history-trigger-history-cleanup', () => ({ success: true }));
+  ipcMain.handle('db:history-trigger-disk-cleanup', () => ({ success: true }));
+
+  ipcMain.handle('keyboard:start-keyboard-listener', () => true);
+  ipcMain.handle('keyboard:stop-keyboard-listener', () => true);
+  ipcMain.handle('keyboard:type-transcript', (_, text) => {
+    if (!text) return false;
+    clipboard.writeText(String(text));
+    const ps = spawn('powershell.exe', [
+      '-NoProfile', '-Command',
+      'Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 100; [System.Windows.Forms.SendKeys]::SendWait("^v")',
+    ], {
+      windowsHide: true,
+      env: {
+        SystemRoot: process.env.SystemRoot,
+        PATH: process.env.PATH,
+        TEMP: process.env.TEMP,
+        TMP: process.env.TMP,
+      },
+    });
+    return new Promise((resolve) => {
+      ps.on('exit', () => resolve(true));
+      ps.on('error', () => resolve(false));
+    });
+  });
+  ipcMain.handle('keyboard:set-watcher-interval', () => true);
+  ipcMain.handle('keyboard-input:reload-keyboard-shortcuts', () => true);
+
+  ipcMain.handle('permission:request', () => true);
+  ipcMain.handle('permission:check-with-child-process', () => true);
+  ipcMain.handle('permission:reset-accessibility-permission', () => true);
+  ipcMain.handle('permission:update-auto-launch', (_, payload = {}) => {
+    app.setLoginItemSettings({ openAtLogin: Boolean(payload.enable), path: process.execPath });
+    return true;
+  });
+  ipcMain.handle('permission:update-show-app-in-dock', () => true);
+
+  ipcMain.handle('updater:check-for-update', () => null);
+  ipcMain.handle('updater:download-update', () => null);
+  ipcMain.handle('updater:quit-and-install', () => null);
+  ipcMain.handle('updater:check-update-and-download-silently', () => null);
+
+  ipcMain.handle('page:open-url', (_, payload) => openExternalUrl(payload?.url || payload));
+  ipcMain.handle('page:open-url-scheme', (_, payload) => openExternalUrl(payload?.url || payload));
+  ipcMain.handle('page:open-hub', () => {
+    createMainWindow();
+    return true;
+  });
+  ipcMain.handle('page:open-typeless-bar', () => {
+    createFloatingBar();
+    return true;
+  });
+  ipcMain.handle('page:open-settings-modal', (_, payload = {}) => {
+    createMainWindow();
+    sendToMain('page-event--hub--open-settings-hub', payload);
+    return true;
+  });
+  ipcMain.handle('page:change-hub-route', (_, payload = {}) => {
+    createMainWindow();
+    sendToMain('page-event--hub--change-route', payload);
+    return true;
+  });
+  ipcMain.handle('page:floating-bar-click', () => true);
+  ipcMain.handle('page:floating-bar-update-positions', (_, payload = []) => {
+    if (floatingBar && !floatingBar.isDestroyed()) {
+      const positions = Array.isArray(payload) ? payload : payload?.positions;
+      floatingBar.setIgnoreMouseEvents(!Array.isArray(positions) || positions.length === 0, { forward: false });
+    }
+    return true;
+  });
+  ipcMain.handle('page:floating-bar-set-always-on-top-for-windows', () => {
+    if (floatingBar && !floatingBar.isDestroyed()) {
+      floatingBar.setAlwaysOnTop(true, 'screen-saver', 1);
+      floatingBar.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+    }
+    return true;
+  });
+  ipcMain.handle('page:complete-onboarding', () => true);
+  ipcMain.handle('page:close-interactive-card', () => true);
+  ipcMain.handle('page:get-interactive-card-payload', () => null);
+  ipcMain.handle('page:update-interactive-card-bounds', () => true);
+  ipcMain.handle('page:close-sidebar', () => true);
+  ipcMain.handle('page:set-debug-window-position', () => true);
+
+  ipcMain.handle('audio:opus-compress-by-buffer', (_, payload = {}) => ({
+    success: false,
+    arrayBuffer: payload.arrayBuffer || null,
+    message: '本地兼容层未启用 opus 压缩',
+  }));
+  ipcMain.handle('audio:opus-compress-by-audio-id', () => ({ success: false, message: '本地兼容层未启用 opus 压缩' }));
+  ipcMain.handle('audio:clean-opus-audio-file', () => true);
+  ipcMain.handle('audio:ai-voice-flow', async (_, payload = {}) => {
+    try {
+      return await callVoiceFlowBackend(payload);
+    } catch (error) {
+      return {
+        success: false,
+        aborted: false,
+        debug: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+  ipcMain.handle('audio:abort-ai-voice-flow-request', () => true);
+  ipcMain.handle('audio:get-devices-async', () => ({ success: true, devices: [], message: 'no devices in shim' }));
+  ipcMain.handle('audio:is-muted', () => ({ success: true, isMuted: false }));
+  ipcMain.handle('audio:mute', () => ({ success: true }));
+  ipcMain.handle('audio:unmute', () => ({ success: true }));
+
+  ipcMain.handle('store:use', handleStoreUse);
+  ipcMain.handle('i18n:get-language', () => localStores['app-settings'].preferredLanguage);
+  ipcMain.handle('i18n:set-language', () => {
+    localStores['app-settings'].preferredLanguage = DEFAULT_LANGUAGE;
+    sendToMain('i18n:language-changed', { lng: localStores['app-settings'].preferredLanguage });
+    sendToFloatingBar('i18n:language-changed', { lng: localStores['app-settings'].preferredLanguage });
+    return true;
+  });
+  ipcMain.handle('mixpanel:track-event', () => ({ success: true }));
+  ipcMain.handle('release-notes:prefetch', () => true);
+  ipcMain.handle('release-notes:clear-cache', () => true);
+  ipcMain.handle('context:get-app-icon', () => null);
+  ipcMain.handle('focused-context:get-last-focused-info', () => ({
+    appInfo: {
+      app_name: 'Typeless Local',
+      app_identifier: 'typeless-local',
+      window_title: '',
+      app_type: 'native_app',
+      app_metadata: {},
+      browser_context: null,
+    },
+    elementInfo: {
+      role: '',
+      focused: false,
+      editable: true,
+      selected: false,
+      bounds: { x: 0, y: 0, width: 0, height: 0 },
+    },
+  }));
+  ipcMain.handle('focused-context:get-selected-text', () => '');
+  ipcMain.handle('focused-context:get-full-context', () => ({ success: true, data: null }));
+  ipcMain.handle('device:is-lid-open', () => true);
+  ipcMain.handle('file:save-recording-log', () => true);
+  ipcMain.handle('file:save-audio-with-dialog', () => ({ success: false, canceled: true }));
+  ipcMain.handle('rsa:set-config', () => true);
+  ipcMain.handle('rsa:get-config', () => ({ publicKey: '', enabled: false }));
+  ipcMain.handle('rsa:is-enabled', () => false);
+  ipcMain.handle('rsa:clear', () => true);
+  ipcMain.handle('rsa:encrypt', (_, payload = {}) => payload.value || '');
+  ipcMain.handle('troubleshooting:get-system-info', () => ({
+    success: true,
+    data: {
+      basic: {
+        platform: process.platform,
+        osVersion: os.release(),
+        architecture: os.arch(),
+        cpuCores: os.cpus().length,
+        totalMemory: os.totalmem(),
+      },
+    },
+  }));
+  ipcMain.handle('app:restart', () => {
+    app.relaunch();
+    app.exit();
+  });
+
+}
+
+app.whenReady().then(() => {
+  // 覆盖 CSP，避免 file:// 下 module crossorigin 加载失败
+  const mainSession = session.fromPartition('persist:no-proxy-session');
+  mainSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [''],
+      },
+    });
+  });
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [''],
+      },
+    });
+  });
+
+  registerIpcHandlers();
+  createTray();
+  createMainWindow();
+  createFloatingBar();
+  startRightAltListener();
+  ensureVoiceServer().catch((error) => console.error('语音后端预启动失败:', error));
+
+  globalShortcut.register('Alt+Space', () => {
+    emitKeyboardState([createRightAltKeyDownEvent(), createSpaceKeyboardEvent(true)]);
+    setTimeout(() => {
+      emitKeyboardState([createRightAltKeyUpEvent(), createSpaceKeyboardEvent(false)]);
+      setTimeout(() => emitKeyboardState([]), 40);
+    }, 120);
+    sendToFloatingBar('toggle-recording');
+    sendToMain('toggle-recording');
+  });
+});
+
+app.on('window-all-closed', (event) => event.preventDefault());
+app.on('will-quit', () => {
+  if (rightAltReleaseTimer) {
+    clearTimeout(rightAltReleaseTimer);
+    rightAltReleaseTimer = null;
+  }
+  if (keyboardStateEmitTimer) {
+    clearTimeout(keyboardStateEmitTimer);
+    keyboardStateEmitTimer = null;
+  }
+  stopRightAltListener();
+  stopVoiceServer();
+  globalShortcut.unregisterAll();
+});

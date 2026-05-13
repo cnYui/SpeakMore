@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: transparent; overflow: hidden; pointer-events: none; }
+#bar {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  min-width: 248px;
+  padding: 0 20px;
+  border-radius: 9999px;
+  background: rgba(255,255,255,0.94);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(119,119,119,0.14);
+  box-shadow: 0 16px 36px rgba(17,17,17,0.16), 0 4px 12px rgba(17,17,17,0.08);
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  color: #333;
+}
+#dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #999;
+  flex-shrink: 0;
+}
+#dot.active { background: #44bedf; }
+#levels {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+}
+.lv {
+  width: 3px; height: 6px;
+  border-radius: 2px;
+  background: #ccc;
+}
+.lv.active {
+  background: #44bedf;
+  animation: level 0.6s ease-in-out infinite;
+}
+.lv:nth-child(2).active { animation-delay: 0.08s; }
+.lv:nth-child(3).active { animation-delay: 0.16s; }
+.lv:nth-child(4).active { animation-delay: 0.24s; }
+.lv:nth-child(5).active { animation-delay: 0.32s; }
+@keyframes level {
+  0%, 100% { height: 6px; }
+  50% { height: 18px; }
+}
+</style>
+</head>
+<body>
+<div id="bar">
+  <div id="dot"></div>
+  <span id="text">Right Alt 录音</span>
+  <div id="levels">
+    <div class="lv"></div><div class="lv"></div><div class="lv"></div><div class="lv"></div><div class="lv"></div>
+  </div>
+</div>
+<script>
+let recording = false;
+function toggle() {
+  recording = !recording;
+  document.getElementById('dot').className = recording ? 'active' : '';
+  document.getElementById('text').textContent = recording ? 'Listening...' : 'Right Alt 录音';
+  document.querySelectorAll('.lv').forEach(el => el.className = recording ? 'lv active' : 'lv');
+}
+if (window.ipcRenderer) {
+  window.ipcRenderer.on('global-keyboard', (_e, data) => {
+    const keys = Array.isArray(data) ? data : [];
+    const rightAlt = keys.find(key => key.keyName === 'RightAlt');
+    if (rightAlt && rightAlt.isKeydown) toggle();
+  });
+}
+if (window.electronAPI && window.electronAPI.onToggleRecording) {
+  window.electronAPI.onToggleRecording(() => toggle());
+}
+</script>
+</body>
+</html>
