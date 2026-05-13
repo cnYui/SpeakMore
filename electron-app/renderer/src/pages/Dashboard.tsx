@@ -1,84 +1,22 @@
 import { Box, Typography, IconButton } from '@mui/material'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { ipcClient } from '../services/ipc'
 import { getVoiceStatusLabel, initialVoiceSession, voiceModes, type VoiceMode, type VoiceSession } from '../services/voiceTypes'
-import { disposeRecorder, stopRecording, subscribeVoiceSession, toggleRecording } from '../services/recorder'
+import { subscribeVoiceSession } from '../services/recorder'
 import { saveVoiceHistory } from '../services/historyStore'
 import { cardSx, subtlePanelSx } from '../uiTokens'
-
-function findKeyboardShortcutMode(keys: unknown): VoiceMode | null {
-  if (!Array.isArray(keys)) return null
-
-  const rightAlt = keys.find((key) => key.keyName === 'RightAlt')
-  if (!rightAlt?.isKeydown) return null
-
-  if (keys.some((key) => key.keyName === 'Space' && key.isKeydown)) return 'Ask'
-  if (keys.some((key) => key.keyName === 'RightShift' && key.isKeydown)) return 'Translate'
-  return 'Dictate'
-}
 
 export default function Dashboard() {
   const [activeMode, setActiveMode] = useState<VoiceMode>('Dictate')
   const [voiceSession, setVoiceSession] = useState<VoiceSession>(initialVoiceSession)
   const [savedAudioIds, setSavedAudioIds] = useState<Set<string>>(() => new Set())
-  const shortcutModeRef = useRef<VoiceMode | null>(null)
-  const pendingShortcutStopRef = useRef(false)
   const statusLabel = getVoiceStatusLabel(voiceSession)
 
   useEffect(() => {
     const unsubscribe = subscribeVoiceSession(setVoiceSession)
-    return () => {
-      unsubscribe()
-      disposeRecorder()
-    }
+    return unsubscribe
   }, [])
-
-  const handleKeyboardStart = useCallback((mode: VoiceMode) => {
-    setActiveMode(mode)
-    void toggleRecording(mode)
-  }, [])
-
-  useEffect(() => {
-    return ipcClient.on('global-keyboard', (_event, keys) => {
-      const shortcutMode = findKeyboardShortcutMode(keys)
-      const previousShortcutMode = shortcutModeRef.current
-
-      if (!previousShortcutMode && shortcutMode) {
-        shortcutModeRef.current = shortcutMode
-        pendingShortcutStopRef.current = false
-        handleKeyboardStart(shortcutMode)
-        return
-      }
-
-      if (previousShortcutMode && !shortcutMode) {
-        shortcutModeRef.current = null
-        if (voiceSession.status === 'connecting') {
-          pendingShortcutStopRef.current = true
-          return
-        }
-        pendingShortcutStopRef.current = false
-        stopRecording()
-        return
-      }
-
-      shortcutModeRef.current = shortcutMode
-    })
-  }, [handleKeyboardStart, voiceSession.status])
-
-  useEffect(() => {
-    if (!pendingShortcutStopRef.current) return
-
-    if (voiceSession.status === 'recording') {
-      pendingShortcutStopRef.current = false
-      stopRecording()
-      return
-    }
-
-    if (voiceSession.status === 'error' || voiceSession.status === 'completed' || voiceSession.status === 'idle') {
-      pendingShortcutStopRef.current = false
-    }
-  }, [voiceSession.status])
 
   useEffect(() => {
     if (!voiceSession.audioId) return
@@ -109,7 +47,7 @@ export default function Dashboard() {
       <Box>
         <Typography sx={{ fontSize: 24, fontWeight: 500 }}>Home</Typography>
         <Typography sx={{ fontSize: 14, color: '#5d5d5d', mt: 0.5 }}>
-          按住{' '}
+          请短按{' '}
           <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
             Right Alt
           </Box>{' '}

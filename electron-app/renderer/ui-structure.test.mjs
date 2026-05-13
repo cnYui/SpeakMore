@@ -144,14 +144,16 @@ test('语音输入 IPC 会调用本地后端并把结果粘贴到焦点应用', 
 });
 
 test('前端按键事件按真实快捷键模式启动和停止语音流', async () => {
-  const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
+  const appShell = await readProjectFile('src/components/AppShell.tsx');
+  const guard = await readProjectFile('src/services/shortcutGuard.ts');
   const voiceTypes = await readProjectFile('src/services/voiceTypes.ts');
 
-  assert.match(dashboard, /findKeyboardShortcutMode/);
-  assert.match(dashboard, /keyName\s*===\s*['"]RightAlt['"]/);
-  assert.match(dashboard, /keyName\s*===\s*['"]Space['"]/);
-  assert.match(dashboard, /keyName\s*===\s*['"]RightShift['"]/);
-  assert.match(dashboard, /rightAlt[\s\S]*isKeydown/);
+  assert.match(appShell, /global-keyboard/);
+  assert.match(appShell, /toggleRecording/);
+  assert.match(guard, /keyName\s*===\s*['"]RightAlt['"]/);
+  assert.match(guard, /keyName\s*===\s*['"]Space['"]/);
+  assert.match(guard, /keyName\s*===\s*['"]RightShift['"]/);
+  assert.match(guard, /start-recording/);
   assert.match(voiceTypes, /toVoiceFlowMode/);
   assert.match(voiceTypes, /ask_anything/);
   assert.match(voiceTypes, /translation/);
@@ -196,20 +198,35 @@ test('P0 Dashboard 消费语音状态机而不是 setTimeout 猜录音状态', a
 
   assert.match(dashboard, /subscribeVoiceSession/);
   assert.match(dashboard, /getVoiceStatusLabel/);
-  assert.match(dashboard, /toggleRecording/);
+  assert.doesNotMatch(dashboard, /global-keyboard/);
+  assert.doesNotMatch(dashboard, /findKeyboardShortcutMode/);
+  assert.doesNotMatch(dashboard, /toggleRecording\(/);
   assert.doesNotMatch(dashboard, /setTimeout\(\(\)\s*=>\s*setRecording/);
   assert.doesNotMatch(dashboard, /\(window\s+as\s+any\)\.ipcRenderer/);
 });
 
-test('P0 快捷键触发采用边沿检测，组合键释放不会二次切换录音', async () => {
-  const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
+test('AppShell 接管全局快捷键并渲染 RightAlt 长按提示浮层', async () => {
+  const appShell = await readProjectFile('src/components/AppShell.tsx');
+  const guard = await readProjectFile('src/services/shortcutGuard.ts');
 
-  assert.match(dashboard, /useRef/);
-  assert.match(dashboard, /stopRecording/);
-  assert.match(dashboard, /previousShortcutMode/);
-  assert.match(dashboard, /if\s*\(!previousShortcutMode\s*&&\s*shortcutMode\)/);
-  assert.match(dashboard, /if\s*\(previousShortcutMode\s*&&\s*!shortcutMode\)[\s\S]*stopRecording\(\)/);
-  assert.doesNotMatch(dashboard, /global-keyboard[\s\S]*if\s*\(!shortcutMode\)\s*return[\s\S]*handleKeyboardToggle\(shortcutMode\)/);
+  assert.match(appShell, /ipcClient\.on\(['"]global-keyboard['"]/);
+  assert.match(appShell, /toggleRecording/);
+  assert.match(appShell, /检测到长按快捷键/);
+  assert.match(appShell, /handleCloseShortcutHint/);
+  assert.match(guard, /LONG_PRESS_MS\s*=\s*500/);
+  assert.match(guard, /isBlocked/);
+  assert.match(guard, /modalVisible/);
+});
+
+test('P0 快捷键守卫在释放边沿单次触发录音，并在长按时阻断', async () => {
+  const guard = await readProjectFile('src/services/shortcutGuard.ts');
+
+  assert.match(guard, /if\s*\(!rightAltDown\)/);
+  assert.match(guard, /state\.isRightAltDown\s*&&\s*!state\.isBlocked\s*&&\s*state\.activeMode/);
+  assert.match(guard, /type:\s*['"]start-recording['"]/);
+  assert.match(guard, /blockByLongPress/);
+  assert.match(guard, /modalVisible:\s*true/);
+  assert.match(guard, /isBlocked:\s*true/);
 });
 
 test('P0 悬浮条消费 voice-state 而不是自行 toggle 快捷键状态', async () => {
@@ -235,11 +252,14 @@ test('P0 悬浮条在成功后自动消失并在错误后保持可见', async ()
 
 test('P0 Dashboard 移除鼠标录音入口，只保留键盘触发', async () => {
   const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
+  const appShell = await readProjectFile('src/components/AppShell.tsx');
 
   assert.doesNotMatch(dashboard, /MicIcon/);
   assert.doesNotMatch(dashboard, /onClick=\{\(\)\s*=>\s*handleToggle\(\)\}/);
-  assert.match(dashboard, /global-keyboard/);
-  assert.match(dashboard, /toggleRecording/);
+  assert.doesNotMatch(dashboard, /global-keyboard/);
+  assert.doesNotMatch(dashboard, /toggleRecording/);
+  assert.match(appShell, /global-keyboard/);
+  assert.match(appShell, /toggleRecording/);
 });
 
 test('P1 历史页面与历史 store 已接入真实本地数据', async () => {
