@@ -5,6 +5,7 @@ import json
 import uuid
 import tempfile
 import asyncio
+import subprocess
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -25,6 +26,47 @@ app.add_middleware(
 )
 
 
+def detect_uploaded_audio_suffix(filename: str | None) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix in {".wav", ".ogg", ".webm", ".mp3", ".m4a", ".opus"}:
+        return suffix
+    return ".wav"
+
+
+def detect_realtime_audio_suffix(audio_data: bytes) -> str:
+    if audio_data[:4] == b"OggS":
+        return ".ogg"
+    if audio_data[:4] == b"RIFF":
+        return ".wav"
+    if audio_data[:4] == bytes.fromhex("1A45DFA3"):
+        return ".webm"
+    # WebSocket 录音默认来自 MediaRecorder 的 webm/opus，未知头部也按 webm 兜底。
+    return ".webm"
+
+
+def convert_audio_to_wav_if_needed(source_path: str, suffix: str) -> str:
+    if suffix == ".wav":
+        return source_path
+
+    wav_path = source_path + ".wav"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", source_path, "-ar", "16000", "-ac", "1", wav_path],
+        capture_output=True,
+        timeout=30,
+        check=True,
+    )
+    return wav_path
+
+
+async def transcribe_audio_with_wav_conversion(source_path: str, suffix: str) -> str:
+    wav_path = convert_audio_to_wav_if_needed(source_path, suffix)
+    try:
+        return await transcribe_audio(wav_path)
+    finally:
+        if wav_path != source_path and os.path.exists(wav_path):
+            os.unlink(wav_path)
+
+
 @app.post("/ai/voice_flow")
 async def voice_flow(
     audio_file: UploadFile = File(...),
@@ -43,7 +85,7 @@ async def voice_flow(
     流程：音频文件 → ASR 转写 → DeepSeek refine → 返回结果
     """
     # 保存上传的音频到临时文件
-    suffix = ".ogg" if audio_file.filename and audio_file.filename.endswith(".ogg") else ".wav"
+    suffix = detect_uploaded_audio_suffix(audio_file.filename)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         content = await audio_file.read()
         tmp.write(content)
@@ -54,21 +96,7 @@ async def voice_flow(
         context = json.loads(audio_context) if audio_context else {}
         params = json.loads(parameters) if parameters else {}
 
-        # 如果是 webm/ogg 格式，用 ffmpeg 转为 wav
-        wav_path = tmp_path
-        if suffix != ".wav":
-            wav_path = tmp_path + ".wav"
-            import subprocess
-            subprocess.run(
-                ["ffmpeg", "-y", "-i", tmp_path, "-ar", "16000", "-ac", "1", wav_path],
-                capture_output=True, timeout=30,
-            )
-
-        # ASR 转写
-        raw_text = await transcribe_audio(wav_path)
-
-        if wav_path != tmp_path:
-            os.unlink(wav_path)
+        raw_text = await transcribe_audio_with_wav_conversion(tmp_path, suffix)
 
         if not raw_text or not raw_text.strip():
             return {"status": "OK", "data": {"refine_text": "", "delivery": "inline"}}
@@ -149,13 +177,13 @@ async def ws_voice_flow(websocket: WebSocket):
                         # 合并音频 chunks，转写并 refine
                         if audio_chunks:
                             audio_data = b"".join(audio_chunks)
-                            suffix = ".ogg" if audio_data[:4] == b"OggS" else ".wav"
+                            suffix = detect_realtime_audio_suffix(audio_data)
                             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                                 tmp.write(audio_data)
                                 tmp_path = tmp.name
 
                             try:
-                                raw_text = await transcribe_audio(tmp_path)
+                                raw_text = await transcribe_audio_with_wav_conversion(tmp_path, suffix)
 
                                 # 发送转写中间结果
                                 if raw_text:
