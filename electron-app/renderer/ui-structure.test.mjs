@@ -201,6 +201,17 @@ test('P0 Dashboard 消费语音状态机而不是 setTimeout 猜录音状态', a
   assert.doesNotMatch(dashboard, /\(window\s+as\s+any\)\.ipcRenderer/);
 });
 
+test('P0 快捷键触发采用边沿检测，组合键释放不会二次切换录音', async () => {
+  const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
+
+  assert.match(dashboard, /useRef/);
+  assert.match(dashboard, /stopRecording/);
+  assert.match(dashboard, /previousShortcutMode/);
+  assert.match(dashboard, /if\s*\(!previousShortcutMode\s*&&\s*shortcutMode\)/);
+  assert.match(dashboard, /if\s*\(previousShortcutMode\s*&&\s*!shortcutMode\)[\s\S]*stopRecording\(\)/);
+  assert.doesNotMatch(dashboard, /global-keyboard[\s\S]*if\s*\(!shortcutMode\)\s*return[\s\S]*handleKeyboardToggle\(shortcutMode\)/);
+});
+
 test('P0 悬浮条消费 voice-state 而不是自行 toggle 快捷键状态', async () => {
   const main = await readProjectFile('../main.js');
   const floatingBar = await readProjectFile('public/floating-bar.html');
@@ -253,6 +264,19 @@ test('P1 设置页与设置 store 已接入真实 IPC 和本地持久化', async
   assert.match(settingsPage, /permission:update-auto-launch/);
   assert.match(settingsPage, /audio:get-devices-async/);
   assert.match(settingsPage, /showFloatingBar/);
+});
+
+test('P1 显示悬浮条设置会同步到主进程并在启动时回放', async () => {
+  const appShell = await readProjectFile('src/components/AppShell.tsx');
+  const settingsPage = await readProjectFile('src/pages/Settings.tsx');
+  const main = await readProjectFile('../main.js');
+
+  assert.match(main, /let\s+floatingBarEnabled\s*=\s*true/);
+  assert.match(main, /ipcMain\.handle\(['"]page:set-floating-bar-enabled['"]/);
+  assert.match(main, /if\s*\(!floatingBarEnabled\)\s*\{\s*hideFloatingBar\(\)/);
+  assert.match(settingsPage, /page:set-floating-bar-enabled/);
+  assert.match(appShell, /loadSettings/);
+  assert.match(appShell, /page:set-floating-bar-enabled/);
 });
 
 test('P1 诊断页与导航配置已从静态展示切到真实服务', async () => {

@@ -1,9 +1,9 @@
 import { Box, Typography, IconButton } from '@mui/material'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { ipcClient } from '../services/ipc'
 import { getVoiceStatusLabel, initialVoiceSession, voiceModes, type VoiceMode, type VoiceSession } from '../services/voiceTypes'
-import { disposeRecorder, subscribeVoiceSession, toggleRecording } from '../services/recorder'
+import { disposeRecorder, stopRecording, subscribeVoiceSession, toggleRecording } from '../services/recorder'
 import { saveVoiceHistory } from '../services/historyStore'
 import { cardSx, subtlePanelSx } from '../uiTokens'
 
@@ -22,6 +22,8 @@ export default function Dashboard() {
   const [activeMode, setActiveMode] = useState<VoiceMode>('Dictate')
   const [voiceSession, setVoiceSession] = useState<VoiceSession>(initialVoiceSession)
   const [savedAudioIds, setSavedAudioIds] = useState<Set<string>>(() => new Set())
+  const shortcutModeRef = useRef<VoiceMode | null>(null)
+  const pendingShortcutStopRef = useRef(false)
   const statusLabel = getVoiceStatusLabel(voiceSession)
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export default function Dashboard() {
     }
   }, [])
 
-  const handleKeyboardToggle = useCallback((mode: VoiceMode) => {
+  const handleKeyboardStart = useCallback((mode: VoiceMode) => {
     setActiveMode(mode)
     void toggleRecording(mode)
   }, [])
@@ -40,10 +42,43 @@ export default function Dashboard() {
   useEffect(() => {
     return ipcClient.on('global-keyboard', (_event, keys) => {
       const shortcutMode = findKeyboardShortcutMode(keys)
-      if (!shortcutMode) return
-      handleKeyboardToggle(shortcutMode)
+      const previousShortcutMode = shortcutModeRef.current
+
+      if (!previousShortcutMode && shortcutMode) {
+        shortcutModeRef.current = shortcutMode
+        pendingShortcutStopRef.current = false
+        handleKeyboardStart(shortcutMode)
+        return
+      }
+
+      if (previousShortcutMode && !shortcutMode) {
+        shortcutModeRef.current = null
+        if (voiceSession.status === 'connecting') {
+          pendingShortcutStopRef.current = true
+          return
+        }
+        pendingShortcutStopRef.current = false
+        stopRecording()
+        return
+      }
+
+      shortcutModeRef.current = shortcutMode
     })
-  }, [handleKeyboardToggle])
+  }, [handleKeyboardStart, voiceSession.status])
+
+  useEffect(() => {
+    if (!pendingShortcutStopRef.current) return
+
+    if (voiceSession.status === 'recording') {
+      pendingShortcutStopRef.current = false
+      stopRecording()
+      return
+    }
+
+    if (voiceSession.status === 'error' || voiceSession.status === 'completed' || voiceSession.status === 'idle') {
+      pendingShortcutStopRef.current = false
+    }
+  }, [voiceSession.status])
 
   useEffect(() => {
     if (!voiceSession.audioId) return

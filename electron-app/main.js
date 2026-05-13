@@ -27,6 +27,7 @@ let voiceServerProcess = null;
 let voiceServerStartPromise = null;
 let keyboardStateEmitTimer = null;
 let floatingBarCompletedHideTimer = null;
+let floatingBarEnabled = true;
 const keyboardStateByName = new Map();
 
 const DEFAULT_LANGUAGE = 'zh-CN';
@@ -92,6 +93,8 @@ const localUser = {
   },
 };
 
+floatingBarEnabled = localStores['app-settings'].showFlowBarOnDesktop !== false;
+
 function extractedPath(...segments) {
   return path.join(__dirname, '..', 'app-extracted', ...segments);
 }
@@ -143,6 +146,10 @@ function clearFloatingBarCompletedHideTimer() {
 }
 
 function showFloatingBar() {
+  if (!floatingBarEnabled) {
+    hideFloatingBar();
+    return;
+  }
   if (!floatingBar || floatingBar.isDestroyed()) return;
   clearFloatingBarCompletedHideTimer();
   floatingBar.setIgnoreMouseEvents(false);
@@ -161,6 +168,14 @@ function scheduleFloatingBarCompletedHide() {
   floatingBarCompletedHideTimer = setTimeout(() => {
     hideFloatingBar();
   }, FLOATING_BAR_COMPLETED_HIDE_DELAY_MS);
+}
+
+function setFloatingBarEnabled(enabled) {
+  floatingBarEnabled = Boolean(enabled);
+  localStores['app-settings'].showFlowBarOnDesktop = floatingBarEnabled;
+  if (!floatingBarEnabled) {
+    hideFloatingBar();
+  }
 }
 
 function updateFloatingBarVisibility(keys) {
@@ -719,6 +734,10 @@ function registerIpcHandlers() {
     createFloatingBar();
     return true;
   });
+  ipcMain.handle('page:set-floating-bar-enabled', (_, payload = {}) => {
+    setFloatingBarEnabled(payload.enabled);
+    return true;
+  });
   ipcMain.handle('page:open-settings-modal', (_, payload = {}) => {
     createMainWindow();
     sendToMain('page-event--hub--open-settings-hub', payload);
@@ -732,6 +751,10 @@ function registerIpcHandlers() {
   ipcMain.handle('page:floating-bar-click', () => true);
   ipcMain.on('voice-state', (_, payload = {}) => {
     sendToFloatingBar('voice-state', payload);
+    if (!floatingBarEnabled) {
+      hideFloatingBar();
+      return;
+    }
     if (payload.status === 'completed') {
       showFloatingBar();
       scheduleFloatingBarCompletedHide();

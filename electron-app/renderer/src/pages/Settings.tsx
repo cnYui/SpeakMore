@@ -109,7 +109,10 @@ export default function Settings() {
         <Typography>显示悬浮条</Typography>
         <Switch
           checked={settings.showFloatingBar}
-          onChange={(_event, checked) => updateSettings({ ...settings, showFloatingBar: checked })}
+          onChange={(_event, checked) => {
+            updateSettings({ ...settings, showFloatingBar: checked })
+            ipcClient.invoke('page:set-floating-bar-enabled', { enabled: checked }).catch(() => undefined)
+          }}
         />
       </Box>
 
