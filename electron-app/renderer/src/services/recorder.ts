@@ -30,7 +30,9 @@ export function getVoiceSession() {
 export function subscribeVoiceSession(listener: VoiceSessionListener) {
   listeners.add(listener)
   listener(session)
-  return () => listeners.delete(listener)
+  return () => {
+    listeners.delete(listener)
+  }
 }
 
 export async function toggleRecording(mode: VoiceMode) {
