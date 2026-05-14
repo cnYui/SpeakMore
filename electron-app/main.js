@@ -36,7 +36,7 @@ let quitAfterBackgroundAudioRestore = false;
 
 const DEFAULT_LANGUAGE = 'zh-CN';
 const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
-const FLOATING_BAR_COMPLETED_HIDE_DELAY_MS = 1200;
+const FLOATING_BAR_COMPLETED_HIDE_DELAY_MS = 1000;
 const AUDIO_SESSION_CONTROL_TIMEOUT_MS = 5000;
 const LOCAL_DATA_DIR_NAME = 'local-data';
 const SETTINGS_FILE_NAME = 'settings.json';
@@ -408,6 +408,12 @@ function handleRightAltListenerLine(line) {
 
   try {
     const payload = JSON.parse(line);
+    if (payload.key === 'Escape') {
+      if (payload.isKeydown) {
+        sendToMain('voice-cancel-requested');
+      }
+      return;
+    }
     getRightAltRelay().handlePayload(payload);
   } catch (error) {
     console.error('Right Alt 监听器输出解析失败:', error);
@@ -1028,7 +1034,7 @@ function registerIpcHandlers() {
       hideFloatingBar();
       return;
     }
-    if (payload.status === 'completed') {
+    if (payload.status === 'completed' || payload.status === 'cancelled') {
       showFloatingBar();
       scheduleFloatingBarCompletedHide();
       return;

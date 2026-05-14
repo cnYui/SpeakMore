@@ -10,6 +10,7 @@ public static class RightAltKeyboardHook
     public const int VK_RMENU = 165;
     public const int VK_RSHIFT = 161;
     public const int VK_SPACE = 32;
+    public const int VK_ESCAPE = 27;
 
     private const int WH_KEYBOARD_LL = 13;
     private const int WM_KEYDOWN = 0x0100;
@@ -22,6 +23,7 @@ public static class RightAltKeyboardHook
     private static bool rightAltIsDown = false;
     private static bool rightShiftIsDown = false;
     private static bool spaceIsDown = false;
+    private static bool escapeIsDown = false;
 
     public static void Start()
     {
@@ -53,16 +55,19 @@ public static class RightAltKeyboardHook
             bool isDownMessage = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
             bool isUpMessage = message == WM_KEYUP || message == WM_SYSKEYUP;
 
-            if ((vkCode == VK_RMENU || vkCode == VK_RSHIFT || vkCode == VK_SPACE) && (isDownMessage || isUpMessage))
+            if ((vkCode == VK_RMENU || vkCode == VK_RSHIFT || vkCode == VK_SPACE || vkCode == VK_ESCAPE) && (isDownMessage || isUpMessage))
             {
-                string key = vkCode == VK_RMENU ? "RightAlt" : (vkCode == VK_RSHIFT ? "RightShift" : "Space");
-                bool isCurrentlyDown = vkCode == VK_RMENU ? rightAltIsDown : (vkCode == VK_RSHIFT ? rightShiftIsDown : spaceIsDown);
+                string key = vkCode == VK_RMENU ? "RightAlt" : (vkCode == VK_RSHIFT ? "RightShift" : (vkCode == VK_SPACE ? "Space" : "Escape"));
+                bool isCurrentlyDown = vkCode == VK_RMENU
+                    ? rightAltIsDown
+                    : (vkCode == VK_RSHIFT ? rightShiftIsDown : (vkCode == VK_SPACE ? spaceIsDown : escapeIsDown));
 
                 if (isDownMessage && !isCurrentlyDown)
                 {
                     if (vkCode == VK_RMENU) rightAltIsDown = true;
                     else if (vkCode == VK_RSHIFT) rightShiftIsDown = true;
-                    else spaceIsDown = true;
+                    else if (vkCode == VK_SPACE) spaceIsDown = true;
+                    else escapeIsDown = true;
                     Console.WriteLine("{\"key\":\"" + key + "\",\"isKeydown\":true}");
                     Console.Out.Flush();
                 }
@@ -70,7 +75,8 @@ public static class RightAltKeyboardHook
                 {
                     if (vkCode == VK_RMENU) rightAltIsDown = false;
                     else if (vkCode == VK_RSHIFT) rightShiftIsDown = false;
-                    else spaceIsDown = false;
+                    else if (vkCode == VK_SPACE) spaceIsDown = false;
+                    else escapeIsDown = false;
                     Console.WriteLine("{\"key\":\"" + key + "\",\"isKeydown\":false}");
                     Console.Out.Flush();
                 }

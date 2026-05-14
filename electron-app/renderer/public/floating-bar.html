@@ -101,6 +101,7 @@ function applyVoiceState(state) {
   if (status === 'connecting') text.textContent = '正在连接...';
   else if (status === 'stopping') text.textContent = '正在停止...';
   else if (status === 'transcribing') text.textContent = '正在转写...';
+  else if (status === 'cancelled') text.textContent = '当前转录已取消';
   else if (status === 'completed') text.textContent = '已完成';
   else if (status === 'error') text.textContent = errorMessage || '发生错误';
   else text.textContent = 'Right Alt 录音';
