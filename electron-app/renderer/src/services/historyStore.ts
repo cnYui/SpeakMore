@@ -2,6 +2,7 @@ import type { VoiceErrorCode, VoiceMode } from './voiceTypes'
 import { ipcClient } from './ipc'
 
 export const HAND_TYPED_CHARS_PER_MINUTE = 60
+export const VOICE_HISTORY_UPDATED_EVENT = 'voice-history-updated'
 
 export type VoiceHistoryItem = {
   id: string

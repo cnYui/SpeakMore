@@ -2,7 +2,7 @@ import { Box, Typography, IconButton } from '@mui/material'
 import { useEffect, useState } from 'react'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { ipcClient } from '../services/ipc'
-import { initialVoiceSession, type VoiceSession } from '../services/voiceTypes'
+import { getVoiceStatusLabel, initialVoiceSession, type VoiceSession } from '../services/voiceTypes'
 import { subscribeVoiceSession } from '../services/recorder'
 import {
   emptyVoiceStats,
@@ -10,14 +10,13 @@ import {
   formatDurationMinutes,
   formatSavedMinutes,
   loadVoiceStats,
-  saveVoiceHistory,
   type VoiceStats,
+  VOICE_HISTORY_UPDATED_EVENT,
 } from '../services/historyStore'
 import { cardSx, subtlePanelSx } from '../uiTokens'
 
 export default function Dashboard() {
   const [voiceSession, setVoiceSession] = useState<VoiceSession>(initialVoiceSession)
-  const [savedAudioIds, setSavedAudioIds] = useState<Set<string>>(() => new Set())
   const [stats, setStats] = useState<VoiceStats>(emptyVoiceStats)
 
   useEffect(() => {
@@ -26,34 +25,22 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => {
-    loadVoiceStats().then(setStats).catch(() => setStats(emptyVoiceStats))
+    const refreshStats = () => {
+      loadVoiceStats().then(setStats).catch(() => setStats(emptyVoiceStats))
+    }
+
+    refreshStats()
+    window.addEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshStats)
+    return () => window.removeEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshStats)
   }, [])
-
-  useEffect(() => {
-    if (!voiceSession.audioId) return
-    if (voiceSession.status !== 'completed' && voiceSession.status !== 'error') return
-    if (savedAudioIds.has(voiceSession.audioId)) return
-
-    void saveVoiceHistory({
-      id: voiceSession.audioId,
-      createdAt: new Date().toISOString(),
-      mode: voiceSession.mode,
-      status: voiceSession.status === 'completed' ? 'completed' : 'error',
-      rawText: voiceSession.rawText,
-      refinedText: voiceSession.refinedText,
-      errorCode: voiceSession.error?.code,
-      durationMs: voiceSession.durationMs,
-      textLength: voiceSession.textLength,
-    }).then(() => loadVoiceStats().then(setStats))
-
-    setSavedAudioIds((prev) => new Set(prev).add(voiceSession.audioId!))
-  }, [savedAudioIds, voiceSession])
 
   const handleCopy = () => {
     const text = voiceSession.refinedText || voiceSession.rawText
     if (!text) return
     ipcClient.invoke('clipboard:write-text', text).catch(() => navigator.clipboard.writeText(text))
   }
+
+  const voiceStatusLabel = voiceSession.status === 'idle' ? '准备就绪' : getVoiceStatusLabel(voiceSession)
 
   return (
     <Box sx={{ maxWidth: 980, mx: 'auto', p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -104,7 +91,10 @@ export default function Dashboard() {
       <Box>
         <Box sx={{ ...cardSx, p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography sx={{ fontSize: 16, fontWeight: 500 }}>最近结果</Typography>
+            <Box>
+              <Typography sx={{ fontSize: 16, fontWeight: 500 }}>最近结果</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{voiceStatusLabel}</Typography>
+            </Box>
             <IconButton size="small" onClick={handleCopy}>
               <ContentCopyIcon sx={{ fontSize: 16 }} />
             </IconButton>
