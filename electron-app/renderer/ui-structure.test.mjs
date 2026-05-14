@@ -197,7 +197,8 @@ test('P0 Dashboard 消费语音状态机而不是 setTimeout 猜录音状态', a
   const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
 
   assert.match(dashboard, /subscribeVoiceSession/);
-  assert.match(dashboard, /getVoiceStatusLabel/);
+  assert.match(dashboard, /voiceSession\.status/);
+  assert.match(dashboard, /saveVoiceHistory/);
   assert.doesNotMatch(dashboard, /global-keyboard/);
   assert.doesNotMatch(dashboard, /findKeyboardShortcutMode/);
   assert.doesNotMatch(dashboard, /toggleRecording\(/);

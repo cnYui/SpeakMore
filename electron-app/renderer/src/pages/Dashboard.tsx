@@ -1,17 +1,15 @@
 import { Box, Typography, IconButton } from '@mui/material'
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { ipcClient } from '../services/ipc'
-import { getVoiceStatusLabel, initialVoiceSession, voiceModes, type VoiceMode, type VoiceSession } from '../services/voiceTypes'
+import { initialVoiceSession, type VoiceSession } from '../services/voiceTypes'
 import { subscribeVoiceSession } from '../services/recorder'
 import { saveVoiceHistory } from '../services/historyStore'
 import { cardSx, subtlePanelSx } from '../uiTokens'
 
 export default function Dashboard() {
-  const [activeMode, setActiveMode] = useState<VoiceMode>('Dictate')
   const [voiceSession, setVoiceSession] = useState<VoiceSession>(initialVoiceSession)
   const [savedAudioIds, setSavedAudioIds] = useState<Set<string>>(() => new Set())
-  const statusLabel = getVoiceStatusLabel(voiceSession)
 
   useEffect(() => {
     const unsubscribe = subscribeVoiceSession(setVoiceSession)
@@ -88,23 +86,7 @@ export default function Dashboard() {
         </Box>
       </Box>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
-        <Box sx={{ ...cardSx, p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-          <Typography sx={{ fontSize: 16, fontWeight: 500, alignSelf: 'flex-start' }}>Voice dictation</Typography>
-          <Box sx={{ display: 'flex', bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '20px', p: '3px' }}>
-            {voiceModes.map((mode) => (
-              <Box
-                key={mode}
-                onClick={() => setActiveMode(mode)}
-                sx={{ px: 2, py: 0.5, borderRadius: '16px', fontSize: 13, cursor: 'pointer', fontWeight: 500, bgcolor: activeMode === mode ? '#fff' : 'transparent', boxShadow: activeMode === mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
-              >
-                {mode}
-              </Box>
-            ))}
-          </Box>
-          <Typography sx={{ fontSize: 13, color: voiceSession.error ? '#c62828' : 'rgba(17,17,17,0.5)' }}>{statusLabel}</Typography>
-        </Box>
-
+      <Box>
         <Box sx={{ ...cardSx, p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography sx={{ fontSize: 16, fontWeight: 500 }}>Latest result</Typography>
@@ -118,16 +100,6 @@ export default function Dashboard() {
           <Box sx={{ bgcolor: 'rgba(119,119,119,0.03)', borderRadius: '12px', p: 1.5, minHeight: 64 }}>
             <Typography sx={{ fontSize: 15 }}>{voiceSession.refinedText || '-'}</Typography>
           </Box>
-        </Box>
-      </Box>
-
-      <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography sx={{ fontSize: 16, fontWeight: 500 }}>Recent history</Typography>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>0</Typography>
-        </Box>
-        <Box sx={{ ...cardSx, p: 3, textAlign: 'center' }}>
-          <Typography sx={{ fontSize: 14, color: 'text.secondary' }}>暂无历史记录</Typography>
         </Box>
       </Box>
     </Box>
