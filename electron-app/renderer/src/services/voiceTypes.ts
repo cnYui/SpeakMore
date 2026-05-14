@@ -10,6 +10,7 @@ export type VoiceStatus =
   | 'recording'
   | 'stopping'
   | 'transcribing'
+  | 'cancelled'
   | 'completed'
   | 'error'
 
@@ -104,12 +105,13 @@ export function getVoiceStatusLabel(session: VoiceSession): string {
   if (session.status === 'recording') return '正在监听...'
   if (session.status === 'stopping') return '正在停止录音...'
   if (session.status === 'transcribing') return '正在转写...'
+  if (session.status === 'cancelled') return '当前转录已取消'
   if (session.status === 'completed') return '已完成'
   return '准备就绪'
 }
 
 export function toFloatingBarState(session: VoiceSession): FloatingBarState {
-  const visible = ['connecting', 'recording', 'stopping', 'transcribing', 'completed', 'error'].includes(session.status)
+  const visible = ['connecting', 'recording', 'stopping', 'transcribing', 'cancelled', 'completed', 'error'].includes(session.status)
 
   return {
     visible,

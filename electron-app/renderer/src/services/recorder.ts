@@ -14,6 +14,7 @@ import {
 const WS_URL = 'ws://localhost:8000/ws/rt_voice_flow'
 const CONNECT_TIMEOUT_MS = 2500
 const TRANSCRIBE_TIMEOUT_MS = 60000
+const CANCELABLE_STATUSES = new Set<VoiceStatus>(['connecting', 'recording', 'stopping', 'transcribing'])
 
 type VoiceSessionListener = (session: VoiceSession) => void
 
@@ -24,12 +25,14 @@ let activeStream: MediaStream | null = null
 let transcribeTimer: number | null = null
 let recordingStartedAt = 0
 let backgroundAudioRestorePending = false
+let activeSessionId: string | null = null
 let levelAudioContext: AudioContext | null = null
 let levelAnalyser: AnalyserNode | null = null
 let levelSource: MediaStreamAudioSourceNode | null = null
 let levelFrameId: number | null = null
 let levelData: Float32Array<ArrayBuffer> | null = null
 let smoothedInputLevel = 0
+const ignoredAudioIds = new Set<string>()
 const listeners = new Set<VoiceSessionListener>()
 
 export function getVoiceSession() {
@@ -60,23 +63,31 @@ export async function toggleRecording(mode: VoiceMode) {
 export async function startRecording(mode: VoiceMode) {
   backgroundAudioRestorePending = false
   recordingStartedAt = 0
+  const audioId = crypto.randomUUID()
+  activeSessionId = audioId
   setSession({
     ...initialVoiceSession,
     status: 'connecting',
     mode,
-    audioId: crypto.randomUUID(),
+    audioId,
   })
 
   try {
     await ensureVoiceServerReady()
+    if (!isSessionActive(audioId)) return
     const socket = await ensureOpenWebSocket()
+    if (!isSessionActive(audioId)) {
+      closeWebSocketSilently()
+      return
+    }
     const stream = await getAudioStream()
+    if (!isSessionActive(audioId)) {
+      stream.getTracks().forEach((track) => track.stop())
+      return
+    }
     activeStream = stream
     startAudioLevelMonitoring(stream)
     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
-    const audioId = session.audioId
-
-    if (!audioId) throw createVoiceError('recording_start_failed')
 
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0 && ws?.readyState === WebSocket.OPEN) {
@@ -86,7 +97,10 @@ export async function startRecording(mode: VoiceMode) {
       }
     }
 
-    mediaRecorder.onerror = () => failSession(createVoiceError('recording_start_failed'))
+    mediaRecorder.onerror = () => {
+      if (!isSessionActive(audioId)) return
+      failSession(createVoiceError('recording_start_failed'))
+    }
 
     socket.send(JSON.stringify({
       type: 'start_audio',
@@ -101,6 +115,7 @@ export async function startRecording(mode: VoiceMode) {
     setSessionStatus('recording')
     void muteBackgroundAudio()
   } catch (error) {
+    if (!isSessionActive(audioId) || ignoredAudioIds.has(audioId)) return
     cleanupRecording()
     failSession(normalizeVoiceError(error, 'recording_start_failed'))
   }
@@ -130,18 +145,39 @@ export function stopRecording() {
   }
 }
 
+export function cancelRecording() {
+  if (!CANCELABLE_STATUSES.has(session.status)) return
+
+  const durationMs = getRecordingDurationMs()
+  activeSessionId = null
+  if (session.audioId) {
+    ignoredAudioIds.add(session.audioId)
+  }
+
+  clearTranscribeTimeout()
+  cleanupRecording()
+  closeWebSocketSilently()
+  void restoreBackgroundAudio()
+  recordingStartedAt = 0
+
+  setSession({
+    ...session,
+    status: 'cancelled',
+    refinedText: '',
+    durationMs,
+    error: null,
+    inputLevel: 0,
+  })
+}
+
 export function disposeRecorder() {
+  activeSessionId = null
+  ignoredAudioIds.clear()
   clearTranscribeTimeout()
   cleanupRecording()
   void restoreBackgroundAudio()
-  if (ws) {
-    ws.onopen = null
-    ws.onclose = null
-    ws.onerror = null
-    ws.onmessage = null
-    ws.close()
-    ws = null
-  }
+  closeWebSocketSilently()
+  recordingStartedAt = 0
   listeners.clear()
 }
 
@@ -162,6 +198,7 @@ function updateSessionInputLevel(inputLevel: number) {
 }
 
 function failSession(error: VoiceError) {
+  activeSessionId = null
   clearTranscribeTimeout()
   const durationMs = getRecordingDurationMs()
   cleanupRecording()
@@ -171,6 +208,7 @@ function failSession(error: VoiceError) {
 }
 
 async function completeSession(refinedText: string) {
+  activeSessionId = null
   clearTranscribeTimeout()
   const durationMs = getRecordingDurationMs()
   const textLength = countTextLength(refinedText || session.rawText)
@@ -197,7 +235,9 @@ function handleSocketMessage(event: MessageEvent) {
   try {
     const msg = JSON.parse(String(event.data))
     const audioId = msg?.V?.audio_id
+    if (audioId && ignoredAudioIds.has(audioId)) return
     if (audioId && session.audioId && audioId !== session.audioId) return
+    if (session.status === 'cancelled') return
 
     if (msg.K === 'transcription') {
       handleRawText(msg.V?.text || '')
@@ -235,6 +275,22 @@ function ensureOpenWebSocket(): Promise<WebSocket> {
   }
 
   return waitForOpenWebSocket(ws)
+}
+
+function isSessionActive(audioId: string) {
+  return activeSessionId === audioId && session.audioId === audioId
+}
+
+function closeWebSocketSilently() {
+  if (!ws) return
+
+  const socket = ws
+  ws = null
+  socket.onopen = null
+  socket.onclose = null
+  socket.onerror = null
+  socket.onmessage = null
+  socket.close()
 }
 
 function waitForOpenWebSocket(socket: WebSocket): Promise<WebSocket> {

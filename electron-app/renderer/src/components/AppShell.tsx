@@ -9,7 +9,7 @@ import Diagnostics from '../pages/Diagnostics'
 import { type Page } from '../navigation'
 import { ipcClient } from '../services/ipc'
 import { loadSettings } from '../services/settingsStore'
-import { disposeRecorder, toggleRecording } from '../services/recorder'
+import { cancelRecording, disposeRecorder, getVoiceSession, toggleRecording } from '../services/recorder'
 import {
   blockByLongPress,
   closeShortcutHint,
@@ -18,6 +18,8 @@ import {
   reduceShortcutGuard,
 } from '../services/shortcutGuard'
 import { overlayCardSx, shortcutChipSx } from '../uiTokens'
+
+const CANCELABLE_STATUSES = new Set(['connecting', 'recording', 'stopping', 'transcribing'])
 
 export default function AppShell() {
   const [page, setPage] = useState<Page>('home')
@@ -57,6 +59,13 @@ export default function AppShell() {
       }
     })
   }, [applyShortcutGuard, handleLongPress])
+
+  useEffect(() => {
+    return ipcClient.on('voice-cancel-requested', () => {
+      if (!CANCELABLE_STATUSES.has(getVoiceSession().status)) return
+      cancelRecording()
+    })
+  }, [])
 
   useEffect(() => {
     return () => {
