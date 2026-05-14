@@ -74,9 +74,27 @@ copy server\.env.example server\.env
 ```env
 DEEPSEEK_API_KEY=你的 DeepSeek API Key
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+WHISPER_MODEL=base
+WHISPER_MODEL_DIR=
 ```
 
 `server/.env` 已被 `.gitignore` 忽略，不要提交真实密钥。
+
+### Whisper 模型
+
+后端唯一使用 `faster-whisper base`。
+
+模型查找顺序固定为：
+
+1. `WHISPER_MODEL_DIR`
+2. `%LOCALAPPDATA%\Typeless\models\faster-whisper`
+3. `%USERPROFILE%\.cache\huggingface\hub`
+
+如果以上位置都没有可用的 `base` 模型，首次运行会自动下载到：
+
+```text
+%LOCALAPPDATA%\Typeless\models\faster-whisper
+```
 
 ## 启动
 
