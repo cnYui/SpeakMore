@@ -26,16 +26,18 @@ let rightAltReleaseTimer = null;
 let rightAltRelay = null;
 let rightAltListener = null;
 let rightAltListenerStdout = '';
-let voiceServerProcess = null;
-let voiceServerStartPromise = null;
 let floatingBarCompletedHideTimer = null;
 let floatingBarEnabled = true;
 let backgroundMuteActive = false;
 let mutedBackgroundSessions = [];
 let quitAfterBackgroundAudioRestore = false;
+let pendingInteractiveCardPayload = null;
 
 const DEFAULT_LANGUAGE = 'zh-CN';
 const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
+const VOICE_SERVER_HEALTH_URL = `${VOICE_SERVER_URL}/health`;
+const VOICE_SERVER_READY_URL = `${VOICE_SERVER_URL}/ready`;
+const VOICE_SERVER_VOICE_FLOW_URL = `${VOICE_SERVER_URL}/ai/voice_flow`;
 const FLOATING_BAR_COMPLETED_HIDE_DELAY_MS = 1000;
 const AUDIO_SESSION_CONTROL_TIMEOUT_MS = 5000;
 const LOCAL_DATA_DIR_NAME = 'local-data';
@@ -43,23 +45,6 @@ const SETTINGS_FILE_NAME = 'settings.json';
 const HISTORY_FILE_NAME = 'history.json';
 const MAX_HISTORY_ITEMS = 200;
 const HAND_TYPED_CHARS_PER_MINUTE = 60;
-
-const WS_PATCH_SCRIPT = `
-(function() {
-  const Orig = window.WebSocket;
-  const LOCAL = 'ws://localhost:8000/ws/rt_voice_flow';
-  window.WebSocket = function(url, protocols) {
-    let target = url;
-    try { if (new URL(url).pathname.includes('/ws/rt_voice_flow')) target = LOCAL; } catch(e) {}
-    return protocols !== undefined ? new Orig(target, protocols) : new Orig(target);
-  };
-  window.WebSocket.prototype = Orig.prototype;
-  window.WebSocket.CONNECTING = Orig.CONNECTING;
-  window.WebSocket.OPEN = Orig.OPEN;
-  window.WebSocket.CLOSING = Orig.CLOSING;
-  window.WebSocket.CLOSED = Orig.CLOSED;
-})();
-`;
 
 const localStores = {
   'app-onboarding': {
@@ -91,7 +76,7 @@ const localStores = {
   'app-storage': {},
 };
 
-const localUser = {
+let localUser = {
   user_id: 'local-user',
   client_user_id: 'local-user',
   email: 'local@typeless.local',
@@ -117,6 +102,14 @@ function localDataDir() {
 
 function localDataPath(fileName) {
   return path.join(localDataDir(), fileName);
+}
+
+function logFilePath() {
+  return localDataPath('recording.log');
+}
+
+function recordingsDir() {
+  return localDataPath('recordings');
 }
 
 function readJsonFile(fileName, fallback) {
@@ -187,6 +180,7 @@ function normalizeHistoryItem(item = {}) {
     status: item.status === 'error' ? 'error' : 'completed',
     rawText,
     refinedText,
+    isTestRecord: Boolean(item.isTestRecord),
     errorCode: item.errorCode ? String(item.errorCode) : undefined,
     durationMs: Math.max(0, Number(item.durationMs) || 0),
     textLength: Math.max(0, Number(item.textLength) || countTextLength(finalText)),
@@ -229,6 +223,19 @@ function calculateHistoryStats(items = readHistoryItems()) {
   };
 }
 
+function calculateDirectorySize(targetPath) {
+  if (!fs.existsSync(targetPath)) return 0;
+
+  const stat = fs.statSync(targetPath);
+  if (!stat.isDirectory()) return stat.size;
+
+  return fs.readdirSync(targetPath, { withFileTypes: true }).reduce((total, entry) => {
+    const nextPath = path.join(targetPath, entry.name);
+    if (entry.isDirectory()) return total + calculateDirectorySize(nextPath);
+    return total + fs.statSync(nextPath).size;
+  }, 0);
+}
+
 function extractedPath(...segments) {
   return path.join(__dirname, '..', 'app-extracted', ...segments);
 }
@@ -257,10 +264,6 @@ function audioSessionControlPath() {
   return path.join(__dirname, 'audio-session-control.ps1');
 }
 
-function serverPath() {
-  return path.join(__dirname, '..', 'server');
-}
-
 function loadExtractedPage(windowInstance, fileName) {
   windowInstance.loadFile(extractedRendererPath(fileName));
 }
@@ -275,6 +278,17 @@ function sendToFloatingBar(channel, payload) {
   if (floatingBar && !floatingBar.isDestroyed()) {
     floatingBar.webContents.send(channel, payload);
   }
+}
+
+function emitUserStateChange() {
+  sendToMain('user-state-change', localUser);
+}
+
+function emitUserRoleChange() {
+  sendToMain('user-role-change', {
+    plan: localUser.plan,
+    subscription: localUser.subscription,
+  });
 }
 
 function clearFloatingBarCompletedHideTimer() {
@@ -619,70 +633,50 @@ async function muteBackgroundSessionsForRecording() {
   }
 }
 
-async function isVoiceServerReady() {
+async function readJsonSafely(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function resolveVoiceServerProbeDetail(url, status, payload) {
+  if (payload && typeof payload === 'object') {
+    if (typeof payload.detail === 'string' && payload.detail) return payload.detail;
+    if (typeof payload.status === 'string' && payload.status) return payload.status;
+  }
+
+  return status > 0 ? `${url} 返回 ${status}` : `无法连接 ${url}`;
+}
+
+async function probeVoiceServer(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 700);
 
   try {
-    const response = await fetch(`${VOICE_SERVER_URL}/health`, { signal: controller.signal });
-    return response.ok;
+    const response = await fetch(url, { signal: controller.signal });
+    const payload = await readJsonSafely(response);
+    return {
+      success: response.ok,
+      status: response.status,
+      detail: resolveVoiceServerProbeDetail(url, response.status, payload),
+      payload,
+    };
   } catch {
-    return false;
+    return {
+      success: false,
+      status: 0,
+      detail: `无法连接 ${url}`,
+      payload: null,
+    };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function waitForVoiceServer() {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (await isVoiceServerReady()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  return false;
-}
-
-async function ensureVoiceServer() {
-  if (await isVoiceServerReady()) return true;
-  if (voiceServerStartPromise) return voiceServerStartPromise;
-
-  voiceServerStartPromise = new Promise((resolve) => {
-    const child = spawn(process.env.PYTHON || 'python', ['main.py'], {
-      cwd: serverPath(),
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: minimalProcessEnv({ PYTHONUNBUFFERED: '1' }),
-    });
-
-    voiceServerProcess = child;
-
-    child.stdout.on('data', (chunk) => {
-      console.log(`语音后端: ${chunk.toString('utf8').trim()}`);
-    });
-    child.stderr.on('data', (chunk) => {
-      console.error(`语音后端错误: ${chunk.toString('utf8').trim()}`);
-    });
-    child.on('error', (error) => {
-      console.error('语音后端启动失败:', error);
-      voiceServerProcess = null;
-      voiceServerStartPromise = null;
-      resolve(false);
-    });
-    child.on('exit', () => {
-      voiceServerProcess = null;
-      voiceServerStartPromise = null;
-    });
-
-    waitForVoiceServer().then(resolve);
-  });
-
-  return voiceServerStartPromise;
-}
-
-function stopVoiceServer() {
-  if (!voiceServerProcess || voiceServerProcess.killed) return;
-  voiceServerProcess.kill();
-  voiceServerProcess = null;
-  voiceServerStartPromise = null;
+async function checkVoiceServerReady() {
+  return probeVoiceServer(VOICE_SERVER_READY_URL);
 }
 
 function normalizeVoiceMode(mode) {
@@ -728,6 +722,48 @@ function appendJsonFormField(formData, name, value, fallback = {}) {
   formData.append(name, JSON.stringify(value || fallback));
 }
 
+function parseJsonObject(value, fallback = {}) {
+  if (!value) return fallback;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  return typeof value === 'object' ? value : fallback;
+}
+
+function buildVoiceFlowParameters(payload = {}) {
+  const parameters = parseJsonObject(payload.parameters);
+  const audioContext = parseJsonObject(payload.audioContext || payload.audio_context);
+  const modeConfig = parseJsonObject(payload.modeConfig || payload.mode_config);
+
+  const selectedText = (
+    parameters.selected_text
+    || payload.selectedText
+    || payload.selected_text
+    || audioContext.selected_text
+    || audioContext.selectedText
+    || ''
+  );
+  const outputLanguage = (
+    parameters.output_language
+    || payload.outputLanguage
+    || payload.output_language
+    || modeConfig.output_language
+    || modeConfig.outputLanguage
+    || ''
+  );
+
+  return {
+    ...parameters,
+    ...(selectedText ? { selected_text: selectedText } : {}),
+    ...(outputLanguage ? { output_language: outputLanguage } : {}),
+  };
+}
+
 function buildVoiceFlowFormData(payload = {}) {
   const audioBuffer = bufferFromVoicePayload(payload);
   if (!audioBuffer || audioBuffer.length === 0) {
@@ -745,38 +781,63 @@ function buildVoiceFlowFormData(payload = {}) {
   formData.append('mode', normalizeVoiceMode(payload.mode));
   appendJsonFormField(formData, 'audio_context', payload.audioContext || payload.audio_context);
   appendJsonFormField(formData, 'audio_metadata', payload.audioMetadata || payload.audio_metadata);
-  appendJsonFormField(formData, 'parameters', payload.parameters);
+  appendJsonFormField(formData, 'parameters', buildVoiceFlowParameters(payload));
   formData.append('is_retry', String(Boolean(payload.isRetry || payload.is_retry)));
   formData.append('device_name', payload.deviceName || payload.device_name || '');
+  formData.append('user_over_time', String(payload.userOverTime || payload.user_over_time || ''));
   formData.append('send_time', String(Date.now()));
 
   return formData;
 }
 
 async function callVoiceFlowBackend(payload = {}) {
-  await ensureVoiceServer();
+  const readyState = await checkVoiceServerReady();
+  if (!readyState.success) {
+    return {
+      success: false,
+      aborted: false,
+      debug: readyState.payload,
+      detail: readyState.detail,
+      code: 'backend_not_ready',
+      paywall: null,
+      error: readyState.detail,
+    };
+  }
 
-  const response = await fetch(`${VOICE_SERVER_URL}/ai/voice_flow`, {
+  const response = await fetch(VOICE_SERVER_VOICE_FLOW_URL, {
     method: 'POST',
     body: buildVoiceFlowFormData(payload),
   });
-  const result = await response.json();
+  const result = await readJsonSafely(response);
 
-  if (!response.ok || result.status === 'ERROR') {
+  if (!response.ok || !result || typeof result !== 'object' || result?.status === 'ERROR') {
+    const detail = result?.data?.detail || result?.data?.refine_text || resolveVoiceServerProbeDetail(VOICE_SERVER_VOICE_FLOW_URL, response.status, result);
     return {
       success: false,
       aborted: false,
       debug: result,
-      error: result?.data?.refine_text || `语音后端请求失败: ${response.status}`,
+      detail,
+      code: result?.data?.code || 'voice_flow_failed',
+      paywall: result?.data?.important_notification || null,
+      web_metadata: result?.data?.web_metadata ?? null,
+      external_action: result?.data?.external_action ?? null,
+      error: result?.data?.refine_text || detail,
     };
   }
+
+  const resultData = result.data || {};
 
   return {
     success: true,
     aborted: false,
     debug: result,
-    data: result.data || {},
-    ...result.data,
+    data: resultData,
+    detail: '',
+    code: '',
+    paywall: null,
+    web_metadata: resultData.web_metadata ?? null,
+    external_action: resultData.external_action ?? null,
+    ...resultData,
   };
 }
 
@@ -916,7 +977,23 @@ function registerIpcHandlers() {
 
   ipcMain.handle('user:get-current', () => localUser);
   ipcMain.handle('user:is-logged-in', () => true);
-  ipcMain.handle('user:logout', () => true);
+  ipcMain.handle('user:login', (_, payload = {}) => {
+    localUser = {
+      ...localUser,
+      ...(payload || {}),
+      subscription: {
+        ...localUser.subscription,
+        ...(payload?.subscription || {}),
+      },
+    };
+    emitUserStateChange();
+    emitUserRoleChange();
+    return true;
+  });
+  ipcMain.handle('user:logout', () => {
+    emitUserStateChange();
+    return true;
+  });
 
   ipcMain.handle('db:get-device-id', () => crypto.createHash('sha256').update(os.hostname()).digest('hex'));
   ipcMain.handle('db:history-list', (_, cursor, limit) => {
@@ -1013,6 +1090,13 @@ function registerIpcHandlers() {
     createFloatingBar();
     return true;
   });
+  ipcMain.handle('page:restart-typeless-bar', () => {
+    if (floatingBar && !floatingBar.isDestroyed()) {
+      floatingBar.close();
+    }
+    createFloatingBar();
+    return true;
+  });
   ipcMain.handle('page:set-floating-bar-enabled', (_, payload = {}) => {
     setFloatingBarEnabled(payload.enabled);
     return true;
@@ -1025,6 +1109,29 @@ function registerIpcHandlers() {
   ipcMain.handle('page:change-hub-route', (_, payload = {}) => {
     createMainWindow();
     sendToMain('page-event--hub--change-route', payload);
+    return true;
+  });
+  ipcMain.handle('page:open-devtools', (_, payload = {}) => {
+    const target = payload?.target === 'floating-bar' ? floatingBar : mainWindow;
+    if (target && !target.isDestroyed()) {
+      target.webContents.openDevTools({ mode: payload?.mode || 'detach' });
+      return true;
+    }
+    createMainWindow();
+    mainWindow?.webContents.openDevTools({ mode: payload?.mode || 'detach' });
+    return true;
+  });
+  ipcMain.handle('page:close-all-devtools', () => {
+    for (const target of [mainWindow, floatingBar]) {
+      if (target && !target.isDestroyed() && target.webContents.isDevToolsOpened()) {
+        target.webContents.closeDevTools();
+      }
+    }
+    return true;
+  });
+  ipcMain.handle('page:open-sidebar', (_, payload = {}) => {
+    createMainWindow();
+    sendToMain('page-event--hub--open-sidebar', payload);
     return true;
   });
   ipcMain.handle('page:floating-bar-click', () => true);
@@ -1061,10 +1168,27 @@ function registerIpcHandlers() {
     return true;
   });
   ipcMain.handle('page:complete-onboarding', () => true);
-  ipcMain.handle('page:close-interactive-card', () => true);
-  ipcMain.handle('page:get-interactive-card-payload', () => null);
+  ipcMain.handle('page:open-interactive-card', (_, payload = {}) => {
+    pendingInteractiveCardPayload = payload;
+    sendToMain('interactive-card:update', payload);
+    return true;
+  });
+  ipcMain.handle('page:close-interactive-card', () => {
+    pendingInteractiveCardPayload = null;
+    sendToMain('interactive-card:update', null);
+    return true;
+  });
+  ipcMain.handle('page:get-interactive-card-payload', () => pendingInteractiveCardPayload);
   ipcMain.handle('page:update-interactive-card-bounds', () => true);
   ipcMain.handle('page:close-sidebar', () => true);
+  ipcMain.handle('page:launch-application', async (_, payload = {}) => {
+    const candidate = payload?.path || payload?.applicationPath || payload?.url || payload;
+    if (typeof candidate !== 'string' || !candidate) return false;
+    if (candidate.startsWith('http:') || candidate.startsWith('https:') || candidate.startsWith('ms-settings:')) {
+      return openExternalUrl(candidate);
+    }
+    return shell.openPath(candidate).then((result) => result === '');
+  });
   ipcMain.handle('page:set-debug-window-position', () => true);
 
   ipcMain.handle('audio:opus-compress-by-buffer', (_, payload = {}) => ({
@@ -1078,17 +1202,24 @@ function registerIpcHandlers() {
     try {
       return await callVoiceFlowBackend(payload);
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
       return {
         success: false,
         aborted: false,
         debug: null,
-        error: error instanceof Error ? error.message : String(error),
+        detail,
+        code: 'voice_flow_failed',
+        paywall: null,
+        web_metadata: null,
+        external_action: null,
+        error: detail,
       };
     }
   });
   ipcMain.handle('audio:abort-ai-voice-flow-request', () => true);
   ipcMain.handle('audio:get-devices-async', () => ({ success: true, devices: [], message: 'no devices in shim' }));
-  ipcMain.handle('audio:ensure-voice-server', async () => ({ success: await ensureVoiceServer() }));
+  ipcMain.handle('audio:check-voice-server-ready', async () => checkVoiceServerReady());
+  ipcMain.handle('audio:ensure-voice-server', async () => checkVoiceServerReady());
   ipcMain.handle('audio:mute-background-sessions', async () => muteBackgroundSessionsForRecording());
   ipcMain.handle('audio:restore-background-sessions', async () => restoreMutedBackgroundSessions());
   ipcMain.handle('audio:is-muted', () => ({ success: true, isMuted: backgroundMuteActive }));
@@ -1101,6 +1232,12 @@ function registerIpcHandlers() {
     localStores['app-settings'].preferredLanguage = DEFAULT_LANGUAGE;
     sendToMain('i18n:language-changed', { lng: localStores['app-settings'].preferredLanguage });
     sendToFloatingBar('i18n:language-changed', { lng: localStores['app-settings'].preferredLanguage });
+    return true;
+  });
+  ipcMain.handle('i18n:reset-to-system-language', () => {
+    localStores['app-settings'].preferredLanguage = DEFAULT_LANGUAGE;
+    sendToMain('i18n:language-changed', { lng: DEFAULT_LANGUAGE });
+    sendToFloatingBar('i18n:language-changed', { lng: DEFAULT_LANGUAGE });
     return true;
   });
   ipcMain.handle('mixpanel:track-event', () => ({ success: true }));
@@ -1127,13 +1264,61 @@ function registerIpcHandlers() {
   ipcMain.handle('focused-context:get-selected-text', () => '');
   ipcMain.handle('focused-context:get-full-context', () => ({ success: true, data: null }));
   ipcMain.handle('device:is-lid-open', () => true);
-  ipcMain.handle('file:save-recording-log', () => true);
+  ipcMain.handle('file:save-recording-log', (_, payload = {}) => {
+    fs.mkdirSync(localDataDir(), { recursive: true });
+    const content = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+    fs.writeFileSync(logFilePath(), `${content}\n`, 'utf8');
+    return true;
+  });
+  ipcMain.handle('file:open-log', async () => {
+    fs.mkdirSync(localDataDir(), { recursive: true });
+    if (!fs.existsSync(logFilePath())) {
+      fs.writeFileSync(logFilePath(), '', 'utf8');
+    }
+    return (await shell.openPath(logFilePath())) === '';
+  });
+  ipcMain.handle('file:clear-log', () => {
+    fs.mkdirSync(localDataDir(), { recursive: true });
+    fs.writeFileSync(logFilePath(), '', 'utf8');
+    return true;
+  });
+  ipcMain.handle('file:open-recordings', async () => {
+    fs.mkdirSync(recordingsDir(), { recursive: true });
+    return (await shell.openPath(recordingsDir())) === '';
+  });
+  ipcMain.handle('file:read-recordings-size', async () => ({
+    success: true,
+    size: calculateDirectorySize(recordingsDir()),
+  }));
   ipcMain.handle('file:save-audio-with-dialog', () => ({ success: false, canceled: true }));
   ipcMain.handle('rsa:set-config', () => true);
   ipcMain.handle('rsa:get-config', () => ({ publicKey: '', enabled: false }));
   ipcMain.handle('rsa:is-enabled', () => false);
   ipcMain.handle('rsa:clear', () => true);
   ipcMain.handle('rsa:encrypt', (_, payload = {}) => payload.value || '');
+  ipcMain.handle('test:get-latest-history', () => {
+    const latest = readHistoryItems()[0] || null;
+    return { success: Boolean(latest), data: latest };
+  });
+  ipcMain.handle('test:generate-test-records', (_, payload = {}) => {
+    const count = Math.max(1, Number(payload?.count) || 3);
+    const records = Array.from({ length: count }, (_, index) => normalizeHistoryItem({
+      id: `test-record-${Date.now()}-${index}`,
+      mode: 'Dictate',
+      status: 'completed',
+      rawText: `test raw ${index + 1}`,
+      refinedText: `test refined ${index + 1}`,
+      durationMs: 1000 * (index + 1),
+      textLength: 16,
+      isTestRecord: true,
+    }));
+    writeHistoryItems([...records, ...readHistoryItems()]);
+    return { success: true, count: records.length };
+  });
+  ipcMain.handle('test:clear-test-records', () => {
+    writeHistoryItems(readHistoryItems().filter((item) => !item.isTestRecord));
+    return { success: true };
+  });
   ipcMain.handle('troubleshooting:get-system-info', () => ({
     success: true,
     data: {
@@ -1178,7 +1363,6 @@ app.whenReady().then(() => {
   createMainWindow();
   createFloatingBar();
   startRightAltListener();
-  ensureVoiceServer().catch((error) => console.error('语音后端预启动失败:', error));
 });
 
 app.on('window-all-closed', (event) => event.preventDefault());
@@ -1203,6 +1387,5 @@ app.on('will-quit', () => {
     rightAltRelay = null;
   }
   stopRightAltListener();
-  stopVoiceServer();
   globalShortcut.unregisterAll();
 });

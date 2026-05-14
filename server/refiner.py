@@ -2,9 +2,9 @@
 
 import os
 from openai import AsyncOpenAI
-from dotenv import load_dotenv
+from runtime_config import load_server_env
 
-load_dotenv()
+load_server_env()
 
 _client = None
 

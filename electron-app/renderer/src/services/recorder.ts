@@ -1,5 +1,6 @@
 import { ipcClient } from './ipc'
 import { getSelectedAudioDeviceId } from './settingsStore'
+import { VOICE_SERVER_WS_URL } from './voiceServer'
 import {
   createVoiceError,
   initialVoiceSession,
@@ -11,7 +12,6 @@ import {
   type VoiceStatus,
 } from './voiceTypes'
 
-const WS_URL = 'ws://localhost:8000/ws/rt_voice_flow'
 const CONNECT_TIMEOUT_MS = 2500
 const TRANSCRIBE_TIMEOUT_MS = 60000
 const CANCELABLE_STATUSES = new Set<VoiceStatus>(['connecting', 'recording', 'stopping', 'transcribing'])
@@ -231,26 +231,73 @@ function handleRawText(text: string) {
   setSession({ ...session, rawText: text, textLength: countTextLength(text) })
 }
 
+function isVoiceFinalMessageType(messageType: string) {
+  return ['audio_processing_completed', 'refine_completed', 'refine_selected_text'].includes(messageType)
+}
+
+function isVoiceErrorMessageType(messageType: string) {
+  return ['error', 'transcription_error', 'audio_processing_error', 'refine_error', 'refine_selected_text_error'].includes(messageType)
+}
+
+function normalizeSocketError(messageType: string, payload: Record<string, unknown> = {}) {
+  const detail = typeof payload.detail === 'string'
+    ? payload.detail
+    : typeof payload.message === 'string'
+      ? payload.message
+      : ''
+
+  if (messageType === 'transcription_error') {
+    return createVoiceError('asr_failed', detail)
+  }
+
+  if (['audio_processing_error', 'refine_error', 'refine_selected_text_error'].includes(messageType)) {
+    return createVoiceError('refine_failed', detail)
+  }
+
+  if (Number(payload.code) === 503 || detail.includes('尚未就绪')) {
+    return createVoiceError('backend_unavailable', detail)
+  }
+
+  return createVoiceError('unknown', detail)
+}
+
 function handleSocketMessage(event: MessageEvent) {
   try {
     const msg = JSON.parse(String(event.data))
+    const messageType = String(msg?.K || '')
     const audioId = msg?.V?.audio_id
     if (audioId && ignoredAudioIds.has(audioId)) return
     if (audioId && session.audioId && audioId !== session.audioId) return
     if (session.status === 'cancelled') return
+    if (messageType === 'error' && Number(msg?.V?.code) === 90002 && msg?.V?.detail === 'Unknown message type') return
+    if ((session.status === 'completed' || session.status === 'error') && (isVoiceFinalMessageType(messageType) || isVoiceErrorMessageType(messageType))) {
+      return
+    }
 
-    if (msg.K === 'transcription') {
+    if (messageType === 'transcription') {
       handleRawText(msg.V?.text || '')
       return
     }
 
-    if (msg.K === 'audio_processing_completed') {
+    if (messageType === 'important_notification') {
+      if (msg?.V?.behavior?.interruptSession) {
+        failSession(createVoiceError('backend_unavailable', typeof msg?.V?.detail === 'string' ? msg.V.detail : '会话已被中断'))
+      }
+      return
+    }
+
+    if (isVoiceFinalMessageType(messageType)) {
       const refinedText = msg.V?.refined_text || msg.V?.refine_text || ''
       if (!refinedText && !session.rawText) {
         failSession(createVoiceError('audio_empty'))
         return
       }
       void completeSession(refinedText || session.rawText)
+      return
+    }
+
+    if (isVoiceErrorMessageType(messageType)) {
+      failSession(normalizeSocketError(messageType, msg?.V || {}))
     }
   } catch (error) {
     failSession(createVoiceError('protocol_invalid', error instanceof Error ? error.message : String(error)))
@@ -261,7 +308,7 @@ function ensureOpenWebSocket(): Promise<WebSocket> {
   if (ws?.readyState === WebSocket.OPEN) return Promise.resolve(ws)
   if (ws?.readyState === WebSocket.CONNECTING) return waitForOpenWebSocket(ws)
 
-  ws = new WebSocket(WS_URL)
+  ws = new WebSocket(VOICE_SERVER_WS_URL)
   ws.binaryType = 'arraybuffer'
   ws.onmessage = handleSocketMessage
   ws.onclose = () => {
@@ -308,9 +355,16 @@ function waitForOpenWebSocket(socket: WebSocket): Promise<WebSocket> {
 }
 
 async function ensureVoiceServerReady() {
-  const result = await ipcClient.invoke('audio:ensure-voice-server') as { success?: boolean }
+  let result: { success?: boolean; detail?: string; status?: string } | null = null
+
+  try {
+    result = await ipcClient.invoke('audio:check-voice-server-ready') as { success?: boolean; detail?: string; status?: string }
+  } catch {
+    result = await ipcClient.invoke('audio:ensure-voice-server') as { success?: boolean; detail?: string; status?: string }
+  }
+
   if (!result?.success) {
-    throw createVoiceError('backend_unavailable')
+    throw createVoiceError('backend_unavailable', result?.detail || result?.status || '')
   }
 }
 

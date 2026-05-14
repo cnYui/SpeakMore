@@ -1,4 +1,10 @@
 import { ipcClient } from './ipc'
+import {
+  VOICE_SERVER_HEALTH_URL,
+  VOICE_SERVER_READY_URL,
+  probeVoiceServerHealth,
+  probeVoiceServerReady,
+} from './voiceServer'
 
 export type DiagnosticStatus = 'ok' | 'warning' | 'error'
 
@@ -11,16 +17,19 @@ export type DiagnosticItem = {
 export async function runDiagnostics(): Promise<DiagnosticItem[]> {
   const results: DiagnosticItem[] = []
 
-  try {
-    const response = await fetch('http://127.0.0.1:8000/health')
-    results.push({
-      name: '语音后端',
-      status: response.ok ? 'ok' : 'error',
-      message: response.ok ? '后端运行正常' : `后端返回 ${response.status}`,
-    })
-  } catch {
-    results.push({ name: '语音后端', status: 'error', message: '无法连接 http://127.0.0.1:8000/health' })
-  }
+  const health = await probeVoiceServerHealth()
+  results.push({
+    name: '语音后端存活',
+    status: health.ok ? 'ok' : 'error',
+    message: health.ok ? `${VOICE_SERVER_HEALTH_URL} 可访问` : health.detail,
+  })
+
+  const ready = await probeVoiceServerReady()
+  results.push({
+    name: '语音链路就绪',
+    status: ready.ok ? 'ok' : 'error',
+    message: ready.ok ? `${VOICE_SERVER_READY_URL} 已就绪` : ready.detail,
+  })
 
   try {
     const devices = await navigator.mediaDevices.enumerateDevices()

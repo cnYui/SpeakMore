@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "scripts": {
     "start": "electron ./electron-app",
-    "server": "cd server && python main.py"
+    "start:electron": "electron ./electron-app",
+    "server": "cd server && python main.py",
+    "renderer:build": "cd electron-app/renderer && npm run build",
+    "verify:voice": "python -m pytest server\\test_runtime_config.py server\\test_service_readiness.py server\\test_asr_runtime.py server\\test_asr_config.py server\\test_voice_flow_contract.py server\\test_ws_protocol_contract.py -q"
   },
   "devDependencies": {
     "electron": "^33.4.11"
