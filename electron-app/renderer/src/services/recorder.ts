@@ -21,6 +21,7 @@ let ws: WebSocket | null = null
 let mediaRecorder: MediaRecorder | null = null
 let activeStream: MediaStream | null = null
 let transcribeTimer: number | null = null
+let backgroundAudioRestorePending = false
 const listeners = new Set<VoiceSessionListener>()
 
 export function getVoiceSession() {
@@ -49,6 +50,7 @@ export async function toggleRecording(mode: VoiceMode) {
 }
 
 export async function startRecording(mode: VoiceMode) {
+  backgroundAudioRestorePending = false
   setSession({
     ...initialVoiceSession,
     status: 'connecting',
@@ -85,6 +87,7 @@ export async function startRecording(mode: VoiceMode) {
 
     mediaRecorder.start(500)
     setSessionStatus('recording')
+    void muteBackgroundAudio()
   } catch (error) {
     cleanupRecording()
     failSession(normalizeVoiceError(error, 'recording_start_failed'))
@@ -117,6 +120,7 @@ export function stopRecording() {
 export function disposeRecorder() {
   clearTranscribeTimeout()
   cleanupRecording()
+  void restoreBackgroundAudio()
   if (ws) {
     ws.onopen = null
     ws.onclose = null
@@ -141,15 +145,18 @@ function setSessionStatus(status: VoiceStatus) {
 function failSession(error: VoiceError) {
   clearTranscribeTimeout()
   cleanupRecording()
+  void restoreBackgroundAudio()
   setSession({ ...session, status: 'error', error })
 }
 
-function completeSession(refinedText: string) {
+async function completeSession(refinedText: string) {
   clearTranscribeTimeout()
   setSession({ ...session, status: 'completed', refinedText, error: null })
+  await restoreBackgroundAudio()
   if (!refinedText) return
 
   ipcClient.invoke('keyboard:type-transcript', refinedText).catch((error) => {
+    void restoreBackgroundAudio()
     setSession({
       ...session,
       status: 'error',
@@ -179,7 +186,7 @@ function handleSocketMessage(event: MessageEvent) {
         failSession(createVoiceError('audio_empty'))
         return
       }
-      completeSession(refinedText || session.rawText)
+      void completeSession(refinedText || session.rawText)
     }
   } catch (error) {
     failSession(createVoiceError('protocol_invalid', error instanceof Error ? error.message : String(error)))
@@ -250,6 +257,25 @@ function startTranscribeTimeout() {
 function clearTranscribeTimeout() {
   if (transcribeTimer) window.clearTimeout(transcribeTimer)
   transcribeTimer = null
+}
+
+async function muteBackgroundAudio() {
+  try {
+    const result = await ipcClient.invoke('audio:mute-background-sessions') as { success?: boolean }
+    backgroundAudioRestorePending = Boolean(result?.success)
+  } catch {
+    backgroundAudioRestorePending = false
+  }
+}
+
+async function restoreBackgroundAudio() {
+  if (!backgroundAudioRestorePending) return
+
+  try {
+    await ipcClient.invoke('audio:restore-background-sessions')
+  } finally {
+    backgroundAudioRestorePending = false
+  }
 }
 
 function cleanupStream() {

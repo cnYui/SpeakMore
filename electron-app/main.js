@@ -28,11 +28,15 @@ let voiceServerStartPromise = null;
 let keyboardStateEmitTimer = null;
 let floatingBarCompletedHideTimer = null;
 let floatingBarEnabled = true;
+let backgroundMuteActive = false;
+let mutedBackgroundSessions = [];
+let quitAfterBackgroundAudioRestore = false;
 const keyboardStateByName = new Map();
 
 const DEFAULT_LANGUAGE = 'zh-CN';
 const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
 const FLOATING_BAR_COMPLETED_HIDE_DELAY_MS = 1200;
+const AUDIO_SESSION_CONTROL_TIMEOUT_MS = 5000;
 
 const WS_PATCH_SCRIPT = `
 (function() {
@@ -117,6 +121,10 @@ function trayIconPath() {
 
 function rightAltListenerPath() {
   return path.join(__dirname, 'right-alt-listener.ps1');
+}
+
+function audioSessionControlPath() {
+  return path.join(__dirname, 'audio-session-control.ps1');
 }
 
 function serverPath() {
@@ -367,6 +375,142 @@ function minimalProcessEnv(extra = {}) {
     LOCALAPPDATA: process.env.LOCALAPPDATA,
     ...extra,
   };
+}
+
+function shouldMuteBackgroundAudio() {
+  return process.platform === 'win32' && localStores['app-settings'].enabledMuteBackgroundAudio !== false;
+}
+
+function getTypelessProcessIds() {
+  const processIds = new Set([process.pid]);
+
+  for (const windowInstance of BrowserWindow.getAllWindows()) {
+    if (windowInstance.isDestroyed()) continue;
+    const osProcessId = windowInstance.webContents?.getOSProcessId?.();
+    if (typeof osProcessId === 'number' && osProcessId > 0) {
+      processIds.add(osProcessId);
+    }
+  }
+
+  return Array.from(processIds);
+}
+
+function runAudioSessionControl(action, payload = {}) {
+  return new Promise((resolve, reject) => {
+    if (!shouldMuteBackgroundAudio()) {
+      resolve({ success: true, mutedSessions: [], restoredSessions: [] });
+      return;
+    }
+
+    const child = spawn('powershell.exe', [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      audioSessionControlPath(),
+      '-Action',
+      action,
+      '-Payload',
+      JSON.stringify(payload),
+    ], {
+      cwd: __dirname,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: minimalProcessEnv(),
+    });
+
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`audio session control timeout after ${AUDIO_SESSION_CONTROL_TIMEOUT_MS}ms`));
+    }, AUDIO_SESSION_CONTROL_TIMEOUT_MS);
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `audio session control exited with code ${code}`));
+        return;
+      }
+
+      try {
+        resolve(stdout.trim() ? JSON.parse(stdout) : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+async function restoreMutedBackgroundSessions() {
+  if (!mutedBackgroundSessions.length) {
+    backgroundMuteActive = false;
+    return { success: true, restoredSessions: [] };
+  }
+
+  try {
+    const result = await runAudioSessionControl('restore-sessions', {
+      mutedSessions: mutedBackgroundSessions,
+    });
+    mutedBackgroundSessions = [];
+    backgroundMuteActive = false;
+    return {
+      success: Boolean(result?.success),
+      restoredSessions: Array.isArray(result?.restoredSessions) ? result.restoredSessions : [],
+    };
+  } catch (error) {
+    console.error('恢复后台音频会话失败:', error);
+    mutedBackgroundSessions = [];
+    backgroundMuteActive = false;
+    return {
+      success: false,
+      restoredSessions: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function muteBackgroundSessionsForRecording() {
+  if (!shouldMuteBackgroundAudio()) {
+    mutedBackgroundSessions = [];
+    backgroundMuteActive = false;
+    return { success: true, mutedSessions: [] };
+  }
+
+  if (backgroundMuteActive || mutedBackgroundSessions.length) {
+    await restoreMutedBackgroundSessions();
+  }
+
+  try {
+    const result = await runAudioSessionControl('mute-active-sessions', {
+      excludedProcessIds: getTypelessProcessIds(),
+    });
+    mutedBackgroundSessions = Array.isArray(result?.mutedSessions) ? result.mutedSessions : [];
+    backgroundMuteActive = mutedBackgroundSessions.length > 0;
+    return {
+      success: Boolean(result?.success),
+      mutedSessions: mutedBackgroundSessions,
+    };
+  } catch (error) {
+    console.error('静音后台音频会话失败:', error);
+    mutedBackgroundSessions = [];
+    backgroundMuteActive = false;
+    return {
+      success: false,
+      mutedSessions: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function isVoiceServerReady() {
@@ -809,9 +953,11 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('audio:abort-ai-voice-flow-request', () => true);
   ipcMain.handle('audio:get-devices-async', () => ({ success: true, devices: [], message: 'no devices in shim' }));
-  ipcMain.handle('audio:is-muted', () => ({ success: true, isMuted: false }));
-  ipcMain.handle('audio:mute', () => ({ success: true }));
-  ipcMain.handle('audio:unmute', () => ({ success: true }));
+  ipcMain.handle('audio:mute-background-sessions', async () => muteBackgroundSessionsForRecording());
+  ipcMain.handle('audio:restore-background-sessions', async () => restoreMutedBackgroundSessions());
+  ipcMain.handle('audio:is-muted', () => ({ success: true, isMuted: backgroundMuteActive }));
+  ipcMain.handle('audio:mute', async () => muteBackgroundSessionsForRecording());
+  ipcMain.handle('audio:unmute', async () => restoreMutedBackgroundSessions());
 
   ipcMain.handle('store:use', handleStoreUse);
   ipcMain.handle('i18n:get-language', () => localStores['app-settings'].preferredLanguage);
@@ -900,6 +1046,17 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', (event) => event.preventDefault());
+app.on('before-quit', (event) => {
+  if (quitAfterBackgroundAudioRestore || (!backgroundMuteActive && !mutedBackgroundSessions.length)) {
+    return;
+  }
+
+  event.preventDefault();
+  quitAfterBackgroundAudioRestore = true;
+  void restoreMutedBackgroundSessions().finally(() => {
+    app.quit();
+  });
+});
 app.on('will-quit', () => {
   if (rightAltReleaseTimer) {
     clearTimeout(rightAltReleaseTimer);
