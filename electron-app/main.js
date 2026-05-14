@@ -15,20 +15,20 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const { createRightAltRelay } = require('./right-alt-relay');
 
 let mainWindow = null;
 let floatingBar = null;
 let tray = null;
 let registeredIpc = false;
 let rightAltReleaseTimer = null;
+let rightAltRelay = null;
 let rightAltListener = null;
 let rightAltListenerStdout = '';
 let voiceServerProcess = null;
 let voiceServerStartPromise = null;
-let keyboardStateEmitTimer = null;
 let floatingBarCompletedHideTimer = null;
 let floatingBarEnabled = true;
-const keyboardStateByName = new Map();
 
 const DEFAULT_LANGUAGE = 'zh-CN';
 const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
@@ -233,24 +233,23 @@ function keyboardEventFromListenerPayload(payload) {
   return payload.isKeydown ? createRightAltKeyDownEvent() : createRightAltKeyUpEvent();
 }
 
-function emitActiveKeyboardState() {
-  if (keyboardStateEmitTimer) {
-    clearTimeout(keyboardStateEmitTimer);
-    keyboardStateEmitTimer = null;
-  }
-
-  emitKeyboardState(Array.from(keyboardStateByName.values()));
-}
-
-function scheduleActiveKeyboardStateEmit() {
-  if (keyboardStateEmitTimer) clearTimeout(keyboardStateEmitTimer);
-  keyboardStateEmitTimer = setTimeout(emitActiveKeyboardState, 90);
-}
-
 function emitKeyboardState(keys) {
   updateFloatingBarVisibility(keys);
   sendToFloatingBar('global-keyboard', keys);
   sendToMain('global-keyboard', keys);
+}
+
+function getRightAltRelay() {
+  if (rightAltRelay) return rightAltRelay;
+
+  rightAltRelay = createRightAltRelay({
+    emitKeyboardState,
+    setTimer: setTimeout,
+    clearTimer: clearTimeout,
+    now: () => Date.now(),
+  });
+
+  return rightAltRelay;
 }
 
 function emitRightAltPulse() {
@@ -271,36 +270,7 @@ function handleRightAltListenerLine(line) {
 
   try {
     const payload = JSON.parse(line);
-    if (payload.key !== 'RightAlt' && payload.key !== 'RightShift' && payload.key !== 'Space') return;
-
-    if (payload.isKeydown) {
-      if (payload.key !== 'RightAlt' && !keyboardStateByName.has('RightAlt')) return;
-      keyboardStateByName.set(payload.key, keyboardEventFromListenerPayload(payload));
-      if (payload.key === 'RightAlt') {
-        scheduleActiveKeyboardStateEmit();
-      } else {
-        emitActiveKeyboardState();
-      }
-      return;
-    }
-
-    if (payload.key === 'RightAlt') {
-      keyboardStateByName.delete('RightAlt');
-      keyboardStateByName.delete('RightShift');
-      keyboardStateByName.delete('Space');
-      emitKeyboardState([
-        createRightAltKeyUpEvent(),
-        createRightShiftKeyboardEvent(false),
-        createSpaceKeyboardEvent(false),
-      ]);
-      setTimeout(() => emitKeyboardState([]), 40);
-      return;
-    }
-
-    if (!keyboardStateByName.has(payload.key)) return;
-    keyboardStateByName.delete(payload.key);
-    emitKeyboardState([keyboardEventFromListenerPayload(payload)]);
-    setTimeout(() => emitKeyboardState(Array.from(keyboardStateByName.values())), 40);
+    getRightAltRelay().handlePayload(payload);
   } catch (error) {
     console.error('Right Alt 监听器输出解析失败:', error);
   }
@@ -905,9 +875,9 @@ app.on('will-quit', () => {
     clearTimeout(rightAltReleaseTimer);
     rightAltReleaseTimer = null;
   }
-  if (keyboardStateEmitTimer) {
-    clearTimeout(keyboardStateEmitTimer);
-    keyboardStateEmitTimer = null;
+  if (rightAltRelay) {
+    rightAltRelay.dispose();
+    rightAltRelay = null;
   }
   stopRightAltListener();
   stopVoiceServer();
