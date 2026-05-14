@@ -70,10 +70,12 @@ test('主进程注册真实 bundle 首屏所需的 IPC shim', async () => {
   const main = await readProjectFile('../main.js');
   const channels = [
     'user:get-current',
+    'user:login',
     'user:logout',
     'db:history-get',
     'db:history-latest',
     'db:history-list',
+    'i18n:reset-to-system-language',
     'keyboard:start-keyboard-listener',
     'keyboard:stop-keyboard-listener',
     'keyboard-input:reload-keyboard-shortcuts',
@@ -85,10 +87,23 @@ test('主进程注册真实 bundle 首屏所需的 IPC shim', async () => {
     'page:floating-bar-set-always-on-top-for-windows',
     'audio:opus-compress-by-buffer',
     'audio:clean-opus-audio-file',
+    'file:open-log',
+    'file:clear-log',
+    'file:open-recordings',
+    'file:read-recordings-size',
     'store:use',
+    'test:get-latest-history',
+    'test:generate-test-records',
+    'test:clear-test-records',
     'clipboard:write-text',
     'focused-context:get-last-focused-info',
     'focused-context:get-selected-text',
+    'page:restart-typeless-bar',
+    'page:open-devtools',
+    'page:close-all-devtools',
+    'page:open-sidebar',
+    'page:open-interactive-card',
+    'page:launch-application',
   ];
 
   for (const channel of channels) {
@@ -172,13 +187,25 @@ test('语音输入 IPC 会调用本地后端并把结果粘贴到焦点应用', 
   const main = await readProjectFile('../main.js');
 
   assert.match(main, /VOICE_SERVER_URL\s*=\s*['"]http:\/\/127\.0\.0\.1:8000['"]/);
-  assert.match(main, /ensureVoiceServer/);
+  assert.match(main, /checkVoiceServerReady/);
+  assert.match(main, /\/ready/);
   assert.match(main, /\/ai\/voice_flow/);
   assert.match(main, /FormData/);
   assert.match(main, /fetch\(/);
   assert.doesNotMatch(main, /audio:ai-voice-flow['"],\s*\(\)\s*=>\s*\(\{\s*success:\s*false[\s\S]*not_implemented/);
   assert.match(main, /keyboard:type-transcript['"][\s\S]*clipboard\.writeText/);
   assert.match(main, /System\.Windows\.Forms\.SendKeys/);
+});
+
+test('audio:ai-voice-flow 会补齐逆向请求字段并保留关键返回字段', async () => {
+  const main = await readProjectFile('../main.js');
+
+  assert.match(main, /formData\.append\(['"]user_over_time['"]/);
+  assert.match(main, /detail:/);
+  assert.match(main, /code:/);
+  assert.match(main, /paywall:/);
+  assert.match(main, /web_metadata/);
+  assert.match(main, /external_action/);
 });
 
 test('主进程具备后台音频会话静音脚本入口和新 IPC', async () => {
@@ -217,11 +244,31 @@ test('recorder 在录音期间分析真实麦克风音量并同步 inputLevel', 
 test('WebSocket 录音入口会先等待主进程确认语音后端 ready', async () => {
   const main = await readProjectFile('../main.js');
   const recorder = await readProjectFile('src/services/recorder.ts');
+  const diagnostics = await readProjectFile('src/services/diagnostics.ts');
+  const voiceServer = await readProjectFile('src/services/voiceServer.ts');
 
-  assert.match(main, /ipcMain\.handle\(['"]audio:ensure-voice-server['"]/);
-  assert.match(main, /audio:ensure-voice-server['"][\s\S]*ensureVoiceServer/);
-  assert.match(recorder, /ipcClient\.invoke\(['"]audio:ensure-voice-server['"]/);
+  assert.match(main, /ipcMain\.handle\(['"]audio:check-voice-server-ready['"]/);
+  assert.match(main, /audio:ensure-voice-server['"][\s\S]*checkVoiceServerReady/);
+  assert.match(recorder, /ipcClient\.invoke\(['"]audio:check-voice-server-ready['"]/);
+  assert.match(recorder, /from ['"]\.\/voiceServer['"]/);
+  assert.match(diagnostics, /from ['"]\.\/voiceServer['"]/);
+  assert.match(voiceServer, /VOICE_SERVER_HTTP_BASE_URL/);
+  assert.match(voiceServer, /VOICE_SERVER_READY_URL/);
+  assert.match(voiceServer, /VOICE_SERVER_WS_URL/);
+  assert.doesNotMatch(recorder, /ws:\/\/localhost:8000\/ws\/rt_voice_flow/);
   assert.match(recorder, /await\s+ensureVoiceServerReady\(\)[\s\S]*ensureOpenWebSocket\(\)/);
+});
+
+test('Electron 不再负责拉起或关闭语音后端进程', async () => {
+  const main = await readProjectFile('../main.js');
+
+  assert.doesNotMatch(main, /voiceServerProcess/);
+  assert.doesNotMatch(main, /voiceServerStartPromise/);
+  assert.doesNotMatch(main, /function ensureVoiceServer/);
+  assert.doesNotMatch(main, /function stopVoiceServer/);
+  assert.doesNotMatch(main, /spawn\(process\.env\.PYTHON \|\| ['"]python['"], \['main\.py'\]/);
+  assert.doesNotMatch(main, /ensureVoiceServer\(\)\.catch/);
+  assert.doesNotMatch(main, /stopVoiceServer\(\)/);
 });
 
 test('前端按键事件按真实快捷键模式启动和停止语音流', async () => {
@@ -479,9 +526,14 @@ test('P1 诊断页与导航配置已从静态展示切到真实服务', async ()
   const diagnosticsPage = await readProjectFile('src/pages/Diagnostics.tsx');
   const navigation = await readProjectFile('src/navigation.ts');
   const uiTokens = await readProjectFile('src/uiTokens.ts');
+  const voiceServer = await readProjectFile('src/services/voiceServer.ts');
 
   assert.match(diagnosticsService, /runDiagnostics/);
-  assert.match(diagnosticsService, /http:\/\/127\.0\.0\.1:8000\/health/);
+  assert.match(diagnosticsService, /probeVoiceServerHealth/);
+  assert.match(diagnosticsService, /probeVoiceServerReady/);
+  assert.match(diagnosticsService, /VOICE_SERVER_HEALTH_URL/);
+  assert.match(diagnosticsService, /VOICE_SERVER_READY_URL/);
+  assert.match(voiceServer, /http:\/\/127\.0\.0\.1:8000/);
   assert.match(diagnosticsPage, /runDiagnostics/);
   assert.match(diagnosticsPage, /诊断中/);
   assert.match(navigation, /export\s+type\s+Page/);

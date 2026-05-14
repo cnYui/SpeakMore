@@ -138,6 +138,7 @@ function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream
     invoke: async (channel: string, payload?: unknown) => {
       invokeCalls.push({ channel, payload })
       if (channel === 'audio:ensure-voice-server') return { success: true } as never
+      if (channel === 'audio:check-voice-server-ready') return { success: true } as never
       if (channel === 'audio:mute-background-sessions') return { success: true } as never
       if (channel === 'audio:restore-background-sessions') {
         restoreCalls += 1
@@ -329,6 +330,92 @@ test('cancelRecording 在 transcribing 态会忽略迟到完成消息且不会�
     assert.equal(recorder.getVoiceSession().refinedText, '')
     assert.equal(recorder.getVoiceSession().error, null)
     assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript'), false)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('startRecording 会先通过新 IPC 检查 ready，并连接集中定义的 WebSocket 地址', async () => {
+  const env = createTestEnvironment()
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('ready-check')
+    await recorder.startRecording('Dictate')
+
+    const readyCheckIndex = env.invokeCalls.findIndex((call) => call.channel === 'audio:check-voice-server-ready')
+    const settingsGetIndex = env.invokeCalls.findIndex((call) => call.channel === 'settings:get')
+    const socket = env.sockets[0]
+
+    assert.ok(socket)
+    assert.notEqual(readyCheckIndex, -1)
+    assert.notEqual(settingsGetIndex, -1)
+    assert.ok(readyCheckIndex < settingsGetIndex)
+    assert.match(socket.url, /\/ws\/rt_voice_flow\?v=[^&]+&t=[^&]+&m=0/)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('refine_completed 会被当作最终结果收口并触发自动粘贴', async () => {
+  const env = createTestEnvironment()
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('refine-completed')
+    await recorder.startRecording('Dictate')
+    recorder.stopRecording()
+
+    const socket = env.sockets[env.sockets.length - 1]
+    assert.ok(socket)
+
+    socket.emitJson({
+      K: 'refine_completed',
+      V: {
+        audio_id: 'audio-1',
+        refined_text: 'hello refined',
+        refine_text: 'hello refined',
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.equal(recorder.getVoiceSession().status, 'completed')
+    assert.equal(recorder.getVoiceSession().refinedText, 'hello refined')
+    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript'), true)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('transcription_error 会映射为本地 asr_failed 错误', async () => {
+  const env = createTestEnvironment()
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('transcription-error')
+    await recorder.startRecording('Dictate')
+    recorder.stopRecording()
+
+    const socket = env.sockets[env.sockets.length - 1]
+    assert.ok(socket)
+
+    socket.emitJson({
+      K: 'transcription_error',
+      V: {
+        audio_id: 'audio-1',
+        code: 'transcription_failed',
+        detail: 'boom',
+      },
+    })
+    await Promise.resolve()
+
+    assert.equal(recorder.getVoiceSession().status, 'error')
+    assert.equal(recorder.getVoiceSession().error?.code, 'asr_failed')
+    assert.equal(recorder.getVoiceSession().error?.detail, 'boom')
   } finally {
     recorder?.disposeRecorder()
     env.restore()

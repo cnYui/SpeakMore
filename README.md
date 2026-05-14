@@ -2,6 +2,11 @@
 
 SpeakMore 是一个本地 Electron 语音输入工具。它通过全局快捷键录音，把音频发送到本地 FastAPI 后端完成转写，并可调用 DeepSeek 对文本进行润色、提问或翻译。
 
+当前架构是：
+
+- `server/` 独立常驻运行
+- Electron 只消费本地后端，不再负责自动拉起或关闭后端
+
 ## 功能
 
 - `Right Alt`：语音转文字
@@ -16,12 +21,12 @@ SpeakMore 是一个本地 Electron 语音输入工具。它通过全局快捷键
 ```text
 .
 ├── electron-app/              # Electron 主进程、preload 和本地前端
-│   ├── main.js                # 窗口、快捷键、IPC、后端启动逻辑
+│   ├── main.js                # 窗口、快捷键、IPC 和本地兼容层
 │   ├── preload.js             # renderer 可用的安全桥接 API
 │   ├── right-alt-listener.ps1 # Windows Right Alt 低级键盘监听器
 │   └── renderer/              # React + Vite 前端
 ├── server/                    # 本地 FastAPI 语音后端
-│   ├── main.py                # HTTP / WebSocket 接口
+│   ├── main.py                # HTTP / WebSocket 接口与 /ready 语义
 │   ├── asr.py                 # faster-whisper 转写
 │   ├── refiner.py             # DeepSeek 文本处理
 │   └── .env.example           # 环境变量模板
@@ -76,6 +81,9 @@ DEEPSEEK_API_KEY=你的 DeepSeek API Key
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 WHISPER_MODEL=base
 WHISPER_MODEL_DIR=
+HOST=127.0.0.1
+PORT=8000
+CORS_ALLOWED_ORIGINS=null,http://127.0.0.1:5173,http://localhost:5173
 ```
 
 `server/.env` 已被 `.gitignore` 忽略，不要提交真实密钥。
@@ -101,28 +109,34 @@ WHISPER_MODEL_DIR=
 先构建前端：
 
 ```powershell
-cd electron-app\renderer
-npm run build
+npm run renderer:build
 ```
 
-回到项目根目录启动 Electron：
-
-```powershell
-cd ..\..
-npm start
-```
-
-Electron 启动后会自动检查并拉起本地语音后端。也可以单独启动后端：
+再单独启动后端：
 
 ```powershell
 npm run server
 ```
 
-后端健康检查地址：
+确认后端存活与就绪：
 
-```text
-http://127.0.0.1:8000/health
+```powershell
+Invoke-WebRequest http://127.0.0.1:8000/health | Select-Object StatusCode
+Invoke-WebRequest http://127.0.0.1:8000/ready | Select-Object StatusCode
 ```
+
+最后启动 Electron：
+
+```powershell
+npm start
+```
+
+注意：
+
+- Electron 不再自动拉起后端
+- Electron 退出时也不会关闭后端
+- `/health` 表示进程存活
+- `/ready` 表示语音链路可接收请求
 
 ## 开发验证
 
@@ -141,8 +155,13 @@ node --check electron-app\main.js
 前端构建：
 
 ```powershell
-cd electron-app\renderer
-npm run build
+npm run renderer:build
+```
+
+语音协议相关验证：
+
+```powershell
+npm run verify:voice
 ```
 
 ## Git 忽略边界

@@ -2,12 +2,13 @@
 
 import asyncio
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+from runtime_config import load_server_env
 
-load_dotenv()
+load_server_env()
 
 DEFAULT_WHISPER_MODEL = "base"
 BASE_MODEL_REPO_DIR = "models--Systran--faster-whisper-base"
@@ -26,6 +27,7 @@ class WhisperModelSource:
 
 
 _model = None
+_model_lock = threading.Lock()
 
 
 def get_whisper_model_name() -> str:
@@ -69,7 +71,7 @@ def find_cached_whisper_snapshot(cache_root: Path) -> Path | None:
     return None
 
 
-def resolve_whisper_model_source() -> WhisperModelSource:
+def get_candidate_whisper_model_sources() -> list[WhisperModelSource]:
     get_whisper_model_name()
 
     configured_dir = os.getenv("WHISPER_MODEL_DIR", "").strip()
@@ -79,22 +81,30 @@ def resolve_whisper_model_source() -> WhisperModelSource:
             raise ValueError(
                 "WHISPER_MODEL_DIR 必须指向包含 model.bin 和 config.json 的 faster-whisper 模型目录"
             )
-        return WhisperModelSource(kind=DIR_SOURCE, model_ref=str(explicit_dir))
+        return [WhisperModelSource(kind=DIR_SOURCE, model_ref=str(explicit_dir))]
 
+    sources: list[WhisperModelSource] = []
     managed_root = get_managed_whisper_cache_root()
     managed_snapshot = find_cached_whisper_snapshot(managed_root)
     if managed_snapshot:
-        return WhisperModelSource(kind=MANAGED_CACHE_SOURCE, model_ref=str(managed_snapshot))
+        sources.append(WhisperModelSource(kind=MANAGED_CACHE_SOURCE, model_ref=str(managed_snapshot)))
 
     hf_snapshot = find_cached_whisper_snapshot(get_hf_cache_root())
     if hf_snapshot:
-        return WhisperModelSource(kind=HF_CACHE_SOURCE, model_ref=str(hf_snapshot))
+        sources.append(WhisperModelSource(kind=HF_CACHE_SOURCE, model_ref=str(hf_snapshot)))
 
-    return WhisperModelSource(
-        kind=DOWNLOAD_SOURCE,
-        model_ref=DEFAULT_WHISPER_MODEL,
-        download_root=str(managed_root),
+    sources.append(
+        WhisperModelSource(
+            kind=DOWNLOAD_SOURCE,
+            model_ref=DEFAULT_WHISPER_MODEL,
+            download_root=str(managed_root),
+        )
     )
+    return sources
+
+
+def resolve_whisper_model_source() -> WhisperModelSource:
+    return get_candidate_whisper_model_sources()[0]
 
 
 def build_whisper_model(source: WhisperModelSource):
@@ -114,27 +124,35 @@ def build_whisper_model(source: WhisperModelSource):
     return WhisperModel(source.model_ref, **load_kwargs)
 
 
-def _get_model():
-    """懒加载 Whisper 模型（单例）"""
+def preload_whisper_model():
     global _model
     if _model is not None:
         return _model
 
-    source = resolve_whisper_model_source()
+    with _model_lock:
+        if _model is not None:
+            return _model
 
-    try:
-        _model = build_whisper_model(source)
-    except Exception as error:
-        if source.kind == DOWNLOAD_SOURCE:
-            raise RuntimeError(
-                f"faster-whisper 模型 {source.model_ref} 下载或加载失败，目标目录: {source.download_root}"
-            ) from error
-        raise RuntimeError(
-            f"faster-whisper 模型加载失败，来源: {source.kind}，目标: {source.model_ref}"
-        ) from error
+        errors: list[str] = []
+        for source in get_candidate_whisper_model_sources():
+            try:
+                _model = build_whisper_model(source)
+                print(f"[ASR] 模型加载完成，来源: {source.kind}")
+                return _model
+            except Exception as error:
+                if source.kind == DOWNLOAD_SOURCE:
+                    errors.append(
+                        f"{source.kind}: {source.model_ref} -> 下载或加载失败，目标目录: {source.download_root}: {error}"
+                    )
+                else:
+                    errors.append(f"{source.kind}: {source.model_ref} -> {error}")
 
-    print(f"[ASR] 模型加载完成，来源: {source.kind}")
-    return _model
+        raise RuntimeError("faster-whisper 模型加载失败: " + " | ".join(errors))
+
+
+def _get_model():
+    """加载 Whisper 模型单例。"""
+    return preload_whisper_model()
 
 
 async def transcribe_audio(audio_path: str, language: str | None = None) -> str:
