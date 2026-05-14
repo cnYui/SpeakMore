@@ -53,6 +53,7 @@ export type FloatingBarState = {
   status: VoiceStatus
   mode: VoiceMode
   inputLevel: number
+  displayText?: string
   errorMessage?: string
 }
 
@@ -83,7 +84,7 @@ export function createVoiceError(code: VoiceErrorCode, detail?: string): VoiceEr
     microphone_unavailable: '没有找到可用麦克风',
     recording_start_failed: '录音启动失败，请重试',
     recording_stop_failed: '录音停止失败，请重试',
-    audio_empty: '没有识别到有效语音',
+    audio_empty: '没有识别到声音',
     asr_failed: '语音转写失败，请重试',
     refine_failed: '润色失败，已保留原始转写',
     paste_failed: '已生成文本，但无法自动粘贴',
@@ -111,6 +112,17 @@ export function getVoiceStatusLabel(session: VoiceSession): string {
 }
 
 export function toFloatingBarState(session: VoiceSession): FloatingBarState {
+  if (session.error?.code === 'audio_empty') {
+    return {
+      visible: true,
+      status: 'cancelled',
+      mode: session.mode,
+      inputLevel: 0,
+      displayText: session.error.message,
+      errorMessage: session.error.message,
+    }
+  }
+
   const visible = ['connecting', 'recording', 'stopping', 'transcribing', 'cancelled', 'completed', 'error'].includes(session.status)
 
   return {

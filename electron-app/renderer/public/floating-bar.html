@@ -85,6 +85,7 @@ function renderLevels(inputLevel, active) {
 
 function applyVoiceState(state) {
   const status = state && typeof state.status === 'string' ? state.status : 'idle';
+  const displayText = state && typeof state.displayText === 'string' ? state.displayText : '';
   const errorMessage = state && typeof state.errorMessage === 'string' ? state.errorMessage : '';
   const stateLevel = state && typeof state.inputLevel === 'number' ? state.inputLevel : 0;
 
@@ -97,6 +98,11 @@ function applyVoiceState(state) {
 
   dot.className = '';
   renderLevels(stateLevel, false);
+
+  if (displayText) {
+    text.textContent = displayText;
+    return;
+  }
 
   if (status === 'connecting') text.textContent = '正在连接...';
   else if (status === 'stopping') text.textContent = '正在停止...';
