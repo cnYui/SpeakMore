@@ -17,14 +17,29 @@ test('Electron 主窗口加载本地 renderer 构建产物', async () => {
 
 test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   const main = await readProjectFile('../main.js');
+  const floatingBar = await readProjectFile('public/floating-bar.html');
 
   assert.match(main, /renderer[\s\S]*dist[\s\S]*floating-bar\.html/);
   assert.doesNotMatch(main, /loadExtractedPage\(floatingBar,\s*['"]floating-bar\.html['"]\)/);
-  assert.match(main, /windowWidth\s*=\s*500/);
-  assert.match(main, /windowHeight\s*=\s*500/);
+  assert.match(main, /windowWidth\s*=\s*250/);
+  assert.match(main, /windowHeight\s*=\s*250/);
+  assert.match(main, /capsuleHeight\s*=\s*24/);
+  assert.match(main, /capsuleBottomGap\s*=\s*16/);
   assert.match(main, /width:\s*windowWidth/);
   assert.match(main, /height:\s*windowHeight/);
   assert.match(main, /payload\?\.positions/);
+  assert.match(floatingBar, /gap:\s*5px/);
+  assert.match(floatingBar, /height:\s*24px/);
+  assert.match(floatingBar, /min-width:\s*124px/);
+  assert.match(floatingBar, /padding:\s*0 10px/);
+  assert.match(floatingBar, /font-size:\s*7px/);
+  assert.match(floatingBar, /width:\s*5px;\s*height:\s*5px/);
+  assert.match(floatingBar, /gap:\s*1\.5px/);
+  assert.match(floatingBar, /height:\s*12px/);
+  assert.match(floatingBar, /width:\s*1\.5px;\s*height:\s*3px/);
+  assert.match(floatingBar, /border-radius:\s*1px/);
+  assert.match(floatingBar, /0%, 100%\s*\{\s*height:\s*3px;\s*\}/);
+  assert.match(floatingBar, /50%\s*\{\s*height:\s*9px;\s*\}/);
 });
 
 test('Electron 悬浮条默认隐藏且不会在松开快捷键后提前消失', async () => {
