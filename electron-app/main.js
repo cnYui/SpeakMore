@@ -85,7 +85,7 @@ const localUser = {
   user_id: 'local-user',
   client_user_id: 'local-user',
   email: 'local@typeless.local',
-  name: 'Typeless Local',
+  name: 'SpeakMore',
   plan: 'pro',
   subscription: {
     plan: 'pro',
@@ -541,7 +541,7 @@ function createMainWindow() {
     height: 750,
     minWidth: 988,
     minHeight: 658,
-    title: 'Typeless',
+    title: 'SpeakMore',
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#ffffff00', symbolColor: 'rgba(0, 0, 0, 0.9)', height: 48 },
     backgroundColor: '#ffffff',
@@ -613,7 +613,7 @@ function createFloatingBar() {
 function createTray() {
   const image = nativeImage.createFromPath(trayIconPath()).resize({ width: 16, height: 16 });
   tray = new Tray(image);
-  tray.setToolTip('Typeless Local');
+  tray.setToolTip('SpeakMore');
   tray.on('click', createMainWindow);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开主窗口', click: createMainWindow },
@@ -827,7 +827,7 @@ function registerIpcHandlers() {
   ipcMain.handle('context:get-app-icon', () => null);
   ipcMain.handle('focused-context:get-last-focused-info', () => ({
     appInfo: {
-      app_name: 'Typeless Local',
+      app_name: 'SpeakMore',
       app_identifier: 'typeless-local',
       window_title: '',
       app_type: 'native_app',

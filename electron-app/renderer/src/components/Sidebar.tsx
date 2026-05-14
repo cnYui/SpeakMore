@@ -25,9 +25,8 @@ interface Props {
 export default function Sidebar({ activePage, onNavigate }: Props) {
   return (
     <Box sx={{ width: 202, flexShrink: 0, display: 'flex', flexDirection: 'column', p: '12px' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <Box sx={{ width: 28, height: 28, borderRadius: '8px', bgcolor: '#000' }} />
-        <Typography sx={{ fontSize: 16, fontWeight: 500, color: 'text.primary' }}>Typeless</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <Typography sx={{ fontSize: 16, fontWeight: 500, color: 'text.primary' }}>SpeakMore</Typography>
       </Box>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -56,18 +55,6 @@ export default function Sidebar({ activePage, onNavigate }: Props) {
       </Box>
 
       <Box sx={{ flex: 1 }} />
-
-      <Box
-        sx={{
-          bgcolor: 'rgba(255,255,255,0.65)',
-          borderRadius: '12px',
-          border: '1px solid rgba(119,119,119,0.06)',
-          p: 1.5,
-        }}
-      >
-        <Typography sx={{ fontSize: 13, fontWeight: 500, color: 'text.primary' }}>Voice dictation</Typography>
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>Right Alt</Typography>
-      </Box>
     </Box>
   )
 }

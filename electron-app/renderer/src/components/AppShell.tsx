@@ -82,9 +82,7 @@ export default function AppShell() {
           px: 2,
           WebkitAppRegion: 'drag',
         }}
-      >
-        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Typeless Local</Typography>
-      </Box>
+      />
 
       <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <Sidebar activePage={page} onNavigate={setPage} />
