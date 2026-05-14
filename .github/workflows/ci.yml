@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install renderer dependencies
+        working-directory: electron-app/renderer
+        run: npm ci
+
+      - name: Run renderer tests
+        working-directory: electron-app/renderer
+        run: npm test
+
+      - name: Run history stats tests
+        run: node --test electron-app/history-stats-store.test.mjs
+
+      - name: Build renderer
+        run: npm run renderer:build
