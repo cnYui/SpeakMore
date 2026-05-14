@@ -50,16 +50,16 @@ export default function Settings() {
 
   return (
     <Box sx={{ maxWidth: 680, p: 3 }}>
-      <Typography sx={{ fontSize: 24, fontWeight: 500, mb: 2 }}>Settings</Typography>
+      <Typography sx={{ fontSize: 24, fontWeight: 500, mb: 2 }}>设置</Typography>
 
       {/* 快捷键 */}
-      <Typography sx={sectionTitle}>Keyboard shortcuts</Typography>
+      <Typography sx={sectionTitle}>快捷键</Typography>
       <Box sx={rowSx}>
         <Typography>按下开始和停止语音输入。</Typography>
         <KeyChips keys={['Right Alt']} />
       </Box>
       <Box sx={rowSx}>
-        <Typography>按下开始和停止随便提问。</Typography>
+        <Typography>按下开始和停止自由提问。</Typography>
         <KeyChips keys={['Right Alt', 'Space']} />
       </Box>
       <Box sx={rowSx}>
@@ -68,7 +68,7 @@ export default function Settings() {
       </Box>
 
       {/* 麦克风 */}
-      <Typography sx={sectionTitle}>Microphone</Typography>
+      <Typography sx={sectionTitle}>麦克风</Typography>
       <Box sx={rowSx}>
         <Select size="small" value={selectedDevice} onChange={(event) => setSelectedDevice(String(event.target.value))} sx={{ minWidth: 240 }}>
           <MenuItem value="default">系统默认</MenuItem>
@@ -81,7 +81,7 @@ export default function Settings() {
       </Box>
 
       {/* 语言 */}
-      <Typography sx={sectionTitle}>Language</Typography>
+      <Typography sx={sectionTitle}>语言</Typography>
       <Box sx={rowSx}>
         <Typography>简体中文 (zh-CN)</Typography>
       </Box>
@@ -118,7 +118,7 @@ export default function Settings() {
 
       {/* 关于 */}
       <Box sx={{ ...rowSx, mt: 3 }}>
-        <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Version v1.3.0-local</Typography>
+        <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>版本 v1.3.0（本地版）</Typography>
         <Button variant="outlined" size="small" disabled={!ipcClient.isAvailable()}>检查更新</Button>
       </Box>
     </Box>

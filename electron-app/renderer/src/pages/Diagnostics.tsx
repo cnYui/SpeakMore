@@ -26,7 +26,7 @@ export default function Diagnostics() {
 
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto', p: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Typography sx={{ fontSize: 24, fontWeight: 500, mb: 2 }}>Diagnostics</Typography>
+      <Typography sx={{ fontSize: 24, fontWeight: 500, mb: 2 }}>诊断</Typography>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
         {items.length === 0 ? (
           <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

@@ -143,6 +143,26 @@ test('语音输入 IPC 会调用本地后端并把结果粘贴到焦点应用', 
   assert.match(main, /System\.Windows\.Forms\.SendKeys/);
 });
 
+test('主进程具备后台音频会话静音脚本入口和新 IPC', async () => {
+  const main = await readProjectFile('../main.js');
+
+  assert.match(main, /audio-session-control\.ps1/);
+  assert.match(main, /audio:mute-background-sessions/);
+  assert.match(main, /audio:restore-background-sessions/);
+  assert.match(main, /backgroundMuteActive/);
+  assert.match(main, /mutedBackgroundSessions/);
+});
+
+test('recorder 在录音生命周期内请求静音和恢复后台音频', async () => {
+  const recorder = await readProjectFile('src/services/recorder.ts');
+
+  assert.match(recorder, /ipcClient\.invoke\(['"]audio:mute-background-sessions['"]/);
+  assert.match(recorder, /ipcClient\.invoke\(['"]audio:restore-background-sessions['"]/);
+  assert.match(recorder, /completeSession[\s\S]*restoreBackgroundAudio/);
+  assert.match(recorder, /failSession[\s\S]*restoreBackgroundAudio/);
+  assert.match(recorder, /disposeRecorder[\s\S]*restoreBackgroundAudio/);
+});
+
 test('前端按键事件按真实快捷键模式启动和停止语音流', async () => {
   const appShell = await readProjectFile('src/components/AppShell.tsx');
   const guard = await readProjectFile('src/services/shortcutGuard.ts');
@@ -311,7 +331,32 @@ test('P1 诊断页与导航配置已从静态展示切到真实服务', async ()
   assert.match(diagnosticsPage, /runDiagnostics/);
   assert.match(diagnosticsPage, /诊断中/);
   assert.match(navigation, /export\s+type\s+Page/);
-  assert.match(navigation, /Diagnostics/);
+  assert.match(navigation, /诊断/);
+  assert.doesNotMatch(navigation, /Diagnostics/);
   assert.match(uiTokens, /cardSx/);
   assert.match(uiTokens, /subtlePanelSx/);
+});
+
+test('首页壳层和用户可见文案符合 SpeakMore 中文化要求', async () => {
+  const navigation = await readProjectFile('src/navigation.ts');
+  const sidebar = await readProjectFile('src/components/Sidebar.tsx');
+  const appShell = await readProjectFile('src/components/AppShell.tsx');
+  const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
+  const floatingBar = await readProjectFile('public/floating-bar.html');
+  const main = await readProjectFile('../main.js');
+
+  assert.match(navigation, /首页/);
+  assert.match(navigation, /历史记录/);
+  assert.match(navigation, /设置/);
+  assert.match(navigation, /诊断/);
+  assert.match(sidebar, /SpeakMore/);
+  assert.doesNotMatch(sidebar, /bgcolor:\s*['"]#000['"]/);
+  assert.doesNotMatch(sidebar, /Voice dictation/);
+  assert.doesNotMatch(appShell, /Typeless Local/);
+  assert.match(dashboard, /首页/);
+  assert.match(dashboard, /最近结果/);
+  assert.match(floatingBar, /正在监听/);
+  assert.doesNotMatch(floatingBar, /Listening\.\.\./);
+  assert.match(main, /title:\s*['"]SpeakMore['"]/);
+  assert.match(main, /tray\.setToolTip\(['"]SpeakMore['"]\)/);
 });

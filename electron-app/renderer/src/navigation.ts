@@ -1,8 +1,8 @@
 export type Page = 'home' | 'history' | 'settings' | 'diagnostics'
 
 export const pages: { label: string; page: Page }[] = [
-  { label: 'Home', page: 'home' },
-  { label: 'History', page: 'history' },
-  { label: 'Settings', page: 'settings' },
-  { label: 'Diagnostics', page: 'diagnostics' },
+  { label: '首页', page: 'home' },
+  { label: '历史记录', page: 'history' },
+  { label: '设置', page: 'settings' },
+  { label: '诊断', page: 'diagnostics' },
 ]

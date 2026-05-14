@@ -43,7 +43,7 @@ export default function Dashboard() {
   return (
     <Box sx={{ maxWidth: 980, mx: 'auto', p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Box>
-        <Typography sx={{ fontSize: 24, fontWeight: 500 }}>Home</Typography>
+        <Typography sx={{ fontSize: 24, fontWeight: 500 }}>首页</Typography>
         <Typography sx={{ fontSize: 14, color: '#5d5d5d', mt: 0.5 }}>
           请短按{' '}
           <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
@@ -51,7 +51,7 @@ export default function Dashboard() {
           </Box>{' '}
           或按{' '}
           <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
-            Right Alt + Shift
+            Right Alt + Right Shift
           </Box>{' '}
           或按{' '}
           <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
@@ -65,7 +65,7 @@ export default function Dashboard() {
         <Box sx={{ ...cardSx, p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box>
             <Typography sx={{ fontSize: 28, fontWeight: 600 }}>23.4%</Typography>
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Overall personalization</Typography>
+            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>整体个性化</Typography>
           </Box>
           <Box sx={{ width: 56, height: 56, borderRadius: '50%', background: 'conic-gradient(#44bedf 0% 23.4%, #e8e8e8 23.4% 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: '#fff' }} />
@@ -73,10 +73,10 @@ export default function Dashboard() {
         </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
           {[
-            { label: 'Total dictation time', value: '0 min' },
-            { label: 'Words dictated', value: '0' },
-            { label: 'Time saved', value: '0' },
-            { label: 'Average speed', value: '--' },
+            { label: '总听写时长', value: '0 分钟' },
+            { label: '累计听写字数', value: '0' },
+            { label: '节省时间', value: '0' },
+            { label: '平均速度', value: '--' },
           ].map((item) => (
             <Box key={item.label} sx={{ ...cardSx, p: '12px' }}>
               <Typography sx={{ fontSize: 18, fontWeight: 600 }}>{item.value}</Typography>
@@ -89,7 +89,7 @@ export default function Dashboard() {
       <Box>
         <Box sx={{ ...cardSx, p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography sx={{ fontSize: 16, fontWeight: 500 }}>Latest result</Typography>
+            <Typography sx={{ fontSize: 16, fontWeight: 500 }}>最近结果</Typography>
             <IconButton size="small" onClick={handleCopy}>
               <ContentCopyIcon sx={{ fontSize: 16 }} />
             </IconButton>

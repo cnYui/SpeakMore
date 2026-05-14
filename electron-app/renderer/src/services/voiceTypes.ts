@@ -94,9 +94,9 @@ export function createVoiceError(code: VoiceErrorCode, detail?: string): VoiceEr
 export function getVoiceStatusLabel(session: VoiceSession): string {
   if (session.error) return session.error.message
   if (session.status === 'connecting') return '正在连接语音后端...'
-  if (session.status === 'recording') return 'Listening...'
+  if (session.status === 'recording') return '正在监听...'
   if (session.status === 'stopping') return '正在停止录音...'
-  if (session.status === 'transcribing') return 'Transcribing...'
+  if (session.status === 'transcribing') return '正在转写...'
   if (session.status === 'completed') return '已完成'
   return '准备就绪'
 }

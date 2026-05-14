@@ -26,7 +26,7 @@ export default function History() {
 
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto', p: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Typography sx={{ fontSize: 24, fontWeight: 500, mb: 2 }}>History</Typography>
+      <Typography sx={{ fontSize: 24, fontWeight: 500, mb: 2 }}>历史记录</Typography>
       <TextField
         placeholder="搜索历史记录..."
         size="small"
