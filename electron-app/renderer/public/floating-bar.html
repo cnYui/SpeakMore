@@ -35,25 +35,18 @@ html, body { background: transparent; overflow: hidden; pointer-events: none; }
 #levels {
   display: flex;
   align-items: center;
-  gap: 1.5px;
+  gap: 2px;
   height: 12px;
 }
 .lv {
-  width: 1.5px; height: 3px;
-  border-radius: 1px;
-  background: #ccc;
+  width: 2px;
+  height: 5px;
+  border-radius: 999px;
+  background: #d0d4d8;
+  transition: height 70ms linear, background-color 120ms ease;
 }
 .lv.active {
   background: #44bedf;
-  animation: level 0.6s ease-in-out infinite;
-}
-.lv:nth-child(2).active { animation-delay: 0.08s; }
-.lv:nth-child(3).active { animation-delay: 0.16s; }
-.lv:nth-child(4).active { animation-delay: 0.24s; }
-.lv:nth-child(5).active { animation-delay: 0.32s; }
-@keyframes level {
-  0%, 100% { height: 3px; }
-  50% { height: 9px; }
 }
 </style>
 </head>
@@ -61,18 +54,31 @@ html, body { background: transparent; overflow: hidden; pointer-events: none; }
 <div id="bar">
   <div id="dot"></div>
   <span id="text">Right Alt 录音</span>
-  <div id="levels">
-    <div class="lv"></div><div class="lv"></div><div class="lv"></div><div class="lv"></div><div class="lv"></div>
-  </div>
+  <div id="levels"></div>
 </div>
 <script>
+const BAR_COUNT = 8;
+const BAR_WEIGHTS = [0.72, 0.84, 0.94, 1, 1, 0.94, 0.84, 0.72];
+const MIN_BAR_HEIGHT = 5;
+const MAX_BAR_HEIGHT = 18;
 const dot = document.getElementById('dot');
 const text = document.getElementById('text');
+const levelsContainer = document.getElementById('levels');
+
+levelsContainer.innerHTML = Array.from({ length: BAR_COUNT }, () => '<div class="lv"></div>').join('');
 const levels = Array.from(document.querySelectorAll('.lv'));
 
-function setActive(active) {
-  dot.className = active ? 'active' : '';
-  levels.forEach((element) => {
+function clampLevel(value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
+function renderLevels(inputLevel, active) {
+  const normalizedLevel = active ? clampLevel(inputLevel) : 0;
+  levels.forEach((element, index) => {
+    const weightedLevel = normalizedLevel * BAR_WEIGHTS[index];
+    const height = MIN_BAR_HEIGHT + ((MAX_BAR_HEIGHT - MIN_BAR_HEIGHT) * weightedLevel);
+    element.style.height = `${Math.round(height)}px`;
     element.className = active ? 'lv active' : 'lv';
   });
 }
@@ -80,14 +86,17 @@ function setActive(active) {
 function applyVoiceState(state) {
   const status = state && typeof state.status === 'string' ? state.status : 'idle';
   const errorMessage = state && typeof state.errorMessage === 'string' ? state.errorMessage : '';
+  const stateLevel = state && typeof state.inputLevel === 'number' ? state.inputLevel : 0;
 
   if (status === 'recording') {
-    setActive(true);
+    dot.className = 'active';
     text.textContent = '正在监听...';
+    renderLevels(stateLevel, status === 'recording');
     return;
   }
 
-  setActive(false);
+  dot.className = '';
+  renderLevels(stateLevel, false);
 
   if (status === 'connecting') text.textContent = '正在连接...';
   else if (status === 'stopping') text.textContent = '正在停止...';

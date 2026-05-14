@@ -34,12 +34,12 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   assert.match(floatingBar, /padding:\s*0 10px/);
   assert.match(floatingBar, /font-size:\s*7px/);
   assert.match(floatingBar, /width:\s*5px;\s*height:\s*5px/);
-  assert.match(floatingBar, /gap:\s*1\.5px/);
+  assert.match(floatingBar, /const\s+BAR_COUNT\s*=\s*8/);
+  assert.match(floatingBar, /gap:\s*2px/);
   assert.match(floatingBar, /height:\s*12px/);
-  assert.match(floatingBar, /width:\s*1\.5px;\s*height:\s*3px/);
-  assert.match(floatingBar, /border-radius:\s*1px/);
-  assert.match(floatingBar, /0%, 100%\s*\{\s*height:\s*3px;\s*\}/);
-  assert.match(floatingBar, /50%\s*\{\s*height:\s*9px;\s*\}/);
+  assert.match(floatingBar, /width:\s*2px;\s*height:\s*5px/);
+  assert.match(floatingBar, /border-radius:\s*999px/);
+  assert.doesNotMatch(floatingBar, /@keyframes\s+level/);
 });
 
 test('Electron 悬浮条默认隐藏且不会在松开快捷键后提前消失', async () => {
@@ -189,6 +189,29 @@ test('recorder 在录音生命周期内请求静音和恢复后台音频', async
   assert.match(recorder, /disposeRecorder[\s\S]*restoreBackgroundAudio/);
 });
 
+test('recorder 在录音期间分析真实麦克风音量并同步 inputLevel', async () => {
+  const recorder = await readProjectFile('src/services/recorder.ts');
+
+  assert.match(recorder, /AudioContext/);
+  assert.match(recorder, /AnalyserNode/);
+  assert.match(recorder, /requestAnimationFrame/);
+  assert.match(recorder, /inputLevel:/);
+  assert.match(recorder, /setSession\(\{\s*\.\.\.session,\s*inputLevel:/);
+  assert.match(recorder, /cleanupAudioLevelMonitoring/);
+  assert.match(recorder, /cancelAnimationFrame/);
+  assert.match(recorder, /audioContext\.close/);
+});
+
+test('WebSocket 录音入口会先等待主进程确认语音后端 ready', async () => {
+  const main = await readProjectFile('../main.js');
+  const recorder = await readProjectFile('src/services/recorder.ts');
+
+  assert.match(main, /ipcMain\.handle\(['"]audio:ensure-voice-server['"]/);
+  assert.match(main, /audio:ensure-voice-server['"][\s\S]*ensureVoiceServer/);
+  assert.match(recorder, /ipcClient\.invoke\(['"]audio:ensure-voice-server['"]/);
+  assert.match(recorder, /await\s+ensureVoiceServerReady\(\)[\s\S]*ensureOpenWebSocket\(\)/);
+});
+
 test('前端按键事件按真实快捷键模式启动和停止语音流', async () => {
   const appShell = await readProjectFile('src/components/AppShell.tsx');
   const guard = await readProjectFile('src/services/shortcutGuard.ts');
@@ -286,6 +309,33 @@ test('P0 悬浮条消费 voice-state 而不是自行 toggle 快捷键状态', as
   assert.match(floatingBar, /applyVoiceState/);
   assert.doesNotMatch(floatingBar, /function\s+toggle\(/);
   assert.doesNotMatch(floatingBar, /global-keyboard[\s\S]*toggle\(\)/);
+});
+
+test('P0 悬浮条消费 voice-state.inputLevel 并渲染 8 根真实音量柱', async () => {
+  const voiceTypes = await readProjectFile('src/services/voiceTypes.ts');
+  const floatingBar = await readProjectFile('public/floating-bar.html');
+
+  assert.match(voiceTypes, /inputLevel:\s*number/);
+  assert.match(voiceTypes, /inputLevel:\s*0/);
+  assert.match(voiceTypes, /inputLevel:\s*session\.inputLevel/);
+  assert.match(floatingBar, /const\s+BAR_COUNT\s*=\s*8/);
+  assert.match(floatingBar, /voice-state/);
+  assert.match(floatingBar, /inputLevel/);
+  assert.match(floatingBar, /renderLevels/);
+  assert.doesNotMatch(floatingBar, /@keyframes\s+level/);
+  assert.doesNotMatch(floatingBar, /animation:\s*level/);
+});
+
+test('P0 悬浮条在非 recording 状态归零，并按权重渲染 8 根细柱', async () => {
+  const floatingBar = await readProjectFile('public/floating-bar.html');
+
+  assert.match(floatingBar, /BAR_WEIGHTS\s*=\s*\[0\.72,\s*0\.84,\s*0\.94,\s*1,\s*1,\s*0\.94,\s*0\.84,\s*0\.72\]/);
+  assert.match(floatingBar, /MIN_BAR_HEIGHT/);
+  assert.match(floatingBar, /MAX_BAR_HEIGHT/);
+  assert.match(floatingBar, /renderLevels\(stateLevel,\s*status\s*===\s*['"]recording['"]\)/);
+  assert.match(floatingBar, /const\s+stateLevel\s*=\s*state\s*&&\s*typeof\s+state\.inputLevel\s*===\s*['"]number['"]/);
+  assert.match(floatingBar, /width:\s*2px/);
+  assert.match(floatingBar, /gap:\s*2px/);
 });
 
 test('P0 悬浮条在成功后自动消失并在错误后保持可见', async () => {
