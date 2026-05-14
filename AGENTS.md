@@ -37,3 +37,5 @@
 - 模型扫描顺序固定为 `WHISPER_MODEL_DIR` → `%LOCALAPPDATA%\Typeless\models\faster-whisper` → `%USERPROFILE%\.cache\huggingface\hub`；三者都未命中时首次下载到 `%LOCALAPPDATA%\Typeless\models\faster-whisper`。
 - 开发态 `uvicorn reload` 必须显式由环境变量开启，不要在代码里默认写死 `reload=True`。
 - 录音期间静音后台声音时，保持现有“点按开始、再次点按结束”的交互，不改成 `PTT`；Windows 上按音频会话静音实现，结束后只恢复本轮被 Typeless 主动静音的会话。
+- 悬浮条录音波形只在 `electron-app/renderer/public/floating-bar.html` 展示；需要真实消费录音输入音量，不要再使用固定 CSS 假动画。
+- 悬浮条录音波形统一为 8 根更细的柱子；音量数据由 `recorder.ts` 基于同一份 `MediaStream` 计算整体响度并通过 `voice-state` 同步。

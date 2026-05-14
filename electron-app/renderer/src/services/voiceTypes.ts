@@ -42,12 +42,14 @@ export type VoiceSession = {
   rawText: string
   refinedText: string
   error: VoiceError | null
+  inputLevel: number
 }
 
 export type FloatingBarState = {
   visible: boolean
   status: VoiceStatus
   mode: VoiceMode
+  inputLevel: number
   errorMessage?: string
 }
 
@@ -58,6 +60,7 @@ export const initialVoiceSession: VoiceSession = {
   rawText: '',
   refinedText: '',
   error: null,
+  inputLevel: 0,
 }
 
 export function toVoiceFlowMode(mode: VoiceMode): VoiceFlowMode {
@@ -108,6 +111,7 @@ export function toFloatingBarState(session: VoiceSession): FloatingBarState {
     visible,
     status: session.status,
     mode: session.mode,
+    inputLevel: session.inputLevel,
     errorMessage: session.error?.message,
   }
 }

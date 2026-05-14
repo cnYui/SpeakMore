@@ -923,6 +923,7 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('audio:abort-ai-voice-flow-request', () => true);
   ipcMain.handle('audio:get-devices-async', () => ({ success: true, devices: [], message: 'no devices in shim' }));
+  ipcMain.handle('audio:ensure-voice-server', async () => ({ success: await ensureVoiceServer() }));
   ipcMain.handle('audio:mute-background-sessions', async () => muteBackgroundSessionsForRecording());
   ipcMain.handle('audio:restore-background-sessions', async () => restoreMutedBackgroundSessions());
   ipcMain.handle('audio:is-muted', () => ({ success: true, isMuted: backgroundMuteActive }));

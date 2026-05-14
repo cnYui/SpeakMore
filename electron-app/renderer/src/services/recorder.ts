@@ -22,6 +22,12 @@ let mediaRecorder: MediaRecorder | null = null
 let activeStream: MediaStream | null = null
 let transcribeTimer: number | null = null
 let backgroundAudioRestorePending = false
+let levelAudioContext: AudioContext | null = null
+let levelAnalyser: AnalyserNode | null = null
+let levelSource: MediaStreamAudioSourceNode | null = null
+let levelFrameId: number | null = null
+let levelData: Float32Array<ArrayBuffer> | null = null
+let smoothedInputLevel = 0
 const listeners = new Set<VoiceSessionListener>()
 
 export function getVoiceSession() {
@@ -59,9 +65,11 @@ export async function startRecording(mode: VoiceMode) {
   })
 
   try {
+    await ensureVoiceServerReady()
     const socket = await ensureOpenWebSocket()
     const stream = await getAudioStream()
     activeStream = stream
+    startAudioLevelMonitoring(stream)
     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
     const audioId = session.audioId
 
@@ -100,6 +108,7 @@ export function stopRecording() {
   try {
     setSessionStatus('stopping')
     mediaRecorder.stop()
+    cleanupAudioLevelMonitoring()
     cleanupStream()
 
     if (ws?.readyState === WebSocket.OPEN && session.audioId) {
@@ -140,6 +149,12 @@ function setSession(next: VoiceSession) {
 
 function setSessionStatus(status: VoiceStatus) {
   setSession({ ...session, status, error: null })
+}
+
+function updateSessionInputLevel(inputLevel: number) {
+  const normalizedInputLevel = Math.max(0, Math.min(1, inputLevel))
+  if (Math.abs(session.inputLevel - normalizedInputLevel) < 0.005) return
+  setSession({ ...session, inputLevel: normalizedInputLevel })
 }
 
 function failSession(error: VoiceError) {
@@ -227,6 +242,13 @@ function waitForOpenWebSocket(socket: WebSocket): Promise<WebSocket> {
   })
 }
 
+async function ensureVoiceServerReady() {
+  const result = await ipcClient.invoke('audio:ensure-voice-server') as { success?: boolean }
+  if (!result?.success) {
+    throw createVoiceError('backend_unavailable')
+  }
+}
+
 async function getAudioStream() {
   try {
     return await navigator.mediaDevices.getUserMedia({
@@ -244,6 +266,43 @@ async function getAudioStream() {
       throw createVoiceError('microphone_permission_denied', String(error))
     }
     throw createVoiceError('microphone_unavailable', String(error))
+  }
+}
+
+function startAudioLevelMonitoring(stream: MediaStream) {
+  cleanupAudioLevelMonitoring()
+
+  try {
+    levelAudioContext = new AudioContext()
+    levelAnalyser = levelAudioContext.createAnalyser()
+    levelAnalyser.fftSize = 2048
+    levelAnalyser.smoothingTimeConstant = 0.18
+    levelSource = levelAudioContext.createMediaStreamSource(stream)
+    levelSource.connect(levelAnalyser)
+    levelData = new Float32Array(new ArrayBuffer(levelAnalyser.fftSize * Float32Array.BYTES_PER_ELEMENT))
+    smoothedInputLevel = 0
+    void levelAudioContext.resume().catch(() => undefined)
+
+    const tick = () => {
+      if (!levelAnalyser || !levelData) return
+
+      levelAnalyser.getFloatTimeDomainData(levelData)
+      let sum = 0
+      for (const sample of levelData) {
+        sum += sample * sample
+      }
+
+      const rms = Math.sqrt(sum / levelData.length)
+      const normalizedLevel = Math.min(1, rms * 3.2)
+      const smoothing = normalizedLevel > smoothedInputLevel ? 0.42 : 0.18
+      smoothedInputLevel += (normalizedLevel - smoothedInputLevel) * smoothing
+      updateSessionInputLevel(Number(smoothedInputLevel.toFixed(4)))
+      levelFrameId = window.requestAnimationFrame(tick)
+    }
+
+    levelFrameId = window.requestAnimationFrame(tick)
+  } catch {
+    cleanupAudioLevelMonitoring()
   }
 }
 
@@ -283,6 +342,25 @@ function cleanupStream() {
   activeStream = null
 }
 
+function cleanupAudioLevelMonitoring() {
+  if (levelFrameId !== null) window.cancelAnimationFrame(levelFrameId)
+  levelFrameId = null
+
+  levelSource?.disconnect()
+  levelSource = null
+  levelAnalyser = null
+  levelData = null
+  smoothedInputLevel = 0
+
+  const audioContext = levelAudioContext
+  levelAudioContext = null
+  if (audioContext) void audioContext.close().catch(() => undefined)
+
+  if (session.inputLevel !== 0) {
+    setSession({ ...session, inputLevel: 0 })
+  }
+}
+
 function cleanupRecording() {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     try {
@@ -292,6 +370,7 @@ function cleanupRecording() {
     }
   }
   mediaRecorder = null
+  cleanupAudioLevelMonitoring()
   cleanupStream()
 }
 
