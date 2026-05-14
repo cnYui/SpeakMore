@@ -359,28 +359,51 @@ test('P0 Dashboard 移除鼠标录音入口，只保留键盘触发', async () =
   assert.match(appShell, /toggleRecording/);
 });
 
-test('P1 历史页面与历史 store 已接入真实本地数据', async () => {
+test('P1 历史页面与历史 store 统一走主进程 JSON 数据源', async () => {
   const historyStore = await readProjectFile('src/services/historyStore.ts');
   const historyPage = await readProjectFile('src/pages/History.tsx');
+  const main = await readProjectFile('../main.js');
 
-  assert.match(historyStore, /HISTORY_KEY/);
+  assert.match(main, /HISTORY_FILE_NAME\s*=\s*['"]history\.json['"]/);
+  assert.match(main, /function\s+readHistoryItems\(/);
+  assert.match(main, /function\s+writeHistoryItems\(/);
+  assert.match(main, /ipcMain\.handle\(['"]db:history-stats['"]/);
+  assert.match(historyStore, /db:history-list/);
+  assert.match(historyStore, /db:history-upsert/);
+  assert.match(historyStore, /db:history-clear/);
+  assert.match(historyStore, /db:history-stats/);
   assert.match(historyStore, /saveVoiceHistory/);
   assert.match(historyStore, /clearVoiceHistory/);
+  assert.match(historyStore, /loadVoiceStats/);
+  assert.doesNotMatch(historyStore, /localStorage/);
   assert.match(historyPage, /listVoiceHistory/);
   assert.match(historyPage, /clearVoiceHistory/);
   assert.match(historyPage, /clipboard:write-text/);
 });
 
-test('P1 设置页与设置 store 已接入真实 IPC 和本地持久化', async () => {
+test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () => {
   const settingsStore = await readProjectFile('src/services/settingsStore.ts');
   const settingsPage = await readProjectFile('src/pages/Settings.tsx');
+  const main = await readProjectFile('../main.js');
 
-  assert.match(settingsStore, /SETTINGS_KEY/);
+  assert.match(main, /SETTINGS_FILE_NAME\s*=\s*['"]settings\.json['"]/);
+  assert.match(main, /function\s+readLocalSettings\(/);
+  assert.match(main, /function\s+writeLocalSettings\(/);
+  assert.match(main, /ipcMain\.handle\(['"]settings:get['"]/);
+  assert.match(main, /ipcMain\.handle\(['"]settings:update['"]/);
   assert.match(settingsStore, /loadSettings/);
   assert.match(settingsStore, /saveSettings/);
+  assert.match(settingsStore, /getSelectedAudioDeviceId/);
+  assert.match(settingsStore, /settings:get/);
+  assert.match(settingsStore, /settings:update/);
+  assert.doesNotMatch(settingsStore, /localStorage/);
   assert.match(settingsPage, /permission:update-auto-launch/);
-  assert.match(settingsPage, /audio:get-devices-async/);
+  assert.match(settingsPage, /navigator\.mediaDevices\.enumerateDevices/);
+  assert.match(settingsPage, /selectedAudioDeviceId/);
   assert.match(settingsPage, /showFloatingBar/);
+  assert.doesNotMatch(settingsPage, /enableSoundEffects/);
+  assert.doesNotMatch(settingsPage, /声音效果/);
+  assert.match(settingsPage, /暂未提供更新检查/);
 });
 
 test('P1 显示悬浮条设置会同步到主进程并在启动时回放', async () => {
@@ -394,6 +417,39 @@ test('P1 显示悬浮条设置会同步到主进程并在启动时回放', async
   assert.match(settingsPage, /page:set-floating-bar-enabled/);
   assert.match(appShell, /loadSettings/);
   assert.match(appShell, /page:set-floating-bar-enabled/);
+});
+
+test('P1 首页四项统计来自真实历史统计，不再展示硬编码指标', async () => {
+  const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
+  const historyStore = await readProjectFile('src/services/historyStore.ts');
+
+  assert.match(historyStore, /HAND_TYPED_CHARS_PER_MINUTE\s*=\s*60/);
+  assert.match(historyStore, /formatDurationMinutes/);
+  assert.match(historyStore, /formatAverageSpeed/);
+  assert.match(historyStore, /formatSavedMinutes/);
+  assert.match(dashboard, /loadVoiceStats/);
+  assert.match(dashboard, /stats\.totalDurationMs/);
+  assert.match(dashboard, /stats\.totalTextLength/);
+  assert.match(dashboard, /stats\.savedMs/);
+  assert.match(dashboard, /stats\.averageCharsPerMinute/);
+  assert.match(dashboard, /总听写时长/);
+  assert.match(dashboard, /累计听写字数/);
+  assert.match(dashboard, /节省时间/);
+  assert.match(dashboard, /平均速度/);
+  assert.match(dashboard, /暂未启用/);
+  assert.doesNotMatch(dashboard, /23\.4%/);
+  assert.doesNotMatch(dashboard, /conic-gradient\(#44bedf 0% 23\.4%/);
+});
+
+test('P1 录音链路使用设置页选择的真实麦克风设备', async () => {
+  const recorder = await readProjectFile('src/services/recorder.ts');
+
+  assert.match(recorder, /getSelectedAudioDeviceId/);
+  assert.match(recorder, /selectedAudioDeviceId/);
+  assert.match(recorder, /deviceId:\s*\{\s*exact:\s*selectedAudioDeviceId\s*\}/);
+  assert.match(recorder, /recordingStartedAt/);
+  assert.match(recorder, /durationMs/);
+  assert.match(recorder, /textLength/);
 });
 
 test('P1 诊断页与导航配置已从静态展示切到真实服务', async () => {

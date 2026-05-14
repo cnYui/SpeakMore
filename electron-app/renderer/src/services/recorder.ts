@@ -1,4 +1,5 @@
 import { ipcClient } from './ipc'
+import { getSelectedAudioDeviceId } from './settingsStore'
 import {
   createVoiceError,
   initialVoiceSession,
@@ -21,6 +22,7 @@ let ws: WebSocket | null = null
 let mediaRecorder: MediaRecorder | null = null
 let activeStream: MediaStream | null = null
 let transcribeTimer: number | null = null
+let recordingStartedAt = 0
 let backgroundAudioRestorePending = false
 let levelAudioContext: AudioContext | null = null
 let levelAnalyser: AnalyserNode | null = null
@@ -57,6 +59,7 @@ export async function toggleRecording(mode: VoiceMode) {
 
 export async function startRecording(mode: VoiceMode) {
   backgroundAudioRestorePending = false
+  recordingStartedAt = 0
   setSession({
     ...initialVoiceSession,
     status: 'connecting',
@@ -94,6 +97,7 @@ export async function startRecording(mode: VoiceMode) {
     }))
 
     mediaRecorder.start(500)
+    recordingStartedAt = Date.now()
     setSessionStatus('recording')
     void muteBackgroundAudio()
   } catch (error) {
@@ -159,14 +163,19 @@ function updateSessionInputLevel(inputLevel: number) {
 
 function failSession(error: VoiceError) {
   clearTranscribeTimeout()
+  const durationMs = getRecordingDurationMs()
   cleanupRecording()
   void restoreBackgroundAudio()
-  setSession({ ...session, status: 'error', error })
+  setSession({ ...session, status: 'error', durationMs, error })
+  recordingStartedAt = 0
 }
 
 async function completeSession(refinedText: string) {
   clearTranscribeTimeout()
-  setSession({ ...session, status: 'completed', refinedText, error: null })
+  const durationMs = getRecordingDurationMs()
+  const textLength = countTextLength(refinedText || session.rawText)
+  setSession({ ...session, status: 'completed', refinedText, durationMs, textLength, error: null })
+  recordingStartedAt = 0
   await restoreBackgroundAudio()
   if (!refinedText) return
 
@@ -181,7 +190,7 @@ async function completeSession(refinedText: string) {
 }
 
 function handleRawText(text: string) {
-  setSession({ ...session, rawText: text })
+  setSession({ ...session, rawText: text, textLength: countTextLength(text) })
 }
 
 function handleSocketMessage(event: MessageEvent) {
@@ -251,8 +260,11 @@ async function ensureVoiceServerReady() {
 
 async function getAudioStream() {
   try {
+    const selectedAudioDeviceId = await getSelectedAudioDeviceId()
+    const deviceConstraint = selectedAudioDeviceId === 'default' ? {} : { deviceId: { exact: selectedAudioDeviceId } }
     return await navigator.mediaDevices.getUserMedia({
       audio: {
+        ...deviceConstraint,
         sampleRate: 32000,
         channelCount: 1,
         echoCancellation: false,
@@ -304,6 +316,14 @@ function startAudioLevelMonitoring(stream: MediaStream) {
   } catch {
     cleanupAudioLevelMonitoring()
   }
+}
+
+function getRecordingDurationMs() {
+  return recordingStartedAt > 0 ? Math.max(0, Date.now() - recordingStartedAt) : 0
+}
+
+function countTextLength(text: string) {
+  return text.trim().length
 }
 
 function startTranscribeTimeout() {

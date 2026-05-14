@@ -4,12 +4,21 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { ipcClient } from '../services/ipc'
 import { initialVoiceSession, type VoiceSession } from '../services/voiceTypes'
 import { subscribeVoiceSession } from '../services/recorder'
-import { saveVoiceHistory } from '../services/historyStore'
+import {
+  emptyVoiceStats,
+  formatAverageSpeed,
+  formatDurationMinutes,
+  formatSavedMinutes,
+  loadVoiceStats,
+  saveVoiceHistory,
+  type VoiceStats,
+} from '../services/historyStore'
 import { cardSx, subtlePanelSx } from '../uiTokens'
 
 export default function Dashboard() {
   const [voiceSession, setVoiceSession] = useState<VoiceSession>(initialVoiceSession)
   const [savedAudioIds, setSavedAudioIds] = useState<Set<string>>(() => new Set())
+  const [stats, setStats] = useState<VoiceStats>(emptyVoiceStats)
 
   useEffect(() => {
     const unsubscribe = subscribeVoiceSession(setVoiceSession)
@@ -17,11 +26,15 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => {
+    loadVoiceStats().then(setStats).catch(() => setStats(emptyVoiceStats))
+  }, [])
+
+  useEffect(() => {
     if (!voiceSession.audioId) return
     if (voiceSession.status !== 'completed' && voiceSession.status !== 'error') return
     if (savedAudioIds.has(voiceSession.audioId)) return
 
-    saveVoiceHistory({
+    void saveVoiceHistory({
       id: voiceSession.audioId,
       createdAt: new Date().toISOString(),
       mode: voiceSession.mode,
@@ -29,7 +42,9 @@ export default function Dashboard() {
       rawText: voiceSession.rawText,
       refinedText: voiceSession.refinedText,
       errorCode: voiceSession.error?.code,
-    })
+      durationMs: voiceSession.durationMs,
+      textLength: voiceSession.textLength,
+    }).then(() => loadVoiceStats().then(setStats))
 
     setSavedAudioIds((prev) => new Set(prev).add(voiceSession.audioId!))
   }, [savedAudioIds, voiceSession])
@@ -64,19 +79,19 @@ export default function Dashboard() {
       <Box sx={{ ...subtlePanelSx, p: 2, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
         <Box sx={{ ...cardSx, p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box>
-            <Typography sx={{ fontSize: 28, fontWeight: 600 }}>23.4%</Typography>
+            <Typography sx={{ fontSize: 24, fontWeight: 600 }}>暂未启用</Typography>
             <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>整体个性化</Typography>
           </Box>
-          <Box sx={{ width: 56, height: 56, borderRadius: '50%', background: 'conic-gradient(#44bedf 0% 23.4%, #e8e8e8 23.4% 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Box sx={{ width: 56, height: 56, borderRadius: '50%', background: 'conic-gradient(#d0d0d0 0% 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: '#fff' }} />
           </Box>
         </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
           {[
-            { label: '总听写时长', value: '0 分钟' },
-            { label: '累计听写字数', value: '0' },
-            { label: '节省时间', value: '0' },
-            { label: '平均速度', value: '--' },
+            { label: '总听写时长', value: formatDurationMinutes(stats.totalDurationMs) },
+            { label: '累计听写字数', value: String(stats.totalTextLength) },
+            { label: '节省时间', value: formatSavedMinutes(stats.savedMs) },
+            { label: '平均速度', value: formatAverageSpeed(stats.averageCharsPerMinute) },
           ].map((item) => (
             <Box key={item.label} sx={{ ...cardSx, p: '12px' }}>
               <Typography sx={{ fontSize: 18, fontWeight: 600 }}>{item.value}</Typography>

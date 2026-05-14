@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Box, TextField, Typography, Button, IconButton } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { listVoiceHistory, clearVoiceHistory } from '../services/historyStore'
@@ -6,7 +6,11 @@ import { ipcClient } from '../services/ipc'
 
 export default function History() {
   const [query, setQuery] = useState('')
-  const [items, setItems] = useState(listVoiceHistory())
+  const [items, setItems] = useState<Awaited<ReturnType<typeof listVoiceHistory>>>([])
+
+  useEffect(() => {
+    listVoiceHistory().then(setItems).catch(() => setItems([]))
+  }, [])
 
   const filteredItems = useMemo(() => {
     const keyword = query.trim().toLowerCase()
@@ -19,8 +23,8 @@ export default function History() {
     ipcClient.invoke('clipboard:write-text', text).catch(() => navigator.clipboard.writeText(text))
   }
 
-  const handleClear = () => {
-    clearVoiceHistory()
+  const handleClear = async () => {
+    await clearVoiceHistory()
     setItems([])
   }
 
