@@ -15,6 +15,15 @@ test('Electron 主窗口加载本地 renderer 构建产物', async () => {
   assert.match(main, /minWidth:\s*988/);
 });
 
+test('Electron 关闭主窗口时隐藏到后台并保留语音识别链路', async () => {
+  const main = await readProjectFile('../main.js');
+
+  assert.match(main, /let\s+appIsQuitting\s*=\s*false/);
+  assert.match(main, /if\s*\(mainWindow\s*&&\s*!mainWindow\.isDestroyed\(\)\)[\s\S]*mainWindow\.show\(\)[\s\S]*mainWindow\.focus\(\)/);
+  assert.match(main, /mainWindow\.on\(['"]close['"],\s*\(event\)\s*=>\s*\{[\s\S]*if\s*\(appIsQuitting\)\s*return[\s\S]*event\.preventDefault\(\)[\s\S]*mainWindow\.hide\(\)/);
+  assert.match(main, /app\.on\(['"]before-quit['"],\s*\(event\)\s*=>\s*\{[\s\S]*appIsQuitting\s*=\s*true/);
+});
+
 test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   const main = await readProjectFile('../main.js');
   const floatingBar = await readProjectFile('public/floating-bar.html');

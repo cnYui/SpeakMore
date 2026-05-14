@@ -31,6 +31,7 @@ let floatingBarEnabled = true;
 let backgroundMuteActive = false;
 let mutedBackgroundSessions = [];
 let quitAfterBackgroundAudioRestore = false;
+let appIsQuitting = false;
 let pendingInteractiveCardPayload = null;
 
 const DEFAULT_LANGUAGE = 'zh-CN';
@@ -843,6 +844,7 @@ async function callVoiceFlowBackend(payload = {}) {
 
 function createMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
     mainWindow.focus();
     return;
   }
@@ -868,6 +870,12 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'dist', 'index.html'));
+  mainWindow.on('close', (event) => {
+    if (appIsQuitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+    sendToMain('page-event--hub--window-blurred');
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -1368,12 +1376,14 @@ app.whenReady().then(() => {
 app.on('window-all-closed', (event) => event.preventDefault());
 app.on('before-quit', (event) => {
   if (quitAfterBackgroundAudioRestore || (!backgroundMuteActive && !mutedBackgroundSessions.length)) {
+    appIsQuitting = true;
     return;
   }
 
   event.preventDefault();
   quitAfterBackgroundAudioRestore = true;
   void restoreMutedBackgroundSessions().finally(() => {
+    appIsQuitting = true;
     app.quit();
   });
 });
