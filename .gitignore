@@ -33,6 +33,7 @@ __pycache__/
 
 # 本地文档与 AI 上下文
 docs/
+.worktrees/
 
 # 系统与编辑器文件
 .DS_Store
