@@ -35,7 +35,6 @@ let rightAltRelay = null;
 let rightAltListener = null;
 let rightAltListenerStdout = '';
 let floatingBarCompletedHideTimer = null;
-let floatingBarEnabled = true;
 let backgroundMuteActive = false;
 let mutedBackgroundSessions = [];
 let quitAfterBackgroundAudioRestore = false;
@@ -74,7 +73,6 @@ const localStores = {
     selectedLanguages: [],
     autoSelectLanguages: false,
     launchAtSystemStartup: false,
-    showFlowBarOnDesktop: true,
     enableInteractionSoundEffects: true,
     enableShowAppInDock: true,
     historyDurationSeconds: -1,
@@ -96,10 +94,8 @@ let localUser = {
   },
 };
 
-floatingBarEnabled = localStores['app-settings'].showFlowBarOnDesktop !== false;
-
 const defaultLocalSettings = {
-  showFloatingBar: true,
+  preferredLanguage: DEFAULT_LANGUAGE,
   launchAtSystemStartup: false,
   selectedAudioDeviceId: 'default',
 };
@@ -141,8 +137,7 @@ function writeJsonFile(fileName, value) {
 function normalizeLocalSettings(value = {}) {
   return {
     ...defaultLocalSettings,
-    ...value,
-    showFloatingBar: value.showFloatingBar !== false,
+    preferredLanguage: DEFAULT_LANGUAGE,
     launchAtSystemStartup: Boolean(value.launchAtSystemStartup),
     selectedAudioDeviceId: typeof value.selectedAudioDeviceId === 'string' && value.selectedAudioDeviceId
       ? value.selectedAudioDeviceId
@@ -152,7 +147,6 @@ function normalizeLocalSettings(value = {}) {
 
 function syncLocalSettingsToLegacyStore(settings) {
   localStores['app-settings'].launchAtSystemStartup = settings.launchAtSystemStartup;
-  localStores['app-settings'].showFlowBarOnDesktop = settings.showFloatingBar;
   localStores['app-settings'].selectedMicrophoneDevice = settings.selectedAudioDeviceId === 'default'
     ? null
     : settings.selectedAudioDeviceId;
@@ -168,7 +162,6 @@ function writeLocalSettings(settings) {
   const normalized = normalizeLocalSettings(settings);
   writeJsonFile(SETTINGS_FILE_NAME, normalized);
   syncLocalSettingsToLegacyStore(normalized);
-  floatingBarEnabled = normalized.showFloatingBar;
   return normalized;
 }
 
@@ -288,10 +281,6 @@ function clearFloatingBarCompletedHideTimer() {
 }
 
 function showFloatingBar() {
-  if (!floatingBarEnabled) {
-    hideFloatingBar();
-    return;
-  }
   if (!floatingBar || floatingBar.isDestroyed()) return;
   clearFloatingBarCompletedHideTimer();
   floatingBar.setIgnoreMouseEvents(false);
@@ -310,14 +299,6 @@ function scheduleFloatingBarCompletedHide() {
   floatingBarCompletedHideTimer = setTimeout(() => {
     hideFloatingBar();
   }, FLOATING_BAR_COMPLETED_HIDE_DELAY_MS);
-}
-
-function setFloatingBarEnabled(enabled) {
-  const nextSettings = writeLocalSettings({ ...readLocalSettings(), showFloatingBar: Boolean(enabled) });
-  floatingBarEnabled = nextSettings.showFloatingBar;
-  if (!floatingBarEnabled) {
-    hideFloatingBar();
-  }
 }
 
 function updateFloatingBarVisibility(keys) {
@@ -1096,10 +1077,6 @@ function registerIpcHandlers() {
     createFloatingBar();
     return true;
   });
-  ipcMain.handle('page:set-floating-bar-enabled', (_, payload = {}) => {
-    setFloatingBarEnabled(payload.enabled);
-    return true;
-  });
   ipcMain.handle('page:open-settings-modal', (_, payload = {}) => {
     createMainWindow();
     sendToMain('page-event--hub--open-settings-hub', payload);
@@ -1136,10 +1113,6 @@ function registerIpcHandlers() {
   ipcMain.handle('page:floating-bar-click', () => true);
   ipcMain.on('voice-state', (_, payload = {}) => {
     sendToFloatingBar('voice-state', payload);
-    if (!floatingBarEnabled) {
-      hideFloatingBar();
-      return;
-    }
     if (payload.status === 'completed' || payload.status === 'cancelled') {
       showFloatingBar();
       scheduleFloatingBarCompletedHide();

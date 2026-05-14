@@ -1,13 +1,13 @@
 import { ipcClient } from './ipc'
 
 export type LocalSettings = {
-  showFloatingBar: boolean
+  preferredLanguage: 'zh-CN'
   launchAtSystemStartup: boolean
   selectedAudioDeviceId: string
 }
 
 export const defaultSettings: LocalSettings = {
-  showFloatingBar: true,
+  preferredLanguage: 'zh-CN',
   launchAtSystemStartup: false,
   selectedAudioDeviceId: 'default',
 }
@@ -15,8 +15,7 @@ export const defaultSettings: LocalSettings = {
 function normalizeSettings(settings?: Partial<LocalSettings> | null): LocalSettings {
   return {
     ...defaultSettings,
-    ...settings,
-    showFloatingBar: settings?.showFloatingBar !== false,
+    preferredLanguage: 'zh-CN',
     launchAtSystemStartup: Boolean(settings?.launchAtSystemStartup),
     selectedAudioDeviceId: settings?.selectedAudioDeviceId || 'default',
   }

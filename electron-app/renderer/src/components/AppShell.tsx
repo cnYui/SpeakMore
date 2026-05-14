@@ -8,7 +8,6 @@ import Settings from '../pages/Settings'
 import Diagnostics from '../pages/Diagnostics'
 import { type Page } from '../navigation'
 import { ipcClient } from '../services/ipc'
-import { loadSettings } from '../services/settingsStore'
 import { cancelRecording, disposeRecorder, getVoiceSession, subscribeVoiceSession, toggleRecording } from '../services/recorder'
 import { saveVoiceHistory, VOICE_HISTORY_UPDATED_EVENT } from '../services/historyStore'
 import {
@@ -27,12 +26,6 @@ export default function AppShell() {
   const [shortcutGuard, setShortcutGuard] = useState(createInitialShortcutGuardState)
   const shortcutGuardRef = useRef(shortcutGuard)
   const savedAudioIds = useRef(new Set<string>())
-
-  useEffect(() => {
-    loadSettings()
-      .then((settings) => ipcClient.invoke('page:set-floating-bar-enabled', { enabled: settings.showFloatingBar }))
-      .catch(() => undefined)
-  }, [])
 
   const applyShortcutGuard = useCallback((nextGuard: typeof shortcutGuard) => {
     shortcutGuardRef.current = nextGuard
