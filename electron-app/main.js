@@ -17,6 +17,14 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { createRightAltRelay } = require('./right-alt-relay');
+const {
+  MAX_HISTORY_ITEMS,
+  normalizeHistoryItem,
+  normalizeHistoryStats,
+  createHistoryStatsFromItems,
+  calculateHistoryStatsForDashboard,
+  upsertHistoryItemWithStats,
+} = require('./history-stats-store');
 
 let mainWindow = null;
 let floatingBar = null;
@@ -44,8 +52,7 @@ const AUDIO_SESSION_CONTROL_TIMEOUT_MS = 5000;
 const LOCAL_DATA_DIR_NAME = 'local-data';
 const SETTINGS_FILE_NAME = 'settings.json';
 const HISTORY_FILE_NAME = 'history.json';
-const MAX_HISTORY_ITEMS = 200;
-const HAND_TYPED_CHARS_PER_MINUTE = 60;
+const HISTORY_STATS_FILE_NAME = 'history-stats.json';
 
 const localStores = {
   'app-onboarding': {
@@ -165,29 +172,6 @@ function writeLocalSettings(settings) {
   return normalized;
 }
 
-function countTextLength(text) {
-  return String(text || '').trim().length;
-}
-
-function normalizeHistoryItem(item = {}) {
-  const refinedText = String(item.refinedText || '');
-  const rawText = String(item.rawText || '');
-  const finalText = refinedText || rawText;
-
-  return {
-    id: String(item.id || crypto.randomUUID()),
-    createdAt: String(item.createdAt || new Date().toISOString()),
-    mode: ['Dictate', 'Ask', 'Translate'].includes(item.mode) ? item.mode : 'Dictate',
-    status: item.status === 'error' ? 'error' : 'completed',
-    rawText,
-    refinedText,
-    isTestRecord: Boolean(item.isTestRecord),
-    errorCode: item.errorCode ? String(item.errorCode) : undefined,
-    durationMs: Math.max(0, Number(item.durationMs) || 0),
-    textLength: Math.max(0, Number(item.textLength) || countTextLength(finalText)),
-  };
-}
-
 function readHistoryItems() {
   const value = readJsonFile(HISTORY_FILE_NAME, []);
   if (!Array.isArray(value)) return [];
@@ -198,30 +182,35 @@ function writeHistoryItems(items) {
   return writeJsonFile(HISTORY_FILE_NAME, items.map(normalizeHistoryItem).slice(0, MAX_HISTORY_ITEMS));
 }
 
-function upsertHistoryItem(item) {
-  const normalized = normalizeHistoryItem(item);
-  const remaining = readHistoryItems().filter((historyItem) => historyItem.id !== normalized.id);
-  const items = [normalized, ...remaining].slice(0, MAX_HISTORY_ITEMS);
-  writeHistoryItems(items);
-  return normalized;
+function isPersistedHistoryStats(value) {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Array.isArray(value.countedHistoryIds);
 }
 
-function calculateHistoryStats(items = readHistoryItems()) {
-  const completedItems = items.filter((item) => item.status === 'completed');
-  const totalDurationMs = completedItems.reduce((sum, item) => sum + item.durationMs, 0);
-  const totalTextLength = completedItems.reduce((sum, item) => sum + item.textLength, 0);
-  const totalMinutes = totalDurationMs / 60000;
-  const averageCharsPerMinute = totalMinutes > 0 ? Math.round(totalTextLength / totalMinutes) : 0;
-  const savedMinutes = Math.max((totalTextLength / HAND_TYPED_CHARS_PER_MINUTE) - totalMinutes, 0);
+function readHistoryStats() {
+  const value = readJsonFile(HISTORY_STATS_FILE_NAME, null);
+  if (isPersistedHistoryStats(value)) return normalizeHistoryStats(value);
 
-  return {
-    totalCount: items.length,
-    completedCount: completedItems.length,
-    totalDurationMs,
-    totalTextLength,
-    averageCharsPerMinute,
-    savedMs: Math.round(savedMinutes * 60000),
-  };
+  const migrated = createHistoryStatsFromItems(readHistoryItems());
+  writeHistoryStats(migrated);
+  return migrated;
+}
+
+function writeHistoryStats(stats) {
+  return writeJsonFile(HISTORY_STATS_FILE_NAME, normalizeHistoryStats(stats));
+}
+
+function readHistoryStatsForDashboard() {
+  return calculateHistoryStatsForDashboard(readHistoryStats());
+}
+
+function upsertHistoryItem(item) {
+  const result = upsertHistoryItemWithStats(readHistoryItems(), readHistoryStats(), item);
+  writeHistoryItems(result.items);
+  writeHistoryStats(result.stats);
+  return result.items[0];
 }
 
 function calculateDirectorySize(targetPath) {
@@ -1031,10 +1020,12 @@ function registerIpcHandlers() {
     return item ? { success: true, data: item } : { success: false, error: 'not_found' };
   });
   ipcMain.handle('db:history-clear', () => {
+    readHistoryStats();
     writeHistoryItems([]);
     return { success: true };
   });
   ipcMain.handle('db:history-delete', (_, id) => {
+    readHistoryStats();
     writeHistoryItems(readHistoryItems().filter((historyItem) => historyItem.id !== id));
     return { success: true };
   });
@@ -1044,7 +1035,7 @@ function registerIpcHandlers() {
   ipcMain.handle('db:history-upsert-client-metadata', () => ({ success: true }));
   ipcMain.handle('db:history-trigger-history-cleanup', () => ({ success: true }));
   ipcMain.handle('db:history-trigger-disk-cleanup', () => ({ success: true }));
-  ipcMain.handle('db:history-stats', () => calculateHistoryStats());
+  ipcMain.handle('db:history-stats', () => readHistoryStatsForDashboard());
 
   ipcMain.handle('settings:get', () => readLocalSettings());
   ipcMain.handle('settings:update', (_, payload = {}) => writeLocalSettings({ ...readLocalSettings(), ...payload }));
