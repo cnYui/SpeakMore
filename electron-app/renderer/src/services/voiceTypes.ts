@@ -41,6 +41,8 @@ export type VoiceSession = {
   audioId: string | null
   rawText: string
   refinedText: string
+  durationMs: number
+  textLength: number
   error: VoiceError | null
   inputLevel: number
 }
@@ -59,6 +61,8 @@ export const initialVoiceSession: VoiceSession = {
   audioId: null,
   rawText: '',
   refinedText: '',
+  durationMs: 0,
+  textLength: 0,
   error: null,
   inputLevel: 0,
 }

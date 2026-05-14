@@ -14,6 +14,7 @@ const {
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const fs = require('fs');
 const { spawn } = require('child_process');
 const { createRightAltRelay } = require('./right-alt-relay');
 
@@ -37,6 +38,11 @@ const DEFAULT_LANGUAGE = 'zh-CN';
 const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
 const FLOATING_BAR_COMPLETED_HIDE_DELAY_MS = 1200;
 const AUDIO_SESSION_CONTROL_TIMEOUT_MS = 5000;
+const LOCAL_DATA_DIR_NAME = 'local-data';
+const SETTINGS_FILE_NAME = 'settings.json';
+const HISTORY_FILE_NAME = 'history.json';
+const MAX_HISTORY_ITEMS = 200;
+const HAND_TYPED_CHARS_PER_MINUTE = 60;
 
 const WS_PATCH_SCRIPT = `
 (function() {
@@ -98,6 +104,130 @@ const localUser = {
 };
 
 floatingBarEnabled = localStores['app-settings'].showFlowBarOnDesktop !== false;
+
+const defaultLocalSettings = {
+  showFloatingBar: true,
+  launchAtSystemStartup: false,
+  selectedAudioDeviceId: 'default',
+};
+
+function localDataDir() {
+  return path.join(app.getPath('userData'), LOCAL_DATA_DIR_NAME);
+}
+
+function localDataPath(fileName) {
+  return path.join(localDataDir(), fileName);
+}
+
+function readJsonFile(fileName, fallback) {
+  try {
+    const filePath = localDataPath(fileName);
+    if (!fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    console.error(`读取本地数据失败: ${fileName}`, error);
+    return fallback;
+  }
+}
+
+function writeJsonFile(fileName, value) {
+  const dir = localDataDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(localDataPath(fileName), JSON.stringify(value, null, 2), 'utf8');
+  return value;
+}
+
+function normalizeLocalSettings(value = {}) {
+  return {
+    ...defaultLocalSettings,
+    ...value,
+    showFloatingBar: value.showFloatingBar !== false,
+    launchAtSystemStartup: Boolean(value.launchAtSystemStartup),
+    selectedAudioDeviceId: typeof value.selectedAudioDeviceId === 'string' && value.selectedAudioDeviceId
+      ? value.selectedAudioDeviceId
+      : 'default',
+  };
+}
+
+function syncLocalSettingsToLegacyStore(settings) {
+  localStores['app-settings'].launchAtSystemStartup = settings.launchAtSystemStartup;
+  localStores['app-settings'].showFlowBarOnDesktop = settings.showFloatingBar;
+  localStores['app-settings'].selectedMicrophoneDevice = settings.selectedAudioDeviceId === 'default'
+    ? null
+    : settings.selectedAudioDeviceId;
+}
+
+function readLocalSettings() {
+  const settings = normalizeLocalSettings(readJsonFile(SETTINGS_FILE_NAME, defaultLocalSettings));
+  syncLocalSettingsToLegacyStore(settings);
+  return settings;
+}
+
+function writeLocalSettings(settings) {
+  const normalized = normalizeLocalSettings(settings);
+  writeJsonFile(SETTINGS_FILE_NAME, normalized);
+  syncLocalSettingsToLegacyStore(normalized);
+  floatingBarEnabled = normalized.showFloatingBar;
+  return normalized;
+}
+
+function countTextLength(text) {
+  return String(text || '').trim().length;
+}
+
+function normalizeHistoryItem(item = {}) {
+  const refinedText = String(item.refinedText || '');
+  const rawText = String(item.rawText || '');
+  const finalText = refinedText || rawText;
+
+  return {
+    id: String(item.id || crypto.randomUUID()),
+    createdAt: String(item.createdAt || new Date().toISOString()),
+    mode: ['Dictate', 'Ask', 'Translate'].includes(item.mode) ? item.mode : 'Dictate',
+    status: item.status === 'error' ? 'error' : 'completed',
+    rawText,
+    refinedText,
+    errorCode: item.errorCode ? String(item.errorCode) : undefined,
+    durationMs: Math.max(0, Number(item.durationMs) || 0),
+    textLength: Math.max(0, Number(item.textLength) || countTextLength(finalText)),
+  };
+}
+
+function readHistoryItems() {
+  const value = readJsonFile(HISTORY_FILE_NAME, []);
+  if (!Array.isArray(value)) return [];
+  return value.map(normalizeHistoryItem).slice(0, MAX_HISTORY_ITEMS);
+}
+
+function writeHistoryItems(items) {
+  return writeJsonFile(HISTORY_FILE_NAME, items.map(normalizeHistoryItem).slice(0, MAX_HISTORY_ITEMS));
+}
+
+function upsertHistoryItem(item) {
+  const normalized = normalizeHistoryItem(item);
+  const remaining = readHistoryItems().filter((historyItem) => historyItem.id !== normalized.id);
+  const items = [normalized, ...remaining].slice(0, MAX_HISTORY_ITEMS);
+  writeHistoryItems(items);
+  return normalized;
+}
+
+function calculateHistoryStats(items = readHistoryItems()) {
+  const completedItems = items.filter((item) => item.status === 'completed');
+  const totalDurationMs = completedItems.reduce((sum, item) => sum + item.durationMs, 0);
+  const totalTextLength = completedItems.reduce((sum, item) => sum + item.textLength, 0);
+  const totalMinutes = totalDurationMs / 60000;
+  const averageCharsPerMinute = totalMinutes > 0 ? Math.round(totalTextLength / totalMinutes) : 0;
+  const savedMinutes = Math.max((totalTextLength / HAND_TYPED_CHARS_PER_MINUTE) - totalMinutes, 0);
+
+  return {
+    totalCount: items.length,
+    completedCount: completedItems.length,
+    totalDurationMs,
+    totalTextLength,
+    averageCharsPerMinute,
+    savedMs: Math.round(savedMinutes * 60000),
+  };
+}
 
 function extractedPath(...segments) {
   return path.join(__dirname, '..', 'app-extracted', ...segments);
@@ -179,8 +309,8 @@ function scheduleFloatingBarCompletedHide() {
 }
 
 function setFloatingBarEnabled(enabled) {
-  floatingBarEnabled = Boolean(enabled);
-  localStores['app-settings'].showFlowBarOnDesktop = floatingBarEnabled;
+  const nextSettings = writeLocalSettings({ ...readLocalSettings(), showFloatingBar: Boolean(enabled) });
+  floatingBarEnabled = nextSettings.showFloatingBar;
   if (!floatingBarEnabled) {
     hideFloatingBar();
   }
@@ -783,21 +913,50 @@ function registerIpcHandlers() {
   ipcMain.handle('user:logout', () => true);
 
   ipcMain.handle('db:get-device-id', () => crypto.createHash('sha256').update(os.hostname()).digest('hex'));
-  ipcMain.handle('db:history-list', (_, cursor, limit) => (
-    cursor !== undefined || limit !== undefined ? { data: [], total: 0, hasMore: false } : []
-  ));
-  ipcMain.handle('db:history-latest-id', () => ({ success: false, id: '' }));
-  ipcMain.handle('db:history-latest-id-for-error-tracking', () => ({ success: false, reason: 'empty' }));
-  ipcMain.handle('db:history-latest', () => ({ success: false, data: null, error: 'empty' }));
-  ipcMain.handle('db:history-get', () => ({ success: false, error: 'not_found' }));
-  ipcMain.handle('db:history-clear', () => ({ success: true }));
-  ipcMain.handle('db:history-delete', () => ({ success: true }));
+  ipcMain.handle('db:history-list', (_, cursor, limit) => {
+    const items = readHistoryItems();
+    if (cursor !== undefined || limit !== undefined) {
+      const start = Math.max(0, Number(cursor) || 0);
+      const size = Math.max(1, Number(limit) || items.length || 1);
+      const data = items.slice(start, start + size);
+      return { data, total: items.length, hasMore: start + size < items.length };
+    }
+    return items;
+  });
+  ipcMain.handle('db:history-latest-id', () => {
+    const latest = readHistoryItems()[0];
+    return latest ? { success: true, id: latest.id } : { success: false, id: '' };
+  });
+  ipcMain.handle('db:history-latest-id-for-error-tracking', () => {
+    const latest = readHistoryItems()[0];
+    return latest ? { success: true, id: latest.id } : { success: false, reason: 'empty' };
+  });
+  ipcMain.handle('db:history-latest', () => {
+    const latest = readHistoryItems()[0];
+    return latest ? { success: true, data: latest } : { success: false, data: null, error: 'empty' };
+  });
+  ipcMain.handle('db:history-get', (_, id) => {
+    const item = readHistoryItems().find((historyItem) => historyItem.id === id);
+    return item ? { success: true, data: item } : { success: false, error: 'not_found' };
+  });
+  ipcMain.handle('db:history-clear', () => {
+    writeHistoryItems([]);
+    return { success: true };
+  });
+  ipcMain.handle('db:history-delete', (_, id) => {
+    writeHistoryItems(readHistoryItems().filter((historyItem) => historyItem.id !== id));
+    return { success: true };
+  });
   ipcMain.handle('db:history-delete-by-duration', () => ({ success: true }));
   ipcMain.handle('db:history-save-audio', () => ({ success: true }));
-  ipcMain.handle('db:history-upsert', (_, history) => ({ success: true, data: history || null }));
+  ipcMain.handle('db:history-upsert', (_, history) => ({ success: true, data: upsertHistoryItem(history || {}) }));
   ipcMain.handle('db:history-upsert-client-metadata', () => ({ success: true }));
   ipcMain.handle('db:history-trigger-history-cleanup', () => ({ success: true }));
   ipcMain.handle('db:history-trigger-disk-cleanup', () => ({ success: true }));
+  ipcMain.handle('db:history-stats', () => calculateHistoryStats());
+
+  ipcMain.handle('settings:get', () => readLocalSettings());
+  ipcMain.handle('settings:update', (_, payload = {}) => writeLocalSettings({ ...readLocalSettings(), ...payload }));
 
   ipcMain.handle('keyboard:start-keyboard-listener', () => true);
   ipcMain.handle('keyboard:stop-keyboard-listener', () => true);

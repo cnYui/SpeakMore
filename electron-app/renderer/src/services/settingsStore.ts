@@ -1,27 +1,44 @@
-const SETTINGS_KEY = 'typeless-local-settings'
+import { ipcClient } from './ipc'
 
 export type LocalSettings = {
-  enableSoundEffects: boolean
   showFloatingBar: boolean
   launchAtSystemStartup: boolean
+  selectedAudioDeviceId: string
 }
 
 export const defaultSettings: LocalSettings = {
-  enableSoundEffects: true,
   showFloatingBar: true,
   launchAtSystemStartup: false,
+  selectedAudioDeviceId: 'default',
 }
 
-export function loadSettings(): LocalSettings {
+function normalizeSettings(settings?: Partial<LocalSettings> | null): LocalSettings {
+  return {
+    ...defaultSettings,
+    ...settings,
+    showFloatingBar: settings?.showFloatingBar !== false,
+    launchAtSystemStartup: Boolean(settings?.launchAtSystemStartup),
+    selectedAudioDeviceId: settings?.selectedAudioDeviceId || 'default',
+  }
+}
+
+export async function loadSettings(): Promise<LocalSettings> {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY)
-    return raw ? { ...defaultSettings, ...JSON.parse(raw) } : defaultSettings
+    return normalizeSettings(await ipcClient.invoke<LocalSettings>('settings:get'))
   } catch {
     return defaultSettings
   }
 }
 
-export function saveSettings(settings: LocalSettings) {
-  window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
-  return settings
+export async function saveSettings(settings: LocalSettings): Promise<LocalSettings> {
+  try {
+    return normalizeSettings(await ipcClient.invoke<LocalSettings>('settings:update', settings))
+  } catch {
+    return normalizeSettings(settings)
+  }
+}
+
+export async function getSelectedAudioDeviceId(): Promise<string> {
+  const settings = await loadSettings()
+  return settings.selectedAudioDeviceId
 }

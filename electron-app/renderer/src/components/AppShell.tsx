@@ -25,8 +25,9 @@ export default function AppShell() {
   const shortcutGuardRef = useRef(shortcutGuard)
 
   useEffect(() => {
-    const settings = loadSettings()
-    ipcClient.invoke('page:set-floating-bar-enabled', { enabled: settings.showFloatingBar }).catch(() => undefined)
+    loadSettings()
+      .then((settings) => ipcClient.invoke('page:set-floating-bar-enabled', { enabled: settings.showFloatingBar }))
+      .catch(() => undefined)
   }, [])
 
   const applyShortcutGuard = useCallback((nextGuard: typeof shortcutGuard) => {
