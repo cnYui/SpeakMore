@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Box, TextField, Typography, Button, IconButton } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import { listVoiceHistory, clearVoiceHistory } from '../services/historyStore'
+import { listVoiceHistory, clearVoiceHistory, VOICE_HISTORY_UPDATED_EVENT } from '../services/historyStore'
 import { ipcClient } from '../services/ipc'
 
 export default function History() {
@@ -9,7 +9,13 @@ export default function History() {
   const [items, setItems] = useState<Awaited<ReturnType<typeof listVoiceHistory>>>([])
 
   useEffect(() => {
-    listVoiceHistory().then(setItems).catch(() => setItems([]))
+    const refreshHistory = () => {
+      listVoiceHistory().then(setItems).catch(() => setItems([]))
+    }
+
+    refreshHistory()
+    window.addEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshHistory)
+    return () => window.removeEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshHistory)
   }, [])
 
   const filteredItems = useMemo(() => {

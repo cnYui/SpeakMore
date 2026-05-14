@@ -9,7 +9,8 @@ import Diagnostics from '../pages/Diagnostics'
 import { type Page } from '../navigation'
 import { ipcClient } from '../services/ipc'
 import { loadSettings } from '../services/settingsStore'
-import { cancelRecording, disposeRecorder, getVoiceSession, toggleRecording } from '../services/recorder'
+import { cancelRecording, disposeRecorder, getVoiceSession, subscribeVoiceSession, toggleRecording } from '../services/recorder'
+import { saveVoiceHistory, VOICE_HISTORY_UPDATED_EVENT } from '../services/historyStore'
 import {
   blockByLongPress,
   closeShortcutHint,
@@ -25,6 +26,7 @@ export default function AppShell() {
   const [page, setPage] = useState<Page>('home')
   const [shortcutGuard, setShortcutGuard] = useState(createInitialShortcutGuardState)
   const shortcutGuardRef = useRef(shortcutGuard)
+  const savedAudioIds = useRef(new Set<string>())
 
   useEffect(() => {
     loadSettings()
@@ -64,6 +66,34 @@ export default function AppShell() {
     return ipcClient.on('voice-cancel-requested', () => {
       if (!CANCELABLE_STATUSES.has(getVoiceSession().status)) return
       cancelRecording()
+    })
+  }, [])
+
+  useEffect(() => {
+    return subscribeVoiceSession((voiceSession) => {
+      if (!voiceSession.audioId) return
+      if (voiceSession.status !== 'completed' && voiceSession.status !== 'error') return
+      if (savedAudioIds.current.has(voiceSession.audioId)) return
+
+      savedAudioIds.current.add(voiceSession.audioId)
+      void saveVoiceHistory({
+        id: voiceSession.audioId,
+        createdAt: new Date().toISOString(),
+        mode: voiceSession.mode,
+        status: voiceSession.status === 'completed' ? 'completed' : 'error',
+        rawText: voiceSession.rawText,
+        refinedText: voiceSession.refinedText,
+        errorCode: voiceSession.error?.code,
+        durationMs: voiceSession.durationMs,
+        textLength: voiceSession.textLength,
+      }).then((savedItem) => {
+        if (!savedItem) {
+          savedAudioIds.current.delete(voiceSession.audioId!)
+          return
+        }
+
+        window.dispatchEvent(new Event(VOICE_HISTORY_UPDATED_EVENT))
+      })
     })
   }, [])
 
