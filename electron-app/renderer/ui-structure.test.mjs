@@ -69,6 +69,7 @@ test('P0 长按提示卡片使用独立窗口并支持 Escape 关闭', async () 
   assert.match(main, /defaultShortcutHintWindowY\s*=\s*766/);
   assert.match(main, /if\s*\(shortcutHintVisible\s*&&\s*payload\.isKeydown\)[\s\S]*hideShortcutHint\(\)[\s\S]*return/);
   assert.match(main, /function\s+updateFloatingBarVisibility\(keys\)[\s\S]*if\s*\(shortcutHintVisible\)\s*return/);
+  assert.match(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*if\s*\(shortcutHintVisible\)\s*\{[\s\S]*hideFloatingBar\(\)[\s\S]*return[\s\S]*\}/);
   assert.match(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*if\s*\(payload\.visible\)[\s\S]*hideFloatingBar\(\)[\s\S]*showShortcutHint\(\)/);
   assert.match(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*sendToShortcutHint\(['"]shortcut-hint['"]/);
   assert.doesNotMatch(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*sendToFloatingBar\(['"]shortcut-hint['"]/);

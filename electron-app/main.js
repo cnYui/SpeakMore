@@ -1197,6 +1197,10 @@ function registerIpcHandlers() {
   });
   ipcMain.on('voice-state', (_, payload = {}) => {
     sendToFloatingBar('voice-state', payload);
+    if (shortcutHintVisible) {
+      hideFloatingBar();
+      return;
+    }
     if (payload.status === 'completed' || payload.status === 'cancelled') {
       showFloatingBar();
       scheduleFloatingBarCompletedHide();
