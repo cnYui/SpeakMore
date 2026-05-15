@@ -5,8 +5,21 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { background: transparent; overflow: hidden; pointer-events: none; }
-#bar {
+#scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+#bar,
+#hint {
   pointer-events: auto;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+#bar {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -18,15 +31,12 @@ html, body { background: transparent; overflow: hidden; pointer-events: none; }
   backdrop-filter: blur(9px);
   border: 0.5px solid rgba(119,119,119,0.14);
   box-shadow: 0 8px 18px rgba(17,17,17,0.16), 0 2px 6px rgba(17,17,17,0.08);
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 7px;
   color: #333;
 }
 #dot {
-  width: 5px; height: 5px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: #999;
   flex-shrink: 0;
@@ -48,13 +58,91 @@ html, body { background: transparent; overflow: hidden; pointer-events: none; }
 .lv.active {
   background: #44bedf;
 }
+#hint {
+  display: none;
+  width: min(360px, calc(100% - 20px));
+  padding: 14px 16px 13px;
+  border-radius: 18px;
+  border: 0.5px solid rgba(119,119,119,0.14);
+  background: rgba(255,255,255,0.96);
+  box-shadow: 0 10px 22px rgba(17,17,17,0.15), 0 2px 6px rgba(17,17,17,0.08);
+  color: #2f3135;
+}
+.hint-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hint-title {
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.hint-text {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #656a72;
+}
+.chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(119,119,119,0.16);
+  background: rgba(255,255,255,0.95);
+  color: #3f4349;
+  font-size: 13px;
+  line-height: 1;
+}
+.dismiss {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #8b8f96;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dismiss:hover {
+  background: rgba(119,119,119,0.08);
+  color: #555b61;
+}
 </style>
 </head>
 <body>
-<div id="bar">
-  <div id="dot"></div>
-  <span id="text">Right Alt 录音</span>
-  <div id="levels"></div>
+<div id="scene">
+  <div id="bar">
+    <div id="dot"></div>
+    <span id="text">Right Alt 录音</span>
+    <div id="levels"></div>
+  </div>
+  <div id="hint">
+    <div class="hint-row">
+      <div>
+        <div class="hint-title">检测到长按快捷键</div>
+        <div class="hint-text">长按 Right Alt 不会开始语音输入。请短按 Right Alt，或使用 Right Alt + Space / Right Alt + Right Shift。</div>
+        <div class="chips">
+          <span class="chip">Right Alt</span>
+          <span class="chip">Right Alt + Space</span>
+          <span class="chip">Right Alt + Right Shift</span>
+        </div>
+      </div>
+      <button id="dismiss" class="dismiss" type="button" aria-label="关闭提示">×</button>
+    </div>
+  </div>
 </div>
 <script>
 const BAR_COUNT = 8;
@@ -64,9 +152,15 @@ const MAX_BAR_HEIGHT = 18;
 const dot = document.getElementById('dot');
 const text = document.getElementById('text');
 const levelsContainer = document.getElementById('levels');
+const capsule = document.getElementById('bar');
+const hintCard = document.getElementById('hint');
+const dismissButton = document.getElementById('dismiss');
 
 levelsContainer.innerHTML = Array.from({ length: BAR_COUNT }, () => '<div class="lv"></div>').join('');
 const levels = Array.from(document.querySelectorAll('.lv'));
+
+let voiceState = null;
+let shortcutHintVisible = false;
 
 function clampLevel(value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return 0;
@@ -83,21 +177,19 @@ function renderLevels(inputLevel, active) {
   });
 }
 
-function applyVoiceState(state) {
+function renderCapsule(state) {
   const status = state && typeof state.status === 'string' ? state.status : 'idle';
   const displayText = state && typeof state.displayText === 'string' ? state.displayText : '';
   const errorMessage = state && typeof state.errorMessage === 'string' ? state.errorMessage : '';
   const stateLevel = state && typeof state.inputLevel === 'number' ? state.inputLevel : 0;
 
+  dot.className = status === 'recording' ? 'active' : '';
+  renderLevels(stateLevel, status === 'recording');
+
   if (status === 'recording') {
-    dot.className = 'active';
     text.textContent = '正在监听...';
-    renderLevels(stateLevel, status === 'recording');
     return;
   }
-
-  dot.className = '';
-  renderLevels(stateLevel, false);
 
   if (displayText) {
     text.textContent = displayText;
@@ -113,9 +205,36 @@ function applyVoiceState(state) {
   else text.textContent = 'Right Alt 录音';
 }
 
+function render() {
+  hintCard.style.display = shortcutHintVisible ? 'block' : 'none';
+  capsule.style.display = shortcutHintVisible ? 'none' : 'inline-flex';
+  if (!shortcutHintVisible) renderCapsule(voiceState);
+}
+
+function applyVoiceState(state) {
+  voiceState = state;
+  render();
+}
+
+function applyShortcutHint(payload) {
+  shortcutHintVisible = Boolean(payload && payload.visible);
+  render();
+}
+
+dismissButton.addEventListener('click', () => {
+  shortcutHintVisible = false;
+  render();
+  if (window.ipcRenderer) {
+    window.ipcRenderer.send('shortcut-hint', { visible: false });
+  }
+});
+
 if (window.ipcRenderer) {
   window.ipcRenderer.on('voice-state', (_event, state) => applyVoiceState(state));
+  window.ipcRenderer.on('shortcut-hint', (_event, payload) => applyShortcutHint(payload));
 }
+
+render();
 </script>
 </body>
 </html>
