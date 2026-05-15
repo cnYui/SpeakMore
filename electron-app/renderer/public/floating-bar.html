@@ -4,7 +4,13 @@
 <meta charset="UTF-8">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { background: transparent; overflow: hidden; pointer-events: none; }
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  pointer-events: none;
+}
 #scene {
   position: relative;
   width: 100%;
@@ -22,21 +28,21 @@ html, body { background: transparent; overflow: hidden; pointer-events: none; }
 #bar {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 24px;
-  min-width: 124px;
-  padding: 0 10px;
+  gap: 9.3px;
+  height: 44.6px;
+  min-width: 230px;
+  padding: 0 18.6px;
   border-radius: 9999px;
   background: rgba(255,255,255,0.94);
   backdrop-filter: blur(9px);
   border: 0.5px solid rgba(119,119,119,0.14);
   box-shadow: 0 8px 18px rgba(17,17,17,0.16), 0 2px 6px rgba(17,17,17,0.08);
-  font-size: 7px;
+  font-size: 13px;
   color: #333;
 }
 #dot {
-  width: 5px;
-  height: 5px;
+  width: 9.3px;
+  height: 9.3px;
   border-radius: 50%;
   background: #999;
   flex-shrink: 0;
@@ -45,12 +51,12 @@ html, body { background: transparent; overflow: hidden; pointer-events: none; }
 #levels {
   display: flex;
   align-items: center;
-  gap: 2px;
-  height: 12px;
+  gap: 3.7px;
+  height: 22.3px;
 }
 .lv {
-  width: 2px;
-  height: 5px;
+  width: 3.7px;
+  height: 9.3px;
   border-radius: 999px;
   background: #d0d4d8;
   transition: height 70ms linear, background-color 120ms ease;
@@ -60,6 +66,7 @@ html, body { background: transparent; overflow: hidden; pointer-events: none; }
 }
 #hint {
   display: none;
+  top: calc(50% - 24px);
   width: min(360px, calc(100% - 20px));
   padding: 14px 16px 13px;
   border-radius: 18px;
@@ -147,8 +154,8 @@ html, body { background: transparent; overflow: hidden; pointer-events: none; }
 <script>
 const BAR_COUNT = 8;
 const BAR_WEIGHTS = [0.72, 0.84, 0.94, 1, 1, 0.94, 0.84, 0.72];
-const MIN_BAR_HEIGHT = 5;
-const MAX_BAR_HEIGHT = 18;
+const MIN_BAR_HEIGHT = 9.3;
+const MAX_BAR_HEIGHT = 33.4;
 const dot = document.getElementById('dot');
 const text = document.getElementById('text');
 const levelsContainer = document.getElementById('levels');

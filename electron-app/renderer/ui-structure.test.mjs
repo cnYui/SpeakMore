@@ -31,25 +31,26 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   assert.match(main, /renderer[\s\S]*dist[\s\S]*floating-bar\.html/);
   assert.doesNotMatch(main, /loadExtractedPage\(floatingBar,\s*['"]floating-bar\.html['"]\)/);
   assert.match(main, /windowWidth\s*=\s*400/);
-  assert.match(main, /windowHeight\s*=\s*250/);
-  assert.match(main, /capsuleHeight\s*=\s*24/);
-  assert.match(main, /capsuleBottomGap\s*=\s*16/);
+  assert.match(main, /windowHeight\s*=\s*280/);
+  assert.match(main, /capsuleHeight\s*=\s*44\.6/);
+  assert.match(main, /capsuleBottomGap\s*=\s*32/);
   assert.match(main, /width:\s*windowWidth/);
   assert.match(main, /height:\s*windowHeight/);
   assert.match(main, /payload\?\.positions/);
-  assert.match(floatingBar, /gap:\s*5px/);
-  assert.match(floatingBar, /height:\s*24px/);
-  assert.match(floatingBar, /min-width:\s*124px/);
-  assert.match(floatingBar, /padding:\s*0 10px/);
-  assert.match(floatingBar, /font-size:\s*7px/);
-  assert.match(floatingBar, /width:\s*5px;\s*height:\s*5px/);
+  assert.match(floatingBar, /gap:\s*9\.3px/);
+  assert.match(floatingBar, /height:\s*44\.6px/);
+  assert.match(floatingBar, /min-width:\s*230px/);
+  assert.match(floatingBar, /padding:\s*0 18\.6px/);
+  assert.match(floatingBar, /font-size:\s*13px/);
+  assert.match(floatingBar, /width:\s*9\.3px;\s*height:\s*9\.3px/);
   assert.match(floatingBar, /const\s+BAR_COUNT\s*=\s*8/);
-  assert.match(floatingBar, /gap:\s*2px/);
-  assert.match(floatingBar, /height:\s*12px/);
-  assert.match(floatingBar, /width:\s*2px;\s*height:\s*5px/);
+  assert.match(floatingBar, /gap:\s*3\.7px/);
+  assert.match(floatingBar, /height:\s*22\.3px/);
+  assert.match(floatingBar, /width:\s*3\.7px;\s*height:\s*9\.3px/);
   assert.match(floatingBar, /border-radius:\s*999px/);
   assert.match(floatingBar, /检测到长按快捷键/);
   assert.match(floatingBar, /shortcut-hint/);
+  assert.match(floatingBar, /#hint\s*\{[^}]*top:\s*calc\(50%\s*-\s*24px\);/);
   assert.doesNotMatch(floatingBar, /@keyframes\s+level/);
 });
 
@@ -402,6 +403,13 @@ test('P0 长按提示通过 shortcut-hint 独立显示在悬浮条位置', async
   assert.doesNotMatch(appShell, /检测到长按快捷键/);
 });
 
+test('P0 悬浮条提示卡依赖完整视口尺寸，避免定位容器塌陷', async () => {
+  const floatingBar = await readProjectFile('public/floating-bar.html');
+
+  assert.match(floatingBar, /html,\s*body\s*\{[^}]*height:\s*100%;[^}]*\}/);
+  assert.match(floatingBar, /#scene\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*\}/);
+});
+
 test('P0 悬浮条消费 voice-state.inputLevel 并渲染 8 根真实音量柱', async () => {
   const voiceTypes = await readProjectFile('src/services/voiceTypes.ts');
   const floatingBar = await readProjectFile('public/floating-bar.html');
@@ -425,8 +433,8 @@ test('P0 悬浮条在非 recording 状态归零，并按权重渲染 8 根细柱
   assert.match(floatingBar, /MAX_BAR_HEIGHT/);
   assert.match(floatingBar, /renderLevels\(stateLevel,\s*status\s*===\s*['"]recording['"]\)/);
   assert.match(floatingBar, /const\s+stateLevel\s*=\s*state\s*&&\s*typeof\s+state\.inputLevel\s*===\s*['"]number['"]/);
-  assert.match(floatingBar, /width:\s*2px/);
-  assert.match(floatingBar, /gap:\s*2px/);
+  assert.match(floatingBar, /width:\s*3\.7px/);
+  assert.match(floatingBar, /gap:\s*3\.7px/);
 });
 
 test('P0 悬浮条在完成或取消后自动消失，并在错误后保持可见', async () => {
