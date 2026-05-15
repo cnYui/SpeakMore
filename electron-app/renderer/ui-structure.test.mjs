@@ -479,6 +479,7 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   assert.match(settingsStore, /settings:get/);
   assert.match(settingsStore, /settings:update/);
   assert.doesNotMatch(settingsStore, /localStorage/);
+  assert.doesNotMatch(settingsStore, /deepseekApiKey/);
   assert.match(settingsPage, /permission:update-auto-launch/);
   assert.match(settingsPage, /navigator\.mediaDevices\.enumerateDevices/);
   assert.match(settingsPage, /selectedAudioDeviceId/);
@@ -490,6 +491,10 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   assert.match(settingsPage, /版本 0\.1（本地版）/);
   assert.match(settingsPage, /检查更新/);
   assert.doesNotMatch(settingsPage, /disabled>/);
+  assert.match(settingsPage, /大模型/);
+  assert.match(settingsPage, /DeepSeek API Key/);
+  assert.match(settingsPage, /type="password"/);
+  assert.match(settingsPage, /placeholder="请输入 DeepSeek API Key"/);
 });
 
 test('P1 设置页不再暴露悬浮条开关，语言固定为简体中文', async () => {

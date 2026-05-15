@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Box, Typography, Select, MenuItem, Switch, Button } from '@mui/material'
+import { Box, Typography, Select, MenuItem, Switch, Button, TextField } from '@mui/material'
 import { ipcClient } from '../services/ipc'
 import { loadSettings, saveSettings, type LocalSettings } from '../services/settingsStore'
 
@@ -40,6 +40,7 @@ export default function Settings() {
     selectedAudioDeviceId: 'default',
   })
   const [devices, setDevices] = useState<AudioDevice[]>([])
+  const [deepseekApiKey, setDeepseekApiKey] = useState('')
 
   useEffect(() => {
     loadSettings().then(setSettings).catch(() => undefined)
@@ -103,6 +104,21 @@ export default function Settings() {
         >
           <MenuItem value="zh-CN">简体中文 (zh-CN)</MenuItem>
         </Select>
+      </Box>
+
+      {/* 大模型 */}
+      <Typography sx={sectionTitle}>大模型</Typography>
+      <Box sx={rowSx}>
+        <TextField
+          fullWidth
+          size="small"
+          type="password"
+          label="DeepSeek API Key"
+          placeholder="请输入 DeepSeek API Key"
+          value={deepseekApiKey}
+          onChange={(event) => setDeepseekApiKey(event.target.value)}
+          sx={{ maxWidth: 420 }}
+        />
       </Box>
 
       {/* 其他设置 */}
