@@ -482,23 +482,27 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   assert.match(settingsPage, /permission:update-auto-launch/);
   assert.match(settingsPage, /navigator\.mediaDevices\.enumerateDevices/);
   assert.match(settingsPage, /selectedAudioDeviceId/);
-  assert.match(settingsPage, /showFloatingBar/);
+  assert.match(settingsPage, /preferredLanguage/);
+  assert.match(settingsPage, /MenuItem value="zh-CN"/);
+  assert.doesNotMatch(settingsPage, /显示悬浮条/);
   assert.doesNotMatch(settingsPage, /enableSoundEffects/);
   assert.doesNotMatch(settingsPage, /声音效果/);
   assert.match(settingsPage, /暂未提供更新检查/);
 });
 
-test('P1 显示悬浮条设置会同步到主进程并在启动时回放', async () => {
+test('P1 设置页不再暴露悬浮条开关，语言固定为简体中文', async () => {
   const appShell = await readProjectFile('src/components/AppShell.tsx');
   const settingsPage = await readProjectFile('src/pages/Settings.tsx');
   const main = await readProjectFile('../main.js');
 
-  assert.match(main, /let\s+floatingBarEnabled\s*=\s*true/);
-  assert.match(main, /ipcMain\.handle\(['"]page:set-floating-bar-enabled['"]/);
-  assert.match(main, /if\s*\(!floatingBarEnabled\)\s*\{\s*hideFloatingBar\(\)/);
-  assert.match(settingsPage, /page:set-floating-bar-enabled/);
-  assert.match(appShell, /loadSettings/);
-  assert.match(appShell, /page:set-floating-bar-enabled/);
+  assert.doesNotMatch(main, /ipcMain\.handle\(['"]page:set-floating-bar-enabled['"]/);
+  assert.doesNotMatch(main, /showFloatingBar: true/);
+  assert.doesNotMatch(settingsPage, /page:set-floating-bar-enabled/);
+  assert.doesNotMatch(settingsPage, /显示悬浮条/);
+  assert.match(settingsPage, /Select/);
+  assert.match(settingsPage, /简体中文 \(zh-CN\)/);
+  assert.doesNotMatch(appShell, /page:set-floating-bar-enabled/);
+  assert.doesNotMatch(appShell, /loadSettings/);
 });
 
 test('P1 首页四项统计来自真实历史统计，不再展示硬编码指标', async () => {

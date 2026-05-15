@@ -36,7 +36,7 @@ type AudioDevice = { deviceId: string; label?: string }
 export default function Settings() {
   const [settings, setSettings] = useState<LocalSettings>({
     launchAtSystemStartup: false,
-    showFloatingBar: true,
+    preferredLanguage: 'zh-CN',
     selectedAudioDeviceId: 'default',
   })
   const [devices, setDevices] = useState<AudioDevice[]>([])
@@ -95,7 +95,14 @@ export default function Settings() {
       {/* 语言 */}
       <Typography sx={sectionTitle}>语言</Typography>
       <Box sx={rowSx}>
-        <Typography>简体中文 (zh-CN)</Typography>
+        <Select
+          size="small"
+          value={settings.preferredLanguage}
+          onChange={(event) => void updateSettings({ ...settings, preferredLanguage: String(event.target.value) as 'zh-CN' })}
+          sx={{ minWidth: 240 }}
+        >
+          <MenuItem value="zh-CN">简体中文 (zh-CN)</MenuItem>
+        </Select>
       </Box>
 
       {/* 其他设置 */}
@@ -107,16 +114,6 @@ export default function Settings() {
             ipcClient.invoke('permission:update-auto-launch', { enable: checked }).finally(() => {
               void updateSettings({ ...settings, launchAtSystemStartup: checked })
             })
-          }}
-        />
-      </Box>
-      <Box sx={rowSx}>
-        <Typography>显示悬浮条</Typography>
-        <Switch
-          checked={settings.showFloatingBar}
-          onChange={(_event, checked) => {
-            void updateSettings({ ...settings, showFloatingBar: checked })
-            ipcClient.invoke('page:set-floating-bar-enabled', { enabled: checked }).catch(() => undefined)
           }}
         />
       </Box>
