@@ -17,8 +17,7 @@ html, body {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-#bar,
-#hint {
+#bar {
   pointer-events: auto;
   position: absolute;
   left: 50%;
@@ -64,69 +63,6 @@ html, body {
 .lv.active {
   background: #44bedf;
 }
-#hint {
-  display: none;
-  top: calc(50% - 24px);
-  width: min(360px, calc(100% - 20px));
-  padding: 14px 16px 13px;
-  border-radius: 18px;
-  border: 0.5px solid rgba(119,119,119,0.14);
-  background: rgba(255,255,255,0.96);
-  box-shadow: 0 10px 22px rgba(17,17,17,0.15), 0 2px 6px rgba(17,17,17,0.08);
-  color: #2f3135;
-}
-.hint-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.hint-title {
-  font-size: 16px;
-  line-height: 1.25;
-  font-weight: 500;
-  letter-spacing: 0;
-}
-.hint-text {
-  margin-top: 8px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: #656a72;
-}
-.chips {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-.chip {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(119,119,119,0.16);
-  background: rgba(255,255,255,0.95);
-  color: #3f4349;
-  font-size: 13px;
-  line-height: 1;
-}
-.dismiss {
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: #8b8f96;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-}
-.dismiss:hover {
-  background: rgba(119,119,119,0.08);
-  color: #555b61;
-}
 </style>
 </head>
 <body>
@@ -135,20 +71,6 @@ html, body {
     <div id="dot"></div>
     <span id="text">Right Alt 录音</span>
     <div id="levels"></div>
-  </div>
-  <div id="hint">
-    <div class="hint-row">
-      <div>
-        <div class="hint-title">检测到长按快捷键</div>
-        <div class="hint-text">长按 Right Alt 不会开始语音输入。请短按 Right Alt，或使用 Right Alt + Space / Right Alt + Right Shift。</div>
-        <div class="chips">
-          <span class="chip">Right Alt</span>
-          <span class="chip">Right Alt + Space</span>
-          <span class="chip">Right Alt + Right Shift</span>
-        </div>
-      </div>
-      <button id="dismiss" class="dismiss" type="button" aria-label="关闭提示">×</button>
-    </div>
   </div>
 </div>
 <script>
@@ -159,15 +81,11 @@ const MAX_BAR_HEIGHT = 33.4;
 const dot = document.getElementById('dot');
 const text = document.getElementById('text');
 const levelsContainer = document.getElementById('levels');
-const capsule = document.getElementById('bar');
-const hintCard = document.getElementById('hint');
-const dismissButton = document.getElementById('dismiss');
 
 levelsContainer.innerHTML = Array.from({ length: BAR_COUNT }, () => '<div class="lv"></div>').join('');
 const levels = Array.from(document.querySelectorAll('.lv'));
 
 let voiceState = null;
-let shortcutHintVisible = false;
 
 function clampLevel(value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return 0;
@@ -213,9 +131,7 @@ function renderCapsule(state) {
 }
 
 function render() {
-  hintCard.style.display = shortcutHintVisible ? 'block' : 'none';
-  capsule.style.display = shortcutHintVisible ? 'none' : 'inline-flex';
-  if (!shortcutHintVisible) renderCapsule(voiceState);
+  renderCapsule(voiceState);
 }
 
 function applyVoiceState(state) {
@@ -223,22 +139,8 @@ function applyVoiceState(state) {
   render();
 }
 
-function applyShortcutHint(payload) {
-  shortcutHintVisible = Boolean(payload && payload.visible);
-  render();
-}
-
-dismissButton.addEventListener('click', () => {
-  shortcutHintVisible = false;
-  render();
-  if (window.ipcRenderer) {
-    window.ipcRenderer.send('shortcut-hint', { visible: false });
-  }
-});
-
 if (window.ipcRenderer) {
   window.ipcRenderer.on('voice-state', (_event, state) => applyVoiceState(state));
-  window.ipcRenderer.on('shortcut-hint', (_event, payload) => applyShortcutHint(payload));
 }
 
 render();
