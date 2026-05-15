@@ -28,6 +28,7 @@ const {
 
 let mainWindow = null;
 let floatingBar = null;
+let shortcutHintWindow = null;
 let tray = null;
 let registeredIpc = false;
 let rightAltReleaseTimer = null;
@@ -40,6 +41,7 @@ let mutedBackgroundSessions = [];
 let quitAfterBackgroundAudioRestore = false;
 let appIsQuitting = false;
 let pendingInteractiveCardPayload = null;
+let shortcutHintVisible = false;
 
 const DEFAULT_LANGUAGE = 'zh-CN';
 const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
@@ -263,6 +265,12 @@ function sendToFloatingBar(channel, payload) {
   }
 }
 
+function sendToShortcutHint(channel, payload) {
+  if (shortcutHintWindow && !shortcutHintWindow.isDestroyed()) {
+    shortcutHintWindow.webContents.send(channel, payload);
+  }
+}
+
 function emitUserStateChange() {
   sendToMain('user-state-change', localUser);
 }
@@ -294,6 +302,21 @@ function hideFloatingBar() {
   floatingBar.hide();
 }
 
+function showShortcutHint() {
+  createShortcutHintWindow();
+  if (!shortcutHintWindow || shortcutHintWindow.isDestroyed()) return;
+  shortcutHintVisible = true;
+  shortcutHintWindow.setIgnoreMouseEvents(false);
+  shortcutHintWindow.show();
+}
+
+function hideShortcutHint() {
+  shortcutHintVisible = false;
+  if (!shortcutHintWindow || shortcutHintWindow.isDestroyed()) return;
+  shortcutHintWindow.setIgnoreMouseEvents(true, { forward: true });
+  shortcutHintWindow.hide();
+}
+
 function scheduleFloatingBarCompletedHide() {
   clearFloatingBarCompletedHideTimer();
   floatingBarCompletedHideTimer = setTimeout(() => {
@@ -302,6 +325,7 @@ function scheduleFloatingBarCompletedHide() {
 }
 
 function updateFloatingBarVisibility(keys) {
+  if (shortcutHintVisible) return;
   const hasActiveKey = Array.isArray(keys) && keys.some((key) => key?.isKeydown);
   if (hasActiveKey) showFloatingBar();
 }
@@ -394,6 +418,10 @@ function handleRightAltListenerLine(line) {
   try {
     const payload = JSON.parse(line);
     if (payload.key === 'Escape') {
+      if (shortcutHintVisible && payload.isKeydown) {
+        hideShortcutHint();
+        return;
+      }
       if (payload.isKeydown) {
         sendToMain('voice-cancel-requested');
       }
@@ -858,7 +886,9 @@ function createFloatingBar() {
   const display = screen.getPrimaryDisplay();
   const { x, y, width, height } = display.workArea;
   const windowWidth = 400;
-  const windowHeight = 280;
+  const windowHeight = 360;
+  const defaultFloatingBarX = 660;
+  const defaultFloatingBarY = 739;
   const capsuleHeight = 44.6;
   const capsuleBottomGap = 32;
   const windowTopToCapsuleBottom = (windowHeight + capsuleHeight) / 2;
@@ -867,8 +897,8 @@ function createFloatingBar() {
     type: 'panel',
     width: windowWidth,
     height: windowHeight,
-    x: Math.floor(x + (width - windowWidth) / 2),
-    y: Math.floor(y + height - windowTopToCapsuleBottom - capsuleBottomGap),
+    x: defaultFloatingBarX,
+    y: defaultFloatingBarY,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -896,6 +926,50 @@ function createFloatingBar() {
   floatingBar.on('closed', () => {
     clearFloatingBarCompletedHideTimer();
     floatingBar = null;
+  });
+}
+
+function createShortcutHintWindow() {
+  if (shortcutHintWindow && !shortcutHintWindow.isDestroyed()) return;
+
+  const windowWidth = 405;
+  const windowHeight = 160;
+  const defaultShortcutHintWindowX = 680;
+  const defaultShortcutHintWindowY = 766;
+
+  shortcutHintWindow = new BrowserWindow({
+    type: 'panel',
+    width: windowWidth,
+    height: windowHeight,
+    x: defaultShortcutHintWindowX,
+    y: defaultShortcutHintWindowY,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    hasShadow: false,
+    maximizable: false,
+    minimizable: false,
+    resizable: false,
+    show: false,
+    skipTaskbar: true,
+    focusable: false,
+    fullscreen: false,
+    webPreferences: {
+      preload: preloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  shortcutHintWindow.loadFile(path.join(__dirname, 'renderer', 'dist', 'shortcut-hint.html'));
+  shortcutHintWindow.setIgnoreMouseEvents(true, { forward: true });
+  shortcutHintWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+  shortcutHintWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  shortcutHintWindow.setFullScreenable(false);
+  shortcutHintWindow.on('closed', () => {
+    shortcutHintVisible = false;
+    shortcutHintWindow = null;
   });
 }
 
@@ -1112,15 +1186,21 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('page:floating-bar-click', () => true);
   ipcMain.on('shortcut-hint', (_, payload = {}) => {
-    sendToFloatingBar('shortcut-hint', payload);
     if (payload.visible) {
-      showFloatingBar();
+      hideFloatingBar();
+      showShortcutHint();
+      sendToShortcutHint('shortcut-hint', payload);
       return;
     }
-    hideFloatingBar();
+    sendToShortcutHint('shortcut-hint', payload);
+    hideShortcutHint();
   });
   ipcMain.on('voice-state', (_, payload = {}) => {
     sendToFloatingBar('voice-state', payload);
+    if (shortcutHintVisible) {
+      hideFloatingBar();
+      return;
+    }
     if (payload.status === 'completed' || payload.status === 'cancelled') {
       showFloatingBar();
       scheduleFloatingBarCompletedHide();

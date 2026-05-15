@@ -31,7 +31,9 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   assert.match(main, /renderer[\s\S]*dist[\s\S]*floating-bar\.html/);
   assert.doesNotMatch(main, /loadExtractedPage\(floatingBar,\s*['"]floating-bar\.html['"]\)/);
   assert.match(main, /windowWidth\s*=\s*400/);
-  assert.match(main, /windowHeight\s*=\s*280/);
+  assert.match(main, /windowHeight\s*=\s*360/);
+  assert.match(main, /defaultFloatingBarX\s*=\s*660/);
+  assert.match(main, /defaultFloatingBarY\s*=\s*739/);
   assert.match(main, /capsuleHeight\s*=\s*44\.6/);
   assert.match(main, /capsuleBottomGap\s*=\s*32/);
   assert.match(main, /width:\s*windowWidth/);
@@ -48,10 +50,45 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   assert.match(floatingBar, /height:\s*22\.3px/);
   assert.match(floatingBar, /width:\s*3\.7px;\s*height:\s*9\.3px/);
   assert.match(floatingBar, /border-radius:\s*999px/);
-  assert.match(floatingBar, /检测到长按快捷键/);
-  assert.match(floatingBar, /shortcut-hint/);
-  assert.match(floatingBar, /#hint\s*\{[^}]*top:\s*calc\(50%\s*-\s*24px\);/);
+  assert.doesNotMatch(floatingBar, /-webkit-app-region:\s*drag/);
+  assert.doesNotMatch(floatingBar, /检测到长按快捷键/);
+  assert.doesNotMatch(floatingBar, /shortcut-hint/);
   assert.doesNotMatch(floatingBar, /@keyframes\s+level/);
+});
+
+test('P0 长按提示卡片使用独立窗口并支持 Escape 关闭', async () => {
+  const main = await readProjectFile('../main.js');
+  const shortcutHint = await readProjectFile('public/shortcut-hint.html');
+
+  assert.match(main, /let\s+shortcutHintWindow\s*=\s*null/);
+  assert.match(main, /function\s+sendToShortcutHint\(/);
+  assert.match(main, /function\s+showShortcutHint\(/);
+  assert.match(main, /function\s+hideShortcutHint\(/);
+  assert.match(main, /renderer[\s\S]*dist[\s\S]*shortcut-hint\.html/);
+  assert.match(main, /defaultShortcutHintWindowX\s*=\s*680/);
+  assert.match(main, /defaultShortcutHintWindowY\s*=\s*766/);
+  assert.match(main, /if\s*\(shortcutHintVisible\s*&&\s*payload\.isKeydown\)[\s\S]*hideShortcutHint\(\)[\s\S]*return/);
+  assert.match(main, /function\s+updateFloatingBarVisibility\(keys\)[\s\S]*if\s*\(shortcutHintVisible\)\s*return/);
+  assert.match(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*if\s*\(shortcutHintVisible\)\s*\{[\s\S]*hideFloatingBar\(\)[\s\S]*return[\s\S]*\}/);
+  assert.match(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*if\s*\(payload\.visible\)[\s\S]*hideFloatingBar\(\)[\s\S]*showShortcutHint\(\)/);
+  assert.match(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*sendToShortcutHint\(['"]shortcut-hint['"]/);
+  assert.doesNotMatch(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*sendToFloatingBar\(['"]shortcut-hint['"]/);
+  assert.match(shortcutHint, /检测到长按快捷键/);
+  assert.match(shortcutHint, /window\.ipcRenderer\.send\(['"]shortcut-hint['"],\s*\{\s*visible:\s*false\s*\}\)/);
+  assert.match(shortcutHint, /keydown[\s\S]*event\.key\s*===\s*['"]Escape['"][\s\S]*closeShortcutHint\(\)/);
+  assert.doesNotMatch(shortcutHint, /-webkit-app-region:\s*drag/);
+  assert.doesNotMatch(shortcutHint, /-webkit-app-region:\s*no-drag/);
+});
+
+test('P0 悬浮窗口位置固定且不再记录拖动坐标', async () => {
+  const main = await readProjectFile('../main.js');
+
+  assert.doesNotMatch(main, /FLOATING_BAR_POSITION_FILE_NAME/);
+  assert.doesNotMatch(main, /SHORTCUT_HINT_POSITION_FILE_NAME/);
+  assert.doesNotMatch(main, /writeFloatingBarPositionSnapshot/);
+  assert.doesNotMatch(main, /writeShortcutHintPositionSnapshot/);
+  assert.doesNotMatch(main, /\.on\(['"]move['"]/);
+  assert.doesNotMatch(main, /\.on\(['"]moved['"]/);
 });
 
 test('Electron 悬浮条默认隐藏且不会在松开快捷键后提前消失', async () => {
@@ -392,14 +429,14 @@ test('P0 悬浮条消费 voice-state 而不是自行 toggle 快捷键状态', as
 
 test('P0 长按提示通过 shortcut-hint 独立显示在悬浮条位置', async () => {
   const main = await readProjectFile('../main.js');
-  const floatingBar = await readProjectFile('public/floating-bar.html');
+  const shortcutHint = await readProjectFile('public/shortcut-hint.html');
   const appShell = await readProjectFile('src/components/AppShell.tsx');
 
   assert.match(main, /shortcut-hint/);
-  assert.match(main, /sendToFloatingBar\(['"]shortcut-hint['"]/);
-  assert.match(floatingBar, /shortcut-hint/);
-  assert.match(floatingBar, /检测到长按快捷键/);
-  assert.match(floatingBar, /右上角|Right Alt/);
+  assert.match(main, /sendToShortcutHint\(['"]shortcut-hint['"]/);
+  assert.match(shortcutHint, /shortcut-hint/);
+  assert.match(shortcutHint, /检测到长按快捷键/);
+  assert.match(shortcutHint, /Right Alt/);
   assert.doesNotMatch(appShell, /检测到长按快捷键/);
 });
 
