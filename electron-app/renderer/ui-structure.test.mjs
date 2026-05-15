@@ -487,7 +487,9 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   assert.doesNotMatch(settingsPage, /显示悬浮条/);
   assert.doesNotMatch(settingsPage, /enableSoundEffects/);
   assert.doesNotMatch(settingsPage, /声音效果/);
-  assert.match(settingsPage, /暂未提供更新检查/);
+  assert.match(settingsPage, /版本 0\.1（本地版）/);
+  assert.match(settingsPage, /检查更新/);
+  assert.doesNotMatch(settingsPage, /disabled>/);
 });
 
 test('P1 设置页不再暴露悬浮条开关，语言固定为简体中文', async () => {

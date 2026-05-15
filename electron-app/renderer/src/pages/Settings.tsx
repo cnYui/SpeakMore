@@ -120,8 +120,14 @@ export default function Settings() {
 
       {/* 关于 */}
       <Box sx={{ ...rowSx, mt: 3 }}>
-        <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>版本 v1.3.0（本地版）</Typography>
-        <Button variant="outlined" size="small" disabled>暂未提供更新检查</Button>
+        <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>版本 0.1（本地版）</Typography>
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={() => undefined}
+        >
+          检查更新
+        </Button>
       </Box>
     </Box>
   )
