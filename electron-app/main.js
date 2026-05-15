@@ -858,9 +858,9 @@ function createFloatingBar() {
   const display = screen.getPrimaryDisplay();
   const { x, y, width, height } = display.workArea;
   const windowWidth = 400;
-  const windowHeight = 250;
-  const capsuleHeight = 24;
-  const capsuleBottomGap = 16;
+  const windowHeight = 280;
+  const capsuleHeight = 44.6;
+  const capsuleBottomGap = 32;
   const windowTopToCapsuleBottom = (windowHeight + capsuleHeight) / 2;
 
   floatingBar = new BrowserWindow({
