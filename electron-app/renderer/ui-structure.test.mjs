@@ -30,7 +30,7 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
 
   assert.match(main, /renderer[\s\S]*dist[\s\S]*floating-bar\.html/);
   assert.doesNotMatch(main, /loadExtractedPage\(floatingBar,\s*['"]floating-bar\.html['"]\)/);
-  assert.match(main, /windowWidth\s*=\s*250/);
+  assert.match(main, /windowWidth\s*=\s*400/);
   assert.match(main, /windowHeight\s*=\s*250/);
   assert.match(main, /capsuleHeight\s*=\s*24/);
   assert.match(main, /capsuleBottomGap\s*=\s*16/);
@@ -48,6 +48,8 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   assert.match(floatingBar, /height:\s*12px/);
   assert.match(floatingBar, /width:\s*2px;\s*height:\s*5px/);
   assert.match(floatingBar, /border-radius:\s*999px/);
+  assert.match(floatingBar, /检测到长按快捷键/);
+  assert.match(floatingBar, /shortcut-hint/);
   assert.doesNotMatch(floatingBar, /@keyframes\s+level/);
 });
 
@@ -347,7 +349,7 @@ test('P0 Dashboard 消费语音状态机而不是 setTimeout 猜录音状态', a
   assert.doesNotMatch(dashboard, /\(window\s+as\s+any\)\.ipcRenderer/);
 });
 
-test('AppShell 接管全局快捷键，允许 Escape 取消未完成会话，并渲染 RightAlt 长按提示浮层', async () => {
+test('AppShell 接管全局快捷键，允许 Escape 取消未完成会话，并把长按提示交给悬浮条', async () => {
   const appShell = await readProjectFile('src/components/AppShell.tsx');
   const guard = await readProjectFile('src/services/shortcutGuard.ts');
 
@@ -356,8 +358,9 @@ test('AppShell 接管全局快捷键，允许 Escape 取消未完成会话，并
   assert.match(appShell, /ipcClient\.on\(['"]voice-cancel-requested['"]/);
   assert.match(appShell, /cancelRecording/);
   assert.match(appShell, /getVoiceSession/);
-  assert.match(appShell, /检测到长按快捷键/);
-  assert.match(appShell, /handleCloseShortcutHint/);
+  assert.match(appShell, /ipcClient\.send\(['"]shortcut-hint['"]/);
+  assert.doesNotMatch(appShell, /检测到长按快捷键/);
+  assert.doesNotMatch(appShell, /handleCloseShortcutHint/);
   assert.match(guard, /LONG_PRESS_MS\s*=\s*500/);
   assert.match(guard, /isBlocked/);
   assert.match(guard, /modalVisible/);
@@ -384,6 +387,19 @@ test('P0 悬浮条消费 voice-state 而不是自行 toggle 快捷键状态', as
   assert.match(floatingBar, /applyVoiceState/);
   assert.doesNotMatch(floatingBar, /function\s+toggle\(/);
   assert.doesNotMatch(floatingBar, /global-keyboard[\s\S]*toggle\(\)/);
+});
+
+test('P0 长按提示通过 shortcut-hint 独立显示在悬浮条位置', async () => {
+  const main = await readProjectFile('../main.js');
+  const floatingBar = await readProjectFile('public/floating-bar.html');
+  const appShell = await readProjectFile('src/components/AppShell.tsx');
+
+  assert.match(main, /shortcut-hint/);
+  assert.match(main, /sendToFloatingBar\(['"]shortcut-hint['"]/);
+  assert.match(floatingBar, /shortcut-hint/);
+  assert.match(floatingBar, /检测到长按快捷键/);
+  assert.match(floatingBar, /右上角|Right Alt/);
+  assert.doesNotMatch(appShell, /检测到长按快捷键/);
 });
 
 test('P0 悬浮条消费 voice-state.inputLevel 并渲染 8 根真实音量柱', async () => {

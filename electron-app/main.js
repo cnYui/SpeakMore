@@ -857,7 +857,7 @@ function createFloatingBar() {
 
   const display = screen.getPrimaryDisplay();
   const { x, y, width, height } = display.workArea;
-  const windowWidth = 250;
+  const windowWidth = 400;
   const windowHeight = 250;
   const capsuleHeight = 24;
   const capsuleBottomGap = 16;
@@ -1111,6 +1111,14 @@ function registerIpcHandlers() {
     return true;
   });
   ipcMain.handle('page:floating-bar-click', () => true);
+  ipcMain.on('shortcut-hint', (_, payload = {}) => {
+    sendToFloatingBar('shortcut-hint', payload);
+    if (payload.visible) {
+      showFloatingBar();
+      return;
+    }
+    hideFloatingBar();
+  });
   ipcMain.on('voice-state', (_, payload = {}) => {
     sendToFloatingBar('voice-state', payload);
     if (payload.status === 'completed' || payload.status === 'cancelled') {

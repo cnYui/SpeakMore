@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Box, Typography, IconButton } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
+import { Box } from '@mui/material'
 import Sidebar from './Sidebar'
 import Dashboard from '../pages/Dashboard'
 import History from '../pages/History'
@@ -12,12 +11,10 @@ import { cancelRecording, disposeRecorder, getVoiceSession, subscribeVoiceSessio
 import { saveVoiceHistory, VOICE_HISTORY_UPDATED_EVENT } from '../services/historyStore'
 import {
   blockByLongPress,
-  closeShortcutHint,
   createInitialShortcutGuardState,
   disposeShortcutGuard,
   reduceShortcutGuard,
 } from '../services/shortcutGuard'
-import { overlayCardSx, shortcutChipSx } from '../uiTokens'
 
 const CANCELABLE_STATUSES = new Set(['connecting', 'recording', 'stopping', 'transcribing'])
 
@@ -25,16 +22,13 @@ export default function AppShell() {
   const [page, setPage] = useState<Page>('home')
   const [shortcutGuard, setShortcutGuard] = useState(createInitialShortcutGuardState)
   const shortcutGuardRef = useRef(shortcutGuard)
+  const shortcutHintMountedRef = useRef(false)
   const savedAudioIds = useRef(new Set<string>())
 
   const applyShortcutGuard = useCallback((nextGuard: typeof shortcutGuard) => {
     shortcutGuardRef.current = nextGuard
     setShortcutGuard(nextGuard)
   }, [])
-
-  const handleCloseShortcutHint = useCallback(() => {
-    applyShortcutGuard(closeShortcutHint(shortcutGuardRef.current))
-  }, [applyShortcutGuard])
 
   const handleLongPress = useCallback(() => {
     applyShortcutGuard(blockByLongPress(shortcutGuardRef.current))
@@ -43,6 +37,15 @@ export default function AppShell() {
   useEffect(() => {
     shortcutGuardRef.current = shortcutGuard
   }, [shortcutGuard])
+
+  useEffect(() => {
+    if (!shortcutHintMountedRef.current) {
+      shortcutHintMountedRef.current = true
+      return
+    }
+
+    ipcClient.send('shortcut-hint', { visible: shortcutGuard.modalVisible })
+  }, [shortcutGuard.modalVisible])
 
   useEffect(() => {
     return ipcClient.on('global-keyboard', (_event, keys) => {
@@ -131,29 +134,6 @@ export default function AppShell() {
           {content[page]}
         </Box>
       </Box>
-
-      {shortcutGuard.modalVisible && (
-        <Box sx={{ position: 'fixed', top: 72, right: 24, zIndex: 1600 }}>
-          <Box sx={{ ...overlayCardSx, width: 360, p: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-              <Box>
-                <Typography sx={{ fontSize: 16, fontWeight: 500 }}>检测到长按快捷键</Typography>
-                <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.75 }}>
-                  长按 Right Alt 不会开始语音输入。请短按 Right Alt，或使用 Right Alt + Space / Right Alt + Right Shift。
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mt: 1.5 }}>
-                  <Box component="span" sx={shortcutChipSx}>Right Alt</Box>
-                  <Box component="span" sx={shortcutChipSx}>Right Alt + Space</Box>
-                  <Box component="span" sx={shortcutChipSx}>Right Alt + Right Shift</Box>
-                </Box>
-              </Box>
-              <IconButton size="small" onClick={handleCloseShortcutHint}>
-                <CloseIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            </Box>
-          </Box>
-        </Box>
-      )}
     </Box>
   )
 }
