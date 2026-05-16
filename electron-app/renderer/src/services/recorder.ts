@@ -1,9 +1,11 @@
 import { ipcClient } from './ipc'
 import { hideFloatingPanel, showFreeAskResult } from './floatingPanel'
-import { getFocusedSelectedText } from './focusedContext'
+import { isFocusedSelectionStillActive } from './focusedContext'
 import { getSelectedAudioDeviceId, getTranslationTargetLanguage } from './settingsStore'
 import { requestTextFlow } from './textFlow'
+import type { ShortcutIntent } from './shortcutGuard'
 import { VOICE_SERVER_WS_URL } from './voiceServer'
+import { resolveVoiceTask, type VoiceTask } from './voiceTaskResolver'
 import {
   createVoiceError,
   initialVoiceSession,
@@ -29,6 +31,7 @@ let transcribeTimer: number | null = null
 let recordingStartedAt = 0
 let backgroundAudioRestorePending = false
 let activeSessionId: string | null = null
+let activeTask: VoiceTask | null = null
 let levelAudioContext: AudioContext | null = null
 let levelAnalyser: AnalyserNode | null = null
 let levelSource: MediaStreamAudioSourceNode | null = null
@@ -63,7 +66,36 @@ export async function toggleRecording(mode: VoiceMode) {
   await startRecording(mode)
 }
 
+export async function toggleRecordingByShortcut(intent: ShortcutIntent) {
+  if (session.status === 'recording') {
+    stopRecording()
+    return
+  }
+
+  if (session.status === 'connecting' || session.status === 'stopping' || session.status === 'transcribing') {
+    return
+  }
+
+  await startRecordingFromIntent(intent)
+}
+
+function toShortcutIntent(mode: VoiceMode): ShortcutIntent {
+  if (mode === 'Ask') return 'AskShortcut'
+  if (mode === 'Translate') return 'TranslateShortcut'
+  return 'DictateShortcut'
+}
+
 export async function startRecording(mode: VoiceMode) {
+  await startRecordingFromIntent(toShortcutIntent(mode))
+}
+
+function getInitialModeForIntent(intent: ShortcutIntent): VoiceMode {
+  if (intent === 'AskShortcut') return 'Ask'
+  if (intent === 'TranslateShortcut') return 'Translate'
+  return 'Dictate'
+}
+
+async function startRecordingFromIntent(intent: ShortcutIntent) {
   hideFloatingPanel()
   backgroundAudioRestorePending = false
   recordingStartedAt = 0
@@ -72,24 +104,25 @@ export async function startRecording(mode: VoiceMode) {
   setSession({
     ...initialVoiceSession,
     status: 'connecting',
-    mode,
+    mode: getInitialModeForIntent(intent),
     audioId,
   })
 
   try {
+    const task = await resolveVoiceTask(intent)
+    if (!isSessionActive(audioId)) return
+    activeTask = task
+    if (session.mode !== task.mode) {
+      setSession({ ...session, mode: task.mode })
+    }
+
     await ensureVoiceServerReady()
     if (!isSessionActive(audioId)) return
-    if (mode === 'Translate') {
-      const selectedText = await getFocusedSelectedText()
-      if (!isSessionActive(audioId)) return
-      if (selectedText) {
-        await translateSelectedText(audioId, selectedText)
-        return
-      }
+    if (!task.shouldRecordAudio && task.selectedText) {
+      await translateSelectedText(audioId, task.selectedText)
+      return
     }
-    const selectedText = mode === 'Ask' ? await getFocusedSelectedText() : ''
-    if (!isSessionActive(audioId)) return
-    const parameters = await getStartAudioParameters(mode, selectedText)
+    const parameters = await getStartAudioParameters(task.mode, task.selectedText)
     if (!isSessionActive(audioId)) return
     const socket = await ensureOpenWebSocket()
     if (!isSessionActive(audioId)) {
@@ -121,7 +154,7 @@ export async function startRecording(mode: VoiceMode) {
     socket.send(JSON.stringify({
       type: 'start_audio',
       audio_id: audioId,
-      mode: toVoiceFlowMode(mode),
+      mode: toVoiceFlowMode(task.mode),
       audio_context: {},
       parameters,
     }))
@@ -133,6 +166,7 @@ export async function startRecording(mode: VoiceMode) {
   } catch (error) {
     if (!isSessionActive(audioId) || ignoredAudioIds.has(audioId)) return
     cleanupRecording()
+    activeTask = null
     failSession(normalizeVoiceError(error, 'recording_start_failed'))
   }
 }
@@ -203,6 +237,7 @@ export function cancelRecording() {
 
   const durationMs = getRecordingDurationMs()
   activeSessionId = null
+  activeTask = null
   if (session.audioId) {
     ignoredAudioIds.add(session.audioId)
   }
@@ -225,6 +260,7 @@ export function cancelRecording() {
 
 export function disposeRecorder() {
   activeSessionId = null
+  activeTask = null
   ignoredAudioIds.clear()
   clearTranscribeTimeout()
   cleanupRecording()
@@ -252,6 +288,7 @@ function updateSessionInputLevel(inputLevel: number) {
 
 function failSession(error: VoiceError) {
   activeSessionId = null
+  activeTask = null
   clearTranscribeTimeout()
   const durationMs = getRecordingDurationMs()
   cleanupRecording()
@@ -278,9 +315,29 @@ async function completeSession(refinedText: string) {
   setSession(completedSession)
   recordingStartedAt = 0
   await restoreBackgroundAudio()
+  const task = activeTask
+  activeTask = null
   if (!resultText) return
 
-  if (completedSession.mode === 'Ask') {
+  if (task?.delivery === 'replace-selection') {
+    const canReplace = await isFocusedSelectionStillActive(task.focusInfo)
+    if (canReplace) {
+      ipcClient.invoke('keyboard:type-transcript', resultText).catch((error) => {
+        void restoreBackgroundAudio()
+        setSession({
+          ...completedSession,
+          status: 'error',
+          error: createVoiceError('paste_failed', error instanceof Error ? error.message : String(error)),
+        })
+      })
+      return
+    }
+
+    showFreeAskResult(resultText)
+    return
+  }
+
+  if (task?.delivery === 'floating-panel' || completedSession.mode === 'Ask') {
     showFreeAskResult(resultText)
     return
   }

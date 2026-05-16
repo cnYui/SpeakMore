@@ -7,7 +7,13 @@ import Settings from '../pages/Settings'
 import Diagnostics from '../pages/Diagnostics'
 import { type Page } from '../navigation'
 import { ipcClient } from '../services/ipc'
-import { cancelRecording, disposeRecorder, getVoiceSession, subscribeVoiceSession, toggleRecording } from '../services/recorder'
+import {
+  cancelRecording,
+  disposeRecorder,
+  getVoiceSession,
+  subscribeVoiceSession,
+  toggleRecordingByShortcut,
+} from '../services/recorder'
 import { saveVoiceHistory, VOICE_HISTORY_UPDATED_EVENT } from '../services/historyStore'
 import { hideFloatingPanel, showShortcutHintPanel } from '../services/floatingPanel'
 import {
@@ -71,7 +77,7 @@ export default function AppShell() {
       applyShortcutGuard(next.state)
 
       if (next.action.type === 'toggle-recording') {
-        void toggleRecording(next.action.mode)
+        void toggleRecordingByShortcut(next.action.intent)
       }
     })
   }, [applyShortcutGuard, handleLongPress])
