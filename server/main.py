@@ -235,6 +235,51 @@ async def handle_voice_flow_request(
             os.unlink(tmp_path)
 
 
+async def handle_text_flow_request(
+    text: str,
+    mode: str,
+    context: dict | None = None,
+    parameters: dict | None = None,
+) -> dict:
+    raw_text = text.strip() if isinstance(text, str) else ""
+    safe_context = context if isinstance(context, dict) else {}
+    params = parameters if isinstance(parameters, dict) else {}
+
+    if not raw_text:
+        return {"status": "OK", "data": {"refine_text": "", "delivery": "inline"}}
+
+    try:
+        refined = await refine_text(
+            raw_text=raw_text,
+            mode=mode,
+            context=safe_context,
+            parameters=params,
+        )
+
+        return {
+            "status": "OK",
+            "data": {
+                "refine_text": refined,
+                "delivery": "inline",
+                "user_prompt": raw_text,
+                "web_metadata": None,
+                "external_action": None,
+            },
+        }
+    except Exception as error:
+        return {
+            "status": "ERROR",
+            "data": {
+                "refine_text": f"错误: {error}",
+                "delivery": "inline",
+                "user_prompt": raw_text,
+                "detail": str(error),
+                "code": "text_flow_failed",
+                "important_notification": None,
+            },
+        }
+
+
 async def ws_voice_flow(websocket: WebSocket, app_instance: FastAPI | None = None):
     await websocket.accept()
 
@@ -450,6 +495,18 @@ def create_app(preload_model=preload_whisper_model, exit_scheduler=schedule_star
             mode=mode,
             audio_context=audio_context,
             parameters=parameters,
+        )
+
+    @app.post("/ai/text_flow")
+    async def text_flow(request: Request, payload: dict):
+        require_voice_service_ready(request)
+        context = payload.get("context", {})
+        parameters = payload.get("parameters", {})
+        return await handle_text_flow_request(
+            text=payload.get("text", ""),
+            mode=payload.get("mode", "transcript"),
+            context=context if isinstance(context, dict) else {},
+            parameters=parameters if isinstance(parameters, dict) else {},
         )
 
     @app.websocket("/ws/rt_voice_flow")

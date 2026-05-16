@@ -23,7 +23,7 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve }
 }
 
-function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream> } = {}) {
+function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream>; selectedTextResult?: unknown; fetchResponseText?: string } = {}) {
   const originalWindow = globalThis.window
   const originalNavigator = globalThis.navigator
   const originalCrypto = globalThis.crypto
@@ -32,10 +32,12 @@ function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream
   const originalAudioContext = globalThis.AudioContext
   const originalRequestAnimationFrame = globalThis.requestAnimationFrame
   const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
+  const originalFetch = globalThis.fetch
 
   const sentPayloads: Array<string | ArrayBufferLike | Blob | ArrayBufferView> = []
   const invokeCalls: Array<{ channel: string; payload?: unknown }> = []
   const sendCalls: Array<{ channel: string; payload?: unknown }> = []
+  const fetchCalls: Array<{ url: string; init?: RequestInit }> = []
   const sockets: FakeWebSocket[] = []
   let restoreCalls = 0
   let trackStops = 0
@@ -145,6 +147,9 @@ function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream
         restoreCalls += 1
         return { success: true } as never
       }
+      if (channel === 'focused-context:get-selected-text') {
+        return (options.selectedTextResult ?? { success: false, text: '' }) as never
+      }
       if (channel === 'settings:get') {
         return {
           selectedAudioDeviceId: 'default',
@@ -194,12 +199,23 @@ function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream
     configurable: true,
     value: () => undefined,
   })
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (url: string, init?: RequestInit) => {
+      fetchCalls.push({ url, init })
+      return {
+        ok: true,
+        json: async () => ({ status: 'OK', data: { refine_text: options.fetchResponseText ?? 'translated text' } }),
+      } as Response
+    },
+  })
 
   return {
     mediaStream,
     sentPayloads,
     invokeCalls,
     sendCalls,
+    fetchCalls,
     sockets,
     getRestoreCalls: () => restoreCalls,
     getTrackStops: () => trackStops,
@@ -235,6 +251,10 @@ function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream
       Object.defineProperty(globalThis, 'cancelAnimationFrame', {
         configurable: true,
         value: originalCancelAnimationFrame,
+      })
+      Object.defineProperty(globalThis, 'fetch', {
+        configurable: true,
+        value: originalFetch,
       })
       delete windowLike.ipcRenderer
     },
@@ -363,6 +383,82 @@ test('startRecording 会先通过新 IPC 检查 ready，并连接集中定义的
   }
 })
 
+test('翻译模式启动时会把设置里的目标语言传给后端', async () => {
+  const env = createTestEnvironment()
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('translate-target-language')
+    await recorder.startRecording('Translate')
+
+    const startAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'start_audio')
+
+    assert.deepEqual(startAudioMessage, {
+      type: 'start_audio',
+      audio_id: 'audio-1',
+      mode: 'translation',
+      audio_context: {},
+      parameters: {
+        output_language: 'en',
+      },
+    })
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('翻译模式有选区时直接翻译选区并替换，不启动麦克风录音', async () => {
+  const env = createTestEnvironment({
+    selectedTextResult: { success: true, text: '你好' },
+    fetchResponseText: 'hello',
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('translate-selected-text')
+    await recorder.startRecording('Translate')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.equal(env.sockets.length, 0)
+    assert.equal(env.getTrackStops(), 0)
+    assert.equal(env.fetchCalls.length, 1)
+    assert.equal(JSON.parse(String(env.fetchCalls[0].init?.body)).text, '你好')
+    assert.equal(recorder.getVoiceSession().status, 'completed')
+    assert.equal(recorder.getVoiceSession().rawText, '你好')
+    assert.equal(recorder.getVoiceSession().refinedText, 'hello')
+    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript' && call.payload === 'hello'), true)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('翻译模式无选区时保留语音翻译 WebSocket 流程', async () => {
+  const env = createTestEnvironment({ selectedTextResult: { success: false, text: '' } })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('translate-without-selection')
+    await recorder.startRecording('Translate')
+
+    assert.equal(env.sockets.length, 1)
+    const startAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'start_audio')
+
+    assert.deepEqual(startAudioMessage.parameters, { output_language: 'en' })
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
 test('普通听写完成后仍自动粘贴最终结果', async () => {
   const env = createTestEnvironment()
   let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
@@ -431,6 +527,29 @@ test('自由提问完成后不自动粘贴，改为展示悬浮结果面板', as
       type: 'free-ask-result',
       text: '1 加 1 等于 2。',
     })
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('自由提问有选区时会把 selected_text 注入 start_audio.parameters', async () => {
+  const env = createTestEnvironment({
+    selectedTextResult: { success: true, text: '被选中的代码' },
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('ask-with-selection')
+    await recorder.startRecording('Ask')
+
+    const startAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'start_audio')
+
+    assert.equal(env.sockets.length, 1)
+    assert.deepEqual(startAudioMessage.parameters, { selected_text: '被选中的代码' })
   } finally {
     recorder?.disposeRecorder()
     env.restore()

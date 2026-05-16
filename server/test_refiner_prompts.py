@@ -36,6 +36,12 @@ class RefinerPromptTest(unittest.TestCase):
         self.assertIn("仅输出翻译结果", translation_prompt)
         self.assertNotIn("You are a translator", translation_prompt)
 
+    def test_translation_prompt_remains_target_language_only(self):
+        translation_prompt = SYSTEM_PROMPTS["translation"]
+
+        self.assertIn("目标语言", translation_prompt)
+        self.assertIn("仅输出翻译结果", translation_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

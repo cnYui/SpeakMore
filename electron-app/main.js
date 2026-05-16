@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { createRightAltRelay } = require('./right-alt-relay');
+const { readSelectedTextByClipboard } = require('./focused-context');
 const { resolveBottomCenterBounds } = require('./floating-window-layout');
 const {
   isActiveVoiceState,
@@ -66,6 +67,11 @@ const LOCAL_DATA_DIR_NAME = 'local-data';
 const SETTINGS_FILE_NAME = 'settings.json';
 const HISTORY_FILE_NAME = 'history.json';
 const HISTORY_STATS_FILE_NAME = 'history-stats.json';
+const DEFAULT_TRANSLATION_TARGET_LANGUAGE = 'en';
+const SUPPORTED_TRANSLATION_TARGET_LANGUAGES = new Set([DEFAULT_TRANSLATION_TARGET_LANGUAGE]);
+const SHORTCUT_DEBUG_ENABLED = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.TYPELESS_SHORTCUT_DEBUG || '').toLowerCase(),
+);
 
 const localStores = {
   'app-onboarding': {
@@ -84,6 +90,7 @@ const localStores = {
     microphoneDevices: [],
     selectedMicrophoneDevice: null,
     preferredLanguage: DEFAULT_LANGUAGE,
+    translationTargetLanguage: DEFAULT_TRANSLATION_TARGET_LANGUAGE,
     selectedLanguages: [],
     autoSelectLanguages: false,
     launchAtSystemStartup: false,
@@ -110,6 +117,7 @@ let localUser = {
 
 const defaultLocalSettings = {
   preferredLanguage: DEFAULT_LANGUAGE,
+  translationTargetLanguage: DEFAULT_TRANSLATION_TARGET_LANGUAGE,
   launchAtSystemStartup: false,
   selectedAudioDeviceId: 'default',
 };
@@ -152,6 +160,9 @@ function normalizeLocalSettings(value = {}) {
   return {
     ...defaultLocalSettings,
     preferredLanguage: DEFAULT_LANGUAGE,
+    translationTargetLanguage: SUPPORTED_TRANSLATION_TARGET_LANGUAGES.has(value.translationTargetLanguage)
+      ? value.translationTargetLanguage
+      : DEFAULT_TRANSLATION_TARGET_LANGUAGE,
     launchAtSystemStartup: Boolean(value.launchAtSystemStartup),
     selectedAudioDeviceId: typeof value.selectedAudioDeviceId === 'string' && value.selectedAudioDeviceId
       ? value.selectedAudioDeviceId
@@ -161,6 +172,7 @@ function normalizeLocalSettings(value = {}) {
 
 function syncLocalSettingsToLegacyStore(settings) {
   localStores['app-settings'].launchAtSystemStartup = settings.launchAtSystemStartup;
+  localStores['app-settings'].translationTargetLanguage = settings.translationTargetLanguage;
   localStores['app-settings'].selectedMicrophoneDevice = settings.selectedAudioDeviceId === 'default'
     ? null
     : settings.selectedAudioDeviceId;
@@ -207,6 +219,11 @@ function readHistoryStats() {
 
 function writeHistoryStats(stats) {
   return writeJsonFile(HISTORY_STATS_FILE_NAME, normalizeHistoryStats(stats));
+}
+
+function debugShortcut(event, payload = {}) {
+  if (!SHORTCUT_DEBUG_ENABLED) return;
+  console.log(`[shortcut-debug] ${event} ${JSON.stringify(payload)}`);
 }
 
 function readHistoryStatsForDashboard() {
@@ -458,6 +475,7 @@ function getRightAltRelay() {
     setTimer: setTimeout,
     clearTimer: clearTimeout,
     now: () => Date.now(),
+    debugLog: debugShortcut,
   });
 
   return rightAltRelay;
@@ -481,6 +499,7 @@ function handleRightAltListenerLine(line) {
 
   try {
     const payload = JSON.parse(line);
+    debugShortcut('right-alt-listener:payload', payload);
     if (payload.key === 'Escape') {
       if (payload.isKeydown) {
         if (isActiveVoiceState(lastVoiceState)) {
@@ -1369,7 +1388,7 @@ function registerIpcHandlers() {
       bounds: { x: 0, y: 0, width: 0, height: 0 },
     },
   }));
-  ipcMain.handle('focused-context:get-selected-text', () => '');
+  ipcMain.handle('focused-context:get-selected-text', () => readSelectedTextByClipboard({ clipboard }));
   ipcMain.handle('focused-context:get-full-context', () => ({ success: true, data: null }));
   ipcMain.handle('device:is-lid-open', () => true);
   ipcMain.handle('file:save-recording-log', (_, payload = {}) => {
