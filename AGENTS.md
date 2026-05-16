@@ -40,7 +40,11 @@
 - 悬浮胶囊录音波形只在 `electron-app/renderer/public/floating-bar.html` 展示，音量来自 `recorder.ts` 基于同一份 `MediaStream` 计算出的 `inputLevel`。
 - 自由提问录音时悬浮胶囊显示 `请随意提出问题`；最终结果不自动粘贴、不进入首页最近结果，而是通过 `floating-panel` IPC 进入独立悬浮面板展示。
 - 自由提问 `ask_anything` 当前先按“无工具安全版”设计：有 `selected_text` 时优先围绕选区执行翻译、解释、题目解答、总结、改写等任务；没有工具结果时不得编造天气、新闻、价格、政策等实时信息。
-- 选区感知链路只影响 `Ask` 和 `Translate`：`Dictate` 不读取选区；`Ask` 有选区时把选区作为 `parameters.selected_text` 上下文；`Translate` 有选区时直接文本翻译并替换选区，无选区时保留语音翻译。
+- 快捷键层只输出意图，不直接决定最终语音任务；最终任务由快捷键意图和启动前选区快照共同解析。
+- `Right Alt` 无选区是普通听写；`Right Alt` 有选区时进入选区转译并覆盖原选区。
+- `Right Alt + Space` 是自由提问；有选区时选区作为上下文，语音作为修改或提问指令，目标仍有效时覆盖选区，否则只在悬浮结果面板展示。
+- `Right Alt + Right Shift` 是显式语音翻译；不因有选区而直接翻译选区，必须录音，完成后走普通粘贴链路把翻译结果贴到当前光标位置。
+- 如果同一轮键态里同时存在 `Space` 和 `RightShift`，优先按翻译意图处理，避免自由提问抢占翻译。
 - `focused-context:get-selected-text` 的 Windows MVP 通过剪贴板临时复制实现，必须尽量恢复原剪贴板，并在失败时降级为空选区。
 - 自由提问未来如需回答实时问题，必须在后端增加意图分类和工具路由；不要只靠 prompt 假装具备联网、天气或网页检索能力。
 - 翻译录音启动时，renderer 必须从本地设置读取 `translationTargetLanguage`，并通过 WebSocket `start_audio.parameters.output_language` 传给后端；当前 MVP 固定值为 `en`。
@@ -75,7 +79,7 @@
 - 设置页的 `DeepSeek API Key` 输入框当前没有写回 `server/.env`，真实运行仍以后端环境变量为准。
 - 当前选区读取 MVP 依赖剪贴板和目标应用的 `Ctrl+C` 行为；不支持复制的应用会降级为空选区，后续可用 Windows UI Automation 增强。
 - 当前 `ask_anything` 只调用 DeepSeek 文本模型，没有联网搜索、天气查询或工具调用链路；实时信息问题必须明确能力边界。
-- 翻译模式当前支持选区文本翻译到英文并替换选区；尚未开放英文以外的目标语言。
+- `Right Alt` 有选区当前支持选区文本转译到英文并替换选区；显式翻译快捷键 `Right Alt + Right Shift` 固定为语音翻译粘贴。尚未开放英文以外的目标语言。
 - 首页“最近结果”的真实 UI 以 `electron-app/renderer/src/pages/Dashboard.tsx` 为准，修改前先读当前实现和测试，不要只依赖历史上下文。
 
 ## 验证命令

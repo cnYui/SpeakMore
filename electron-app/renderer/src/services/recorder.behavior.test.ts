@@ -23,7 +23,13 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve }
 }
 
-function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream>; selectedTextResult?: unknown; fetchResponseText?: string } = {}) {
+function createTestEnvironment(options: {
+  userMediaPromise?: Promise<MediaStream>
+  selectedTextResult?: unknown
+  selectionSnapshot?: unknown
+  focusStillActive?: boolean
+  fetchResponseText?: string
+} = {}) {
   const originalWindow = globalThis.window
   const originalNavigator = globalThis.navigator
   const originalCrypto = globalThis.crypto
@@ -149,6 +155,32 @@ function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream
       }
       if (channel === 'focused-context:get-selected-text') {
         return (options.selectedTextResult ?? { success: false, text: '' }) as never
+      }
+      if (channel === 'focused-context:get-selection-snapshot') {
+        return (options.selectionSnapshot ?? {
+          success: Boolean((options.selectedTextResult as { text?: string } | undefined)?.text),
+          text: (options.selectedTextResult as { text?: string } | undefined)?.text ?? '',
+          focusInfo: {
+            appInfo: {
+              app_name: 'Notepad',
+              app_identifier: 'notepad.exe',
+              window_title: 'note.txt',
+              app_type: 'native_app',
+              app_metadata: { hwnd: '100' },
+              browser_context: null,
+            },
+            elementInfo: {
+              role: '',
+              focused: true,
+              editable: true,
+              selected: true,
+              bounds: { x: 0, y: 0, width: 0, height: 0 },
+            },
+          },
+        }) as never
+      }
+      if (channel === 'focused-context:is-current-focus') {
+        return { success: true, same: options.focusStillActive !== false } as never
       }
       if (channel === 'settings:get') {
         return {
@@ -411,7 +443,7 @@ test('翻译模式启动时会把设置里的目标语言传给后端', async ()
   }
 })
 
-test('翻译模式有选区时直接翻译选区并替换，不启动麦克风录音', async () => {
+test('RightAlt + RightShift 有选区时仍启动语音翻译并粘贴结果', async () => {
   const env = createTestEnvironment({
     selectedTextResult: { success: true, text: '你好' },
     fetchResponseText: 'hello',
@@ -420,18 +452,37 @@ test('翻译模式有选区时直接翻译选区并替换，不启动麦克风�
 
   try {
     recorder = await loadRecorderModule('translate-selected-text')
-    await recorder.startRecording('Translate')
-    await Promise.resolve()
-    await Promise.resolve()
+    await recorder.toggleRecordingByShortcut('TranslateShortcut')
 
-    assert.equal(env.sockets.length, 0)
+    assert.equal(env.sockets.length, 1)
     assert.equal(env.getTrackStops(), 0)
-    assert.equal(env.fetchCalls.length, 1)
-    assert.equal(JSON.parse(String(env.fetchCalls[0].init?.body)).text, '你好')
+    assert.equal(env.fetchCalls.length, 0)
+
+    const startAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'start_audio')
+
+    assert.equal(startAudioMessage.mode, 'translation')
+    assert.deepEqual(startAudioMessage.parameters, { output_language: 'en' })
+
+    recorder.stopRecording()
+    const socket = env.sockets[env.sockets.length - 1]
+    socket.emitJson({
+      K: 'refine_completed',
+      V: {
+        audio_id: 'audio-1',
+        refined_text: 'hello from voice',
+        refine_text: 'hello from voice',
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
     assert.equal(recorder.getVoiceSession().status, 'completed')
-    assert.equal(recorder.getVoiceSession().rawText, '你好')
-    assert.equal(recorder.getVoiceSession().refinedText, 'hello')
-    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript' && call.payload === 'hello'), true)
+    assert.equal(recorder.getVoiceSession().refinedText, 'hello from voice')
+    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript' && call.payload === 'hello from voice'), true)
   } finally {
     recorder?.disposeRecorder()
     env.restore()
@@ -550,6 +601,138 @@ test('自由提问有选区时会把 selected_text 注入 start_audio.parameters
 
     assert.equal(env.sockets.length, 1)
     assert.deepEqual(startAudioMessage.parameters, { selected_text: '被选中的代码' })
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('RightAlt 有选区时通过快捷键意图转为选区翻译，不启动麦克风', async () => {
+  const env = createTestEnvironment({
+    selectedTextResult: { success: true, text: '你好' },
+    fetchResponseText: 'hello',
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('shortcut-dictate-with-selection')
+    assert.equal(typeof recorder.toggleRecordingByShortcut, 'function')
+
+    await recorder.toggleRecordingByShortcut('DictateShortcut')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.equal(env.sockets.length, 0)
+    assert.equal(env.getTrackStops(), 0)
+    assert.equal(env.fetchCalls.length, 1)
+    assert.equal(JSON.parse(String(env.fetchCalls[0].init?.body)).text, '你好')
+    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript' && call.payload === 'hello'), true)
+    assert.equal(recorder.getVoiceSession().mode, 'Translate')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('RightAlt 无选区时通过快捷键意图保留普通听写录音', async () => {
+  const env = createTestEnvironment({
+    selectedTextResult: { success: false, text: '' },
+    selectionSnapshot: { success: false, text: '', focusInfo: null },
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('shortcut-dictate-without-selection')
+    await recorder.toggleRecordingByShortcut('DictateShortcut')
+
+    const startAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'start_audio')
+
+    assert.equal(env.sockets.length, 1)
+    assert.equal(startAudioMessage.mode, 'transcript')
+    assert.deepEqual(startAudioMessage.parameters, {})
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('RightAlt + Space 有选区且目标仍有效时完成后覆盖选区，不展示结果面板', async () => {
+  const env = createTestEnvironment({
+    selectedTextResult: { success: true, text: '旧内容' },
+    focusStillActive: true,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('ask-selection-replace')
+    await recorder.toggleRecordingByShortcut('AskShortcut')
+    recorder.stopRecording()
+
+    const socket = env.sockets[env.sockets.length - 1]
+    socket.emitJson({
+      K: 'refine_completed',
+      V: {
+        audio_id: 'audio-1',
+        refined_text: '新内容',
+        refine_text: '新内容',
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript' && call.payload === '新内容'), true)
+    assert.equal(env.sendCalls.some((call) => {
+      const payload = call.payload as { type?: string } | undefined
+      return call.channel === 'floating-panel' && payload?.type === 'free-ask-result'
+    }), false)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('RightAlt + Space 有选区但目标失效时展示悬浮结果，不覆盖选区', async () => {
+  const env = createTestEnvironment({
+    selectedTextResult: { success: true, text: '旧内容' },
+    focusStillActive: false,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('ask-selection-invalid')
+    await recorder.toggleRecordingByShortcut('AskShortcut')
+    recorder.stopRecording()
+
+    const socket = env.sockets[env.sockets.length - 1]
+    socket.emitJson({
+      K: 'refine_completed',
+      V: {
+        audio_id: 'audio-1',
+        refined_text: '新内容',
+        refine_text: '新内容',
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const resultPanelCall = env.sendCalls.find((call) => {
+      const payload = call.payload as { type?: string } | undefined
+      return call.channel === 'floating-panel' && payload?.type === 'free-ask-result'
+    })
+
+    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript'), false)
+    assert.deepEqual(resultPanelCall?.payload, {
+      visible: true,
+      type: 'free-ask-result',
+      text: '新内容',
+    })
   } finally {
     recorder?.disposeRecorder()
     env.restore()

@@ -17,7 +17,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { createRightAltRelay } = require('./right-alt-relay');
-const { readSelectedTextByClipboard } = require('./focused-context');
+const {
+  isSameFocusedContext,
+  readFocusedInfo,
+  readSelectedTextByClipboard,
+  readSelectionSnapshot,
+} = require('./focused-context');
 const { resolveBottomCenterBounds } = require('./floating-window-layout');
 const {
   isActiveVoiceState,
@@ -1371,24 +1376,17 @@ function registerIpcHandlers() {
   ipcMain.handle('release-notes:prefetch', () => true);
   ipcMain.handle('release-notes:clear-cache', () => true);
   ipcMain.handle('context:get-app-icon', () => null);
-  ipcMain.handle('focused-context:get-last-focused-info', () => ({
-    appInfo: {
-      app_name: 'SpeakMore',
-      app_identifier: 'typeless-local',
-      window_title: '',
-      app_type: 'native_app',
-      app_metadata: {},
-      browser_context: null,
-    },
-    elementInfo: {
-      role: '',
-      focused: false,
-      editable: true,
-      selected: false,
-      bounds: { x: 0, y: 0, width: 0, height: 0 },
-    },
-  }));
+  ipcMain.handle('focused-context:get-last-focused-info', () => readFocusedInfo());
   ipcMain.handle('focused-context:get-selected-text', () => readSelectedTextByClipboard({ clipboard }));
+  ipcMain.handle('focused-context:get-selection-snapshot', () => readSelectionSnapshot({ clipboard }));
+  ipcMain.handle('focused-context:is-current-focus', async (_, previousFocusInfo) => {
+    const currentFocusInfo = await readFocusedInfo();
+    return {
+      success: true,
+      same: isSameFocusedContext(previousFocusInfo, currentFocusInfo),
+      currentFocusInfo,
+    };
+  });
   ipcMain.handle('focused-context:get-full-context', () => ({ success: true, data: null }));
   ipcMain.handle('device:is-lid-open', () => true);
   ipcMain.handle('file:save-recording-log', (_, payload = {}) => {
