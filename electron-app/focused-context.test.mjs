@@ -13,6 +13,29 @@ function createFakeClipboard(initialText = 'old clipboard') {
   };
 }
 
+function createRichFakeClipboard() {
+  let data = {
+    text: 'old text',
+    html: '<b>old</b>',
+    rtf: '{\\rtf1 old}',
+    image: { isEmpty: () => false, id: 'old-image' },
+  };
+
+  return {
+    readText: () => data.text || '',
+    readHTML: () => data.html || '',
+    readRTF: () => data.rtf || '',
+    readImage: () => data.image || { isEmpty: () => true },
+    writeText: (nextText) => {
+      data = { text: String(nextText || '') };
+    },
+    write: (nextData) => {
+      data = { ...nextData };
+    },
+    current: () => data,
+  };
+}
+
 test('readSelectedTextByClipboard 读取选区后恢复原剪贴板文本', async () => {
   const clipboard = createFakeClipboard('old clipboard');
   const result = await readSelectedTextByClipboard({
@@ -28,6 +51,23 @@ test('readSelectedTextByClipboard 读取选区后恢复原剪贴板文本', asyn
     source: 'clipboard',
   });
   assert.equal(clipboard.current(), 'old clipboard');
+});
+
+test('readSelectedTextByClipboard 会恢复 HTML、RTF 和图片剪贴板内容', async () => {
+  const clipboard = createRichFakeClipboard();
+  const result = await readSelectedTextByClipboard({
+    clipboard,
+    sendCopyShortcut: async () => clipboard.writeText('selected text'),
+    wait: async () => undefined,
+    marker: 'TYPELESS_SELECTION_MARKER',
+  });
+
+  assert.equal(result.text, 'selected text');
+  const restored = clipboard.current();
+  assert.equal(restored.text, 'old text');
+  assert.equal(restored.html, '<b>old</b>');
+  assert.equal(restored.rtf, '{\\rtf1 old}');
+  assert.equal(restored.image?.id, 'old-image');
 });
 
 test('readSelectedTextByClipboard 在复制后仍是 marker 时返回 empty', async () => {

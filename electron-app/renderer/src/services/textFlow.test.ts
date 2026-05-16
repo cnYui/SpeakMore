@@ -47,3 +47,19 @@ test('requestTextFlow 在后端错误时抛出 detail', async () => {
     /语音后端尚未就绪/,
   )
 })
+
+test('requestTextFlow 在业务状态 ERROR 时抛出 detail', async () => {
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ERROR', data: { refine_text: '错误: boom', detail: 'boom' } }),
+    }) as Response,
+  })
+
+  await assert.rejects(
+    () => requestTextFlow({ mode: 'translation', text: '你好', parameters: { output_language: 'en' } }),
+    /boom/,
+  )
+})

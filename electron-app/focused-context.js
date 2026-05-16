@@ -49,6 +49,44 @@ function normalizeSelectedTextResult(value) {
   };
 }
 
+function isNonEmptyClipboardImage(image) {
+  if (!image) return false;
+  return typeof image.isEmpty === 'function' ? !image.isEmpty() : true;
+}
+
+function createClipboardSnapshot(clipboard) {
+  const data = {};
+
+  const text = clipboard.readText();
+  if (text) data.text = text;
+
+  if (typeof clipboard.readHTML === 'function') {
+    const html = clipboard.readHTML();
+    if (html) data.html = html;
+  }
+
+  if (typeof clipboard.readRTF === 'function') {
+    const rtf = clipboard.readRTF();
+    if (rtf) data.rtf = rtf;
+  }
+
+  if (typeof clipboard.readImage === 'function') {
+    const image = clipboard.readImage();
+    if (isNonEmptyClipboardImage(image)) data.image = image;
+  }
+
+  return data;
+}
+
+function restoreClipboardSnapshot(clipboard, snapshot) {
+  if (typeof clipboard.write === 'function') {
+    clipboard.write(snapshot);
+    return;
+  }
+
+  clipboard.writeText(snapshot.text || '');
+}
+
 async function readSelectedTextByClipboard({
   clipboard,
   sendCopyShortcut = createSendKeysShortcut('^c'),
@@ -60,7 +98,7 @@ async function readSelectedTextByClipboard({
     return { success: false, text: '', source: 'clipboard', reason: 'clipboard_unavailable' };
   }
 
-  const previousText = clipboard.readText();
+  const previousClipboard = createClipboardSnapshot(clipboard);
   let restoreFailed = false;
 
   try {
@@ -86,7 +124,7 @@ async function readSelectedTextByClipboard({
     };
   } finally {
     try {
-      clipboard.writeText(previousText);
+      restoreClipboardSnapshot(clipboard, previousClipboard);
     } catch {
       restoreFailed = true;
     }

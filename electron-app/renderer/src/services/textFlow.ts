@@ -17,8 +17,18 @@ async function parseJsonSafely(response: Response) {
 
 function getErrorDetail(payload: unknown, fallback: string) {
   if (payload && typeof payload === 'object') {
-    const detail = (payload as Record<string, unknown>).detail
+    const objectPayload = payload as Record<string, unknown>
+    const detail = objectPayload.detail
     if (typeof detail === 'string' && detail) return detail
+
+    const data = objectPayload.data
+    if (data && typeof data === 'object') {
+      const nestedDetail = (data as Record<string, unknown>).detail
+      if (typeof nestedDetail === 'string' && nestedDetail) return nestedDetail
+
+      const refineText = (data as Record<string, unknown>).refine_text
+      if (typeof refineText === 'string' && refineText) return refineText
+    }
   }
   return fallback
 }
@@ -36,6 +46,10 @@ export async function requestTextFlow(payload: TextFlowPayload): Promise<string>
   }
 
   if (data && typeof data === 'object') {
+    if ((data as { status?: unknown }).status === 'ERROR') {
+      throw new Error(getErrorDetail(data, '文本处理失败'))
+    }
+
     const refineText = (data as { data?: { refine_text?: unknown } }).data?.refine_text
     return typeof refineText === 'string' ? refineText : ''
   }
