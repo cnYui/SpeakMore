@@ -18,7 +18,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     return subscribeVoiceSession((voiceSession) => {
-      if (voiceSession.status === 'completed') {
+      if (voiceSession.status === 'completed' && voiceSession.mode !== 'Ask') {
         const { refinedText, rawText } = voiceSession
         const result = refinedText || rawText
         if (result) setRecentResult(result)

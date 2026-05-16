@@ -11,9 +11,9 @@ html, body {
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-#hint {
+#panel {
   width: 100%;
-  min-height: 100%;
+  height: 100%;
   padding: 16px 18px 15px;
   border-radius: 18px;
   border: 0.5px solid rgba(119,119,119,0.14);
@@ -21,11 +21,13 @@ html, body {
   box-shadow: 0 10px 22px rgba(17,17,17,0.15), 0 2px 6px rgba(17,17,17,0.08);
   color: #2f3135;
 }
-.hint-row {
+.panel-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  width: 100%;
+  height: 100%;
 }
 .hint-title {
   font-size: 16px;
@@ -75,11 +77,25 @@ html, body {
   background: rgba(119,119,119,0.08);
   color: #555b61;
 }
+.result-text {
+  flex: 1;
+  max-height: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #2f3135;
+  padding-right: 2px;
+}
+.hidden {
+  display: none;
+}
 </style>
 </head>
 <body>
-<div id="hint">
-  <div class="hint-row">
+<div id="panel">
+  <div id="shortcut-view" class="panel-row">
     <div>
       <div class="hint-title">检测到长按快捷键</div>
       <div class="hint-text">长按 Right Alt 不会开始语音输入。请短按 Right Alt，或使用 Right Alt + Space / Right Alt + Right Shift。</div>
@@ -89,17 +105,49 @@ html, body {
         <span class="chip">Right Alt + Right Shift</span>
       </div>
     </div>
-    <button id="dismiss" class="dismiss" type="button" aria-label="关闭提示">×</button>
+    <button class="dismiss" type="button" aria-label="关闭提示">×</button>
+  </div>
+
+  <div id="result-view" class="panel-row hidden">
+    <div id="result-text" class="result-text"></div>
+    <button class="dismiss" type="button" aria-label="关闭结果">×</button>
   </div>
 </div>
 <script>
-function closeShortcutHint() {
+const shortcutView = document.getElementById('shortcut-view');
+const resultView = document.getElementById('result-view');
+const resultText = document.getElementById('result-text');
+
+function closeFloatingPanel() {
   if (window.ipcRenderer) {
-    window.ipcRenderer.send('shortcut-hint', { visible: false });
+    window.ipcRenderer.send('floating-panel', { visible: false });
   }
 }
 
-document.getElementById('dismiss').addEventListener('click', closeShortcutHint);
+function renderFloatingPanel(payload) {
+  const panelType = payload && payload.type === 'free-ask-result' ? 'free-ask-result' : 'shortcut-hint';
+
+  if (panelType === 'free-ask-result') {
+    shortcutView.classList.add('hidden');
+    resultView.classList.remove('hidden');
+    resultText.textContent = typeof payload.text === 'string' ? payload.text : '';
+    return;
+  }
+
+  resultView.classList.add('hidden');
+  shortcutView.classList.remove('hidden');
+  resultText.textContent = '';
+}
+
+Array.from(document.querySelectorAll('.dismiss')).forEach((button) => {
+  button.addEventListener('click', closeFloatingPanel);
+});
+
+if (window.ipcRenderer) {
+  window.ipcRenderer.on('floating-panel', (_event, payload) => renderFloatingPanel(payload));
+}
+
+renderFloatingPanel({ visible: true, type: 'shortcut-hint' });
 </script>
 </body>
 </html>

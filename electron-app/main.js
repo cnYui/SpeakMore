@@ -19,6 +19,7 @@ const { spawn } = require('child_process');
 const { createRightAltRelay } = require('./right-alt-relay');
 const { resolveBottomCenterBounds } = require('./floating-window-layout');
 const {
+  isActiveVoiceState,
   isErrorVoiceState,
   isTerminalVoiceState,
   shouldShowShortcutHint,
@@ -34,7 +35,7 @@ const {
 
 let mainWindow = null;
 let floatingBar = null;
-let shortcutHintWindow = null;
+let floatingPanelWindow = null;
 let tray = null;
 let registeredIpc = false;
 let rightAltReleaseTimer = null;
@@ -47,7 +48,8 @@ let mutedBackgroundSessions = [];
 let quitAfterBackgroundAudioRestore = false;
 let appIsQuitting = false;
 let pendingInteractiveCardPayload = null;
-let shortcutHintVisible = false;
+let floatingPanelVisible = false;
+let floatingPanelType = null;
 let lastVoiceState = null;
 
 const DEFAULT_LANGUAGE = 'zh-CN';
@@ -57,7 +59,7 @@ const VOICE_SERVER_READY_URL = `${VOICE_SERVER_URL}/ready`;
 const VOICE_SERVER_VOICE_FLOW_URL = `${VOICE_SERVER_URL}/ai/voice_flow`;
 const FLOATING_BAR_COMPLETED_HIDE_DELAY_MS = 1000;
 const FLOATING_BAR_SIZE = { width: 400, height: 360 };
-const SHORTCUT_HINT_SIZE = { width: 440, height: 220 };
+const FLOATING_PANEL_SIZE = { width: 440, height: 220 };
 const FLOATING_WINDOW_BOTTOM_GAP = 32;
 const AUDIO_SESSION_CONTROL_TIMEOUT_MS = 5000;
 const LOCAL_DATA_DIR_NAME = 'local-data';
@@ -275,9 +277,9 @@ function sendToFloatingBar(channel, payload) {
   }
 }
 
-function sendToShortcutHint(channel, payload) {
-  if (shortcutHintWindow && !shortcutHintWindow.isDestroyed()) {
-    shortcutHintWindow.webContents.send(channel, payload);
+function sendToFloatingPanel(channel, payload) {
+  if (floatingPanelWindow && !floatingPanelWindow.isDestroyed()) {
+    floatingPanelWindow.webContents.send(channel, payload);
   }
 }
 
@@ -313,20 +315,27 @@ function hideFloatingBar() {
   floatingBar.hide();
 }
 
-function showShortcutHint() {
-  createShortcutHintWindow();
-  if (!shortcutHintWindow || shortcutHintWindow.isDestroyed()) return;
-  shortcutHintVisible = true;
-  positionShortcutHint();
-  shortcutHintWindow.setIgnoreMouseEvents(false);
-  shortcutHintWindow.show();
+function showFloatingPanel(payload = { visible: true, type: 'shortcut-hint' }) {
+  createFloatingPanelWindow();
+  if (!floatingPanelWindow || floatingPanelWindow.isDestroyed()) return;
+  floatingPanelVisible = true;
+  floatingPanelType = payload.type || 'shortcut-hint';
+  positionFloatingPanel();
+  floatingPanelWindow.setIgnoreMouseEvents(false);
+  floatingPanelWindow.show();
 }
 
-function hideShortcutHint() {
-  shortcutHintVisible = false;
-  if (!shortcutHintWindow || shortcutHintWindow.isDestroyed()) return;
-  shortcutHintWindow.setIgnoreMouseEvents(true, { forward: true });
-  shortcutHintWindow.hide();
+function hideFloatingPanel() {
+  floatingPanelVisible = false;
+  floatingPanelType = null;
+  if (!floatingPanelWindow || floatingPanelWindow.isDestroyed()) return;
+  floatingPanelWindow.setIgnoreMouseEvents(true, { forward: true });
+  floatingPanelWindow.hide();
+}
+
+function normalizeFloatingPanelPayload(payload = {}) {
+  const type = payload.type === 'free-ask-result' ? 'free-ask-result' : 'shortcut-hint';
+  return { ...payload, type };
 }
 
 function scheduleFloatingBarCompletedHide() {
@@ -355,7 +364,7 @@ function renderFloatingBarForVoiceState(payload = {}) {
 }
 
 function updateFloatingBarVisibility(keys) {
-  if (shortcutHintVisible) return;
+  if (floatingPanelVisible) return;
   const hasActiveKey = Array.isArray(keys) && keys.some((key) => key?.isKeydown);
   if (hasActiveKey) showFloatingBar();
 }
@@ -372,8 +381,8 @@ function resolveFloatingBarBounds() {
   return resolveBottomCenterBounds(getCurrentFloatingWorkArea(), FLOATING_BAR_SIZE, FLOATING_WINDOW_BOTTOM_GAP);
 }
 
-function resolveShortcutHintBounds() {
-  return resolveBottomCenterBounds(getCurrentFloatingWorkArea(), SHORTCUT_HINT_SIZE, FLOATING_WINDOW_BOTTOM_GAP);
+function resolveFloatingPanelBounds() {
+  return resolveBottomCenterBounds(getCurrentFloatingWorkArea(), FLOATING_PANEL_SIZE, FLOATING_WINDOW_BOTTOM_GAP);
 }
 
 function positionFloatingBar() {
@@ -381,9 +390,9 @@ function positionFloatingBar() {
   floatingBar.setBounds(resolveFloatingBarBounds(), false);
 }
 
-function positionShortcutHint() {
-  if (!shortcutHintWindow || shortcutHintWindow.isDestroyed()) return;
-  shortcutHintWindow.setBounds(resolveShortcutHintBounds(), false);
+function positionFloatingPanel() {
+  if (!floatingPanelWindow || floatingPanelWindow.isDestroyed()) return;
+  floatingPanelWindow.setBounds(resolveFloatingPanelBounds(), false);
 }
 
 function createRightAltKeyDownEvent() {
@@ -473,11 +482,15 @@ function handleRightAltListenerLine(line) {
   try {
     const payload = JSON.parse(line);
     if (payload.key === 'Escape') {
-      if (shortcutHintVisible && payload.isKeydown) {
-        hideShortcutHint();
-        return;
-      }
       if (payload.isKeydown) {
+        if (isActiveVoiceState(lastVoiceState)) {
+          sendToMain('voice-cancel-requested');
+          return;
+        }
+        if (floatingPanelVisible) {
+          hideFloatingPanel();
+          return;
+        }
         sendToMain('voice-cancel-requested');
       }
       return;
@@ -973,12 +986,12 @@ function createFloatingBar() {
   });
 }
 
-function createShortcutHintWindow() {
-  if (shortcutHintWindow && !shortcutHintWindow.isDestroyed()) return;
+function createFloatingPanelWindow() {
+  if (floatingPanelWindow && !floatingPanelWindow.isDestroyed()) return;
 
-  const bounds = resolveShortcutHintBounds();
+  const bounds = resolveFloatingPanelBounds();
 
-  shortcutHintWindow = new BrowserWindow({
+  floatingPanelWindow = new BrowserWindow({
     type: 'panel',
     ...bounds,
     frame: false,
@@ -1000,14 +1013,15 @@ function createShortcutHintWindow() {
     },
   });
 
-  shortcutHintWindow.loadFile(path.join(__dirname, 'renderer', 'dist', 'shortcut-hint.html'));
-  shortcutHintWindow.setIgnoreMouseEvents(true, { forward: true });
-  shortcutHintWindow.setAlwaysOnTop(true, 'screen-saver', 1);
-  shortcutHintWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-  shortcutHintWindow.setFullScreenable(false);
-  shortcutHintWindow.on('closed', () => {
-    shortcutHintVisible = false;
-    shortcutHintWindow = null;
+  floatingPanelWindow.loadFile(path.join(__dirname, 'renderer', 'dist', 'floating-panel.html'));
+  floatingPanelWindow.setIgnoreMouseEvents(true, { forward: true });
+  floatingPanelWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+  floatingPanelWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  floatingPanelWindow.setFullScreenable(false);
+  floatingPanelWindow.on('closed', () => {
+    floatingPanelVisible = false;
+    floatingPanelType = null;
+    floatingPanelWindow = null;
   });
 }
 
@@ -1223,26 +1237,28 @@ function registerIpcHandlers() {
     return true;
   });
   ipcMain.handle('page:floating-bar-click', () => true);
-  ipcMain.on('shortcut-hint', (_, payload = {}) => {
+  ipcMain.on('floating-panel', (_, payload = {}) => {
     if (payload.visible) {
-      if (!shouldShowShortcutHint(lastVoiceState)) {
-        hideShortcutHint();
+      const panelPayload = normalizeFloatingPanelPayload(payload);
+
+      if (panelPayload.type === 'shortcut-hint' && !shouldShowShortcutHint(lastVoiceState)) {
+        hideFloatingPanel();
         renderFloatingBarForVoiceState(lastVoiceState || {});
         return;
       }
 
       hideFloatingBar();
-      showShortcutHint();
-      sendToShortcutHint('shortcut-hint', payload);
+      showFloatingPanel(panelPayload);
+      sendToFloatingPanel('floating-panel', panelPayload);
       return;
     }
-    sendToShortcutHint('shortcut-hint', payload);
-    hideShortcutHint();
+    sendToFloatingPanel('floating-panel', { visible: false });
+    hideFloatingPanel();
   });
   ipcMain.on('voice-state', (_, payload = {}) => {
     lastVoiceState = payload;
     sendToFloatingBar('voice-state', payload);
-    if (shortcutHintVisible) hideShortcutHint();
+    if (floatingPanelVisible && isActiveVoiceState(payload)) hideFloatingPanel();
     renderFloatingBarForVoiceState(payload);
   });
   ipcMain.handle('page:floating-bar-update-positions', (_, payload = []) => {
