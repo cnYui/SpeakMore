@@ -548,7 +548,9 @@ def read_deepseek_config_status(env_path: Path | None = None) -> dict:
             if line.startswith("DEEPSEEK_API_KEY="):
                 value = line.split("=", 1)[1].strip()
                 break
-    value = os.getenv("DEEPSEEK_API_KEY", value).strip()
+    if env_path is None:
+        value = os.getenv("DEEPSEEK_API_KEY", value)
+    value = value.strip()
     return {"configured": bool(value), "masked": mask_secret(value)}
 
 
@@ -1123,6 +1125,8 @@ diagnostics: <Diagnostics language={language} />,
 `navigation.ts`：
 
 ```ts
+import type { TranslationKey } from './services/i18n'
+
 export type Page = 'home' | 'history' | 'settings' | 'diagnostics'
 
 export const pages: { page: Page; labelKey: TranslationKey }[] = [
