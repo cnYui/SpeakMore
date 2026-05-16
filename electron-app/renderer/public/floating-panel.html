@@ -77,6 +77,57 @@ html, body {
   background: rgba(119,119,119,0.08);
   color: #555b61;
 }
+.result-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.icon-button {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #8b8f96;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-button:hover:not(:disabled) {
+  background: rgba(119,119,119,0.08);
+  color: #555b61;
+}
+.icon-button:disabled {
+  cursor: default;
+  color: rgba(139,143,150,0.42);
+}
+.copy-icon {
+  position: relative;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+}
+.copy-icon::before,
+.copy-icon::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 11px;
+  border: 1.6px solid currentColor;
+  border-radius: 1.5px;
+  background: transparent;
+}
+.copy-icon::before {
+  left: 3px;
+  top: 3px;
+}
+.copy-icon::after {
+  left: 6px;
+  top: 0;
+  background: rgba(255,255,255,0.96);
+}
 .result-text {
   flex: 1;
   max-height: 100%;
@@ -110,13 +161,20 @@ html, body {
 
   <div id="result-view" class="panel-row hidden">
     <div id="result-text" class="result-text"></div>
-    <button class="dismiss" type="button" aria-label="关闭结果">×</button>
+    <div class="result-actions">
+      <button id="copy-result" class="icon-button" type="button" aria-label="复制结果" title="复制结果" disabled>
+        <span class="copy-icon" aria-hidden="true"></span>
+      </button>
+      <button class="dismiss" type="button" aria-label="关闭结果">×</button>
+    </div>
   </div>
 </div>
 <script>
 const shortcutView = document.getElementById('shortcut-view');
 const resultView = document.getElementById('result-view');
 const resultText = document.getElementById('result-text');
+const copyResultButton = document.getElementById('copy-result');
+let currentResultText = '';
 
 function closeFloatingPanel() {
   if (window.ipcRenderer) {
@@ -128,19 +186,37 @@ function renderFloatingPanel(payload) {
   const panelType = payload && payload.type === 'free-ask-result' ? 'free-ask-result' : 'shortcut-hint';
 
   if (panelType === 'free-ask-result') {
+    currentResultText = typeof payload.text === 'string' ? payload.text : '';
     shortcutView.classList.add('hidden');
     resultView.classList.remove('hidden');
-    resultText.textContent = typeof payload.text === 'string' ? payload.text : '';
+    resultText.textContent = currentResultText;
+    copyResultButton.disabled = !currentResultText;
     return;
   }
 
+  currentResultText = '';
   resultView.classList.add('hidden');
   shortcutView.classList.remove('hidden');
   resultText.textContent = '';
+  copyResultButton.disabled = true;
+}
+
+function writeClipboardText(text) {
+  if (!text) return Promise.resolve();
+  if (window.ipcRenderer && typeof window.ipcRenderer.invoke === 'function') {
+    return window.ipcRenderer.invoke('clipboard:write-text', text)
+      .catch(() => navigator.clipboard && navigator.clipboard.writeText(text));
+  }
+  if (navigator.clipboard) return navigator.clipboard.writeText(text);
+  return Promise.resolve();
 }
 
 Array.from(document.querySelectorAll('.dismiss')).forEach((button) => {
   button.addEventListener('click', closeFloatingPanel);
+});
+
+copyResultButton.addEventListener('click', () => {
+  writeClipboardText(currentResultText);
 });
 
 if (window.ipcRenderer) {

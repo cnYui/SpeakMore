@@ -1,6 +1,8 @@
-import { Box, Typography } from '@mui/material'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import { Box, IconButton, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { subscribeVoiceSession } from '../services/recorder'
+import { ipcClient } from '../services/ipc'
 import {
   emptyVoiceStats,
   formatAverageSpeed,
@@ -15,6 +17,11 @@ import { cardSx, subtlePanelSx } from '../uiTokens'
 export default function Dashboard() {
   const [recentResult, setRecentResult] = useState('')
   const [stats, setStats] = useState<VoiceStats>(emptyVoiceStats)
+
+  const handleCopyRecentResult = () => {
+    if (!recentResult) return
+    ipcClient.invoke('clipboard:write-text', recentResult).catch(() => navigator.clipboard.writeText(recentResult))
+  }
 
   useEffect(() => {
     return subscribeVoiceSession((voiceSession) => {
@@ -84,7 +91,17 @@ export default function Dashboard() {
 
       <Box>
         <Box sx={{ ...cardSx, p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          <Typography sx={{ fontSize: 16, fontWeight: 500 }}>最近结果</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography sx={{ fontSize: 16, fontWeight: 500 }}>最近结果</Typography>
+            <IconButton
+              size="small"
+              aria-label="复制最近结果"
+              disabled={!recentResult}
+              onClick={handleCopyRecentResult}
+            >
+              <ContentCopyIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Box>
           <Box sx={{ bgcolor: 'rgba(119,119,119,0.03)', borderRadius: '12px', p: 1.5, minHeight: 64 }}>
             <Typography sx={{ fontSize: 15, whiteSpace: 'pre-wrap' }}>{recentResult || '-'}</Typography>
           </Box>
