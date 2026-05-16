@@ -13,12 +13,23 @@ class RefinerPromptTest(unittest.TestCase):
         self.assertIn("信息与语气绝对无损", prompt)
         self.assertIn("零干扰输出", prompt)
 
+    def test_ask_anything_prompt_covers_voice_agent_scenarios(self):
+        prompt = SYSTEM_PROMPTS["ask_anything"]
+
+        self.assertIn("专业、可靠的语音任务助手", prompt)
+        self.assertIn("选中文本上下文", prompt)
+        self.assertIn("翻译请求", prompt)
+        self.assertIn("题目解答", prompt)
+        self.assertIn("实时信息", prompt)
+        self.assertIn("当前没有工具结果", prompt)
+        self.assertIn("禁止编造实时信息", prompt)
+        self.assertIn("不要用“好的”", prompt)
+
     def test_other_prompts_are_localized_to_chinese(self):
         ask_prompt = SYSTEM_PROMPTS["ask_anything"]
         translation_prompt = SYSTEM_PROMPTS["translation"]
 
-        self.assertIn("你是一个有帮助的 AI 助手", ask_prompt)
-        self.assertIn("使用与输入相同的语言回复", ask_prompt)
+        self.assertIn("使用与用户主要输入相同的语言回复", ask_prompt)
         self.assertNotIn("You are a helpful AI assistant", ask_prompt)
 
         self.assertIn("你是一个翻译助手", translation_prompt)
