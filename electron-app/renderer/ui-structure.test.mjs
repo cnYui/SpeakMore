@@ -445,11 +445,20 @@ test('P0 recorder 暴露可订阅状态机并支持主动取消', async () => {
   assert.doesNotMatch(recorder, /export\s+function\s+getIsRecording/);
 });
 
-test('P0 Dashboard 消费语音状态机而不是 setTimeout 猜录音状态', async () => {
+test('Dashboard 最近结果只展示最终结果，不再展示实时语音状态和中间转写', async () => {
   const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
 
   assert.match(dashboard, /subscribeVoiceSession/);
-  assert.match(dashboard, /voiceSession\.status/);
+  assert.match(dashboard, /status\s*===\s*['"]completed['"]/);
+  assert.match(dashboard, /refinedText\s*\|\|\s*rawText/);
+  assert.match(dashboard, /最近结果/);
+  assert.doesNotMatch(dashboard, /getVoiceStatusLabel/);
+  assert.doesNotMatch(dashboard, /voiceStatusLabel/);
+  assert.doesNotMatch(dashboard, /ContentCopyIcon/);
+  assert.doesNotMatch(dashboard, /IconButton/);
+  assert.doesNotMatch(dashboard, /clipboard:write-text/);
+  assert.doesNotMatch(dashboard, /voiceSession\.rawText\s*\|\|\s*['"]-['"]/);
+  assert.doesNotMatch(dashboard, /voiceSession\.status\s*===\s*['"]idle['"]/);
   assert.doesNotMatch(dashboard, /saveVoiceHistory/);
   assert.doesNotMatch(dashboard, /global-keyboard/);
   assert.doesNotMatch(dashboard, /findKeyboardShortcutMode/);
@@ -499,6 +508,17 @@ test('P0 悬浮条消费 voice-state 而不是自行 toggle 快捷键状态', as
   assert.match(floatingBar, /applyVoiceState/);
   assert.doesNotMatch(floatingBar, /function\s+toggle\(/);
   assert.doesNotMatch(floatingBar, /global-keyboard[\s\S]*toggle\(\)/);
+});
+
+test('自由提问录音文案由 voice-state.displayText 覆盖胶囊默认 recording 文案', async () => {
+  const voiceTypes = await readProjectFile('src/services/voiceTypes.ts');
+  const floatingBar = await readProjectFile('public/floating-bar.html');
+
+  assert.match(voiceTypes, /mode:\s*session\.mode/);
+  assert.match(voiceTypes, /session\.status\s*===\s*['"]recording['"][\s\S]*session\.mode\s*===\s*['"]Ask['"]/);
+  assert.match(voiceTypes, /displayText:\s*['"]请随意提出问题['"]/);
+  assert.match(floatingBar, /if\s*\(displayText\)\s*\{[\s\S]*text\.textContent\s*=\s*displayText[\s\S]*return;/);
+  assert.match(floatingBar, /if\s*\(status\s*===\s*['"]recording['"]\)\s*\{[\s\S]*text\.textContent\s*=\s*['"]正在监听\.\.\.['"]/);
 });
 
 test('P0 长按提示通过 shortcut-hint 独立显示在悬浮条位置', async () => {

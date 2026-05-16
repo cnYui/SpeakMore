@@ -100,17 +100,6 @@ export function createVoiceError(code: VoiceErrorCode, detail?: string): VoiceEr
   }
 }
 
-export function getVoiceStatusLabel(session: VoiceSession): string {
-  if (session.error) return session.error.message
-  if (session.status === 'connecting') return '正在连接语音后端...'
-  if (session.status === 'recording') return '正在监听...'
-  if (session.status === 'stopping') return '正在停止录音...'
-  if (session.status === 'transcribing') return '正在转写...'
-  if (session.status === 'cancelled') return '当前转录已取消'
-  if (session.status === 'completed') return '已完成'
-  return '准备就绪'
-}
-
 export function toFloatingBarState(session: VoiceSession): FloatingBarState {
   if (session.error?.code === 'audio_empty') {
     return {
@@ -130,6 +119,8 @@ export function toFloatingBarState(session: VoiceSession): FloatingBarState {
     status: session.status,
     mode: session.mode,
     inputLevel: session.inputLevel,
+    ...(session.status === 'recording' && session.mode === 'Ask' ? { displayText: '请随意提出问题' } : {}),
+    ...(session.status === 'cancelled' ? { displayText: '当前转录已取消' } : {}),
     errorMessage: session.error?.message,
   }
 }

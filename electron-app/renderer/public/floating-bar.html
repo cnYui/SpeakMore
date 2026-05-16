@@ -111,13 +111,13 @@ function renderCapsule(state) {
   dot.className = status === 'recording' ? 'active' : '';
   renderLevels(stateLevel, status === 'recording');
 
-  if (status === 'recording') {
-    text.textContent = '正在监听...';
+  if (displayText) {
+    text.textContent = displayText;
     return;
   }
 
-  if (displayText) {
-    text.textContent = displayText;
+  if (status === 'recording') {
+    text.textContent = '正在监听...';
     return;
   }
 
