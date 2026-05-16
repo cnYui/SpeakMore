@@ -1,6 +1,5 @@
 import { ipcClient } from './ipc'
 import { hideFloatingPanel, showFreeAskResult } from './floatingPanel'
-import { isFocusedSelectionStillActive } from './focusedContext'
 import { getSelectedAudioDeviceId, getTranslationTargetLanguage } from './settingsStore'
 import { requestTextFlow } from './textFlow'
 import type { ShortcutIntent } from './shortcutGuard'
@@ -297,6 +296,14 @@ function failSession(error: VoiceError) {
   recordingStartedAt = 0
 }
 
+async function pasteResultOrShowPanel(resultText: string) {
+  try {
+    await ipcClient.invoke('keyboard:type-transcript', resultText)
+  } catch {
+    showFreeAskResult(resultText)
+  }
+}
+
 async function completeSession(refinedText: string) {
   activeSessionId = null
   clearTranscribeTimeout()
@@ -320,20 +327,7 @@ async function completeSession(refinedText: string) {
   if (!resultText) return
 
   if (task?.delivery === 'replace-selection') {
-    const canReplace = await isFocusedSelectionStillActive(task.focusInfo)
-    if (canReplace) {
-      ipcClient.invoke('keyboard:type-transcript', resultText).catch((error) => {
-        void restoreBackgroundAudio()
-        setSession({
-          ...completedSession,
-          status: 'error',
-          error: createVoiceError('paste_failed', error instanceof Error ? error.message : String(error)),
-        })
-      })
-      return
-    }
-
-    showFreeAskResult(resultText)
+    await pasteResultOrShowPanel(resultText)
     return
   }
 
@@ -342,14 +336,7 @@ async function completeSession(refinedText: string) {
     return
   }
 
-  ipcClient.invoke('keyboard:type-transcript', resultText).catch((error) => {
-    void restoreBackgroundAudio()
-    setSession({
-      ...completedSession,
-      status: 'error',
-      error: createVoiceError('paste_failed', error instanceof Error ? error.message : String(error)),
-    })
-  })
+  await pasteResultOrShowPanel(resultText)
 }
 
 function handleRawText(text: string) {
