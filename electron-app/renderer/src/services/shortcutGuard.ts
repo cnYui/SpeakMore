@@ -1,5 +1,3 @@
-import type { VoiceMode } from './voiceTypes'
-
 export const LONG_PRESS_MS = 500
 
 type KeyboardLike = {
@@ -7,9 +5,11 @@ type KeyboardLike = {
   isKeydown?: boolean
 }
 
+export type ShortcutIntent = 'DictateShortcut' | 'AskShortcut' | 'TranslateShortcut'
+
 export type ShortcutGuardAction =
   | { type: 'none' }
-  | { type: 'toggle-recording'; mode: VoiceMode }
+  | { type: 'toggle-recording'; intent: ShortcutIntent }
 
 export type ShortcutGuardContext = {
   voiceStatus?: string
@@ -20,7 +20,7 @@ export type ShortcutGuardState = {
   isRightAltDown: boolean
   isBlocked: boolean
   modalVisible: boolean
-  activeMode: VoiceMode | null
+  activeIntent: ShortcutIntent | null
   longPressTimer: number | null
 }
 
@@ -29,7 +29,7 @@ export function createInitialShortcutGuardState(): ShortcutGuardState {
     isRightAltDown: false,
     isBlocked: false,
     modalVisible: false,
-    activeMode: null,
+    activeIntent: null,
     longPressTimer: null,
   }
 }
@@ -44,15 +44,15 @@ function resetPressCycle(state: ShortcutGuardState): ShortcutGuardState {
     ...state,
     isRightAltDown: false,
     isBlocked: false,
-    activeMode: null,
+    activeIntent: null,
     longPressTimer: null,
   }
 }
 
-function resolveMode(keys: KeyboardLike[]): VoiceMode {
-  if (keys.some((key) => key.keyName === 'Space' && key.isKeydown)) return 'Ask'
-  if (keys.some((key) => key.keyName === 'RightShift' && key.isKeydown)) return 'Translate'
-  return 'Dictate'
+function resolveIntent(keys: KeyboardLike[]): ShortcutIntent {
+  if (keys.some((key) => key.keyName === 'RightShift' && key.isKeydown)) return 'TranslateShortcut'
+  if (keys.some((key) => key.keyName === 'Space' && key.isKeydown)) return 'AskShortcut'
+  return 'DictateShortcut'
 }
 
 function canUseLongPressGuard(context: ShortcutGuardContext) {
@@ -71,7 +71,7 @@ export function reduceShortcutGuard(
     debugLog?.('shortcut-guard:reduce', {
       keys,
       voiceStatus: context.voiceStatus,
-      activeMode: nextState.activeMode,
+      activeIntent: nextState.activeIntent,
       action,
     })
     return { state: nextState, action }
@@ -79,14 +79,14 @@ export function reduceShortcutGuard(
   const rightAltDown = keys.some((key) => key.keyName === 'RightAlt' && key.isKeydown)
 
   if (!rightAltDown) {
-    if (state.isRightAltDown && !state.isBlocked && state.activeMode) {
-      return finish(resetPressCycle(state), { type: 'toggle-recording', mode: state.activeMode })
+    if (state.isRightAltDown && !state.isBlocked && state.activeIntent) {
+      return finish(resetPressCycle(state), { type: 'toggle-recording', intent: state.activeIntent })
     }
 
     return finish(resetPressCycle(state), { type: 'none' })
   }
 
-  const nextMode = resolveMode(keys)
+  const nextIntent = resolveIntent(keys)
 
   if (!state.isRightAltDown) {
     const timer = canUseLongPressGuard(context) ? window.setTimeout(onLongPress, LONG_PRESS_MS) : null
@@ -95,14 +95,14 @@ export function reduceShortcutGuard(
       isRightAltDown: true,
       isBlocked: false,
       modalVisible: false,
-      activeMode: nextMode,
+      activeIntent: nextIntent,
       longPressTimer: timer,
     }, { type: 'none' })
   }
 
   return finish({
     ...state,
-    activeMode: nextMode,
+    activeIntent: nextIntent,
   }, { type: 'none' })
 }
 
