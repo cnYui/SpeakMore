@@ -4,6 +4,7 @@ import {
   getFocusedSelectedText,
   getFocusedSelectionSnapshot,
   isFocusedSelectionStillActive,
+  normalizeSelectionSnapshot,
   normalizeSelectedTextResult,
 } from './focusedContext'
 
@@ -53,6 +54,8 @@ test('getFocusedSelectionSnapshot 通过 IPC 读取选区快照', async () => {
       return {
         success: true,
         text: ' selected text ',
+        source: 'uia',
+        confidence: 'confirmed',
         focusInfo: {
           appInfo: {
             app_name: 'Notepad',
@@ -80,7 +83,56 @@ test('getFocusedSelectionSnapshot 通过 IPC 读取选区快照', async () => {
   const snapshot = await getFocusedSelectionSnapshot()
 
   assert.equal(snapshot.selectedText, 'selected text')
+  assert.equal(snapshot.source, 'uia')
+  assert.equal(snapshot.confidence, 'confirmed')
   assert.equal(snapshot.focusInfo?.appInfo.app_identifier, 'notepad.exe')
+})
+
+test('normalizeSelectionSnapshot 只接受 UIA confirmed 选区', () => {
+  const snapshot = normalizeSelectionSnapshot({
+    success: true,
+    text: ' selected text ',
+    source: 'uia',
+    confidence: 'confirmed',
+    focusInfo: {
+      appInfo: {
+        app_name: 'Notepad',
+        app_identifier: 'notepad.exe',
+        window_title: 'note.txt',
+        app_type: 'native_app',
+        app_metadata: { hwnd: '100' },
+        browser_context: null,
+      },
+      elementInfo: {
+        role: '',
+        focused: true,
+        editable: true,
+        selected: true,
+        bounds: { x: 0, y: 0, width: 0, height: 0 },
+      },
+    },
+  })
+
+  assert.equal(snapshot.selectedText, 'selected text')
+  assert.equal(snapshot.source, 'uia')
+  assert.equal(snapshot.confidence, 'confirmed')
+})
+
+test('normalizeSelectionSnapshot 忽略 clipboard-only 文本', () => {
+  const snapshot = normalizeSelectionSnapshot({
+    success: true,
+    text: 'current line copied by app',
+    source: 'clipboard',
+    confidence: 'clipboard-only',
+    focusInfo: null,
+  })
+
+  assert.deepEqual(snapshot, {
+    selectedText: '',
+    source: 'none',
+    confidence: 'none',
+    focusInfo: null,
+  })
 })
 
 test('isFocusedSelectionStillActive 通过 IPC 校验焦点是否仍有效', async () => {
