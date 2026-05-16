@@ -77,15 +77,15 @@ test('自由提问意图有选区时录音并优先替换选区', async () => {
   })
 })
 
-test('翻译意图有选区时直接翻译并替换选区', async () => {
+test('翻译意图有选区时仍录音并把翻译结果粘贴到光标位置', async () => {
   const task = await resolveVoiceTask('TranslateShortcut', reader({ selectedText: '你好', focusInfo }))
 
   assertTask(task, {
     mode: 'Translate',
     selectedText: '你好',
     focusInfo,
-    delivery: 'replace-selection',
-    shouldRecordAudio: false,
+    delivery: 'paste',
+    shouldRecordAudio: true,
   })
 })
 

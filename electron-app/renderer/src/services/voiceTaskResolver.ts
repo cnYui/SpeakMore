@@ -45,7 +45,7 @@ export async function resolveVoiceTask(
   }
 
   if (intent === 'TranslateShortcut') {
-    return createTask('Translate', snapshot, hasSelection ? 'replace-selection' : 'paste', !hasSelection)
+    return createTask('Translate', snapshot, 'paste', true)
   }
 
   if (hasSelection) {

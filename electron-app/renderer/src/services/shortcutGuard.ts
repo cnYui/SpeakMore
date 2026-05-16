@@ -55,6 +55,17 @@ function resolveIntent(keys: KeyboardLike[]): ShortcutIntent {
   return 'DictateShortcut'
 }
 
+const intentPriority: Record<ShortcutIntent, number> = {
+  DictateShortcut: 0,
+  AskShortcut: 1,
+  TranslateShortcut: 2,
+}
+
+function keepHighestIntent(current: ShortcutIntent | null, next: ShortcutIntent): ShortcutIntent {
+  if (!current) return next
+  return intentPriority[next] > intentPriority[current] ? next : current
+}
+
 function canUseLongPressGuard(context: ShortcutGuardContext) {
   return context.voiceStatus !== 'recording'
 }
@@ -77,10 +88,15 @@ export function reduceShortcutGuard(
     return { state: nextState, action }
   }
   const rightAltDown = keys.some((key) => key.keyName === 'RightAlt' && key.isKeydown)
+  const rightAltReleased = keys.some((key) => key.keyName === 'RightAlt' && key.isKeydown === false)
 
   if (!rightAltDown) {
-    if (state.isRightAltDown && !state.isBlocked && state.activeIntent) {
+    if (rightAltReleased && state.isRightAltDown && !state.isBlocked && state.activeIntent) {
       return finish(resetPressCycle(state), { type: 'toggle-recording', intent: state.activeIntent })
+    }
+
+    if (state.isRightAltDown && !rightAltReleased) {
+      return finish(state, { type: 'none' })
     }
 
     return finish(resetPressCycle(state), { type: 'none' })
@@ -102,7 +118,7 @@ export function reduceShortcutGuard(
 
   return finish({
     ...state,
-    activeIntent: nextIntent,
+    activeIntent: keepHighestIntent(state.activeIntent, nextIntent),
   }, { type: 'none' })
 }
 
