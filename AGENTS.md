@@ -1,52 +1,90 @@
 # 项目协作约定
 
+## 协作原则
+
+- 本文件只记录长期有效的项目约束、当前真实架构和已知限制；历史迭代、临时计划和排查记录写入 `docs/ai/context/`。
+- 默认使用中文沟通、写文档和写注释；用户可见文案默认中文，仅品牌名和原始按键名可保留英文，例如 `SpeakMore`、`Right Alt`、`Right Shift`、`Space`。
+- 修改前先明确 design / plan，并新增 `docs/ai/context/YYYYMMDD-HHMMSS-文件名.md` 记录背景、取舍和验证方式。
+- 优先复用现有 `server/`、`electron-app/` 和 `electron-app/renderer/`，不要把逆向资料当作主要开发入口。
+- 代码和测试是最终事实来源；如果本文件、README、上下文文档和代码冲突，先读代码与测试，再更新文档。
+
 ## 目录职责
 
-- `server/`：本地 FastAPI 后端，负责语音上传、ASR 转写、文本润色和 WebSocket 语音流接口。
-- `electron-app/`：手写 Electron 本地壳，负责主窗口、悬浮录音条、托盘和快捷键。
-- `app-extracted/`：Typeless 逆向参考资料，只作为协议、页面、迁移和原始实现参考。
-- `experiments/`：独立实验代码，不参与主应用运行链路。
-- `docs/ai/context/`：AI 上下文、设计、计划和决策记录。
+- `server/`：本地 FastAPI 后端，负责音频上传、WebSocket 语音流、音频转码、ASR 转写和 DeepSeek 文本处理。
+- `electron-app/`：Electron 主进程、preload、本地兼容层、托盘、窗口、快捷键、自动粘贴、本地数据和 Windows 音频会话控制。
+- `electron-app/renderer/`：Vite + React + MUI + TypeScript 前端，包含首页、历史记录、设置、诊断、录音状态机、悬浮胶囊和悬浮面板静态页面。
+- `docs/ai/context/`：AI 上下文、设计、计划、验证和决策记录。新增内容只创建新文件，不覆盖、重命名或删除历史文件。
+- `app-extracted/`：如果存在，只作为 Typeless 逆向参考资料和少量遗留资产来源；不要加载其中页面作为当前运行入口。修改图标相关逻辑前先检查 `electron-app/main.js` 是否仍引用其中资产。
+- `experiments/`：如果存在，只放独立实验代码，不参与主应用运行链路。
+
+## 当前真实架构
+
+- 后端独立启动，Electron 只消费 `http://127.0.0.1:8000`，不负责自动拉起或关闭后端。
+- 后端关键接口为 `GET /health`、`GET /ready`、`POST /ai/voice_flow` 和 `WebSocket /ws/rt_voice_flow`。
+- `/health` 表示后端进程存活；`/ready` 表示 ASR 模型预热完成，语音链路可接收请求。
+- `electron-app/main.js` 加载 `electron-app/renderer/dist/index.html`、`floating-bar.html` 和 `floating-panel.html`。
+- 前端修改后必须在 `electron-app/renderer/` 下运行 `npm run build`，再重启 Electron 验证。
+- 主窗口关闭按钮只隐藏窗口到后台，托盘“退出”或真实应用退出才结束 Electron。
+- 历史、设置、统计、日志和录音相关本地数据由 Electron 主进程写入 `app.getPath('userData')/local-data/`。
+
+## 语音链路约束
+
+- 快捷键由 Windows 低级键盘监听器和 `shortcutGuard.ts` 处理，录音启动/停止基于释放边沿触发，不要对每次 `global-keyboard` 键态更新直接调用 `toggleRecording`。
+- 当前固定快捷键：
+  - `Right Alt`：听写。
+  - `Right Alt + Space`：自由提问。
+  - `Right Alt + Right Shift`：翻译。
+  - `Escape`：取消当前未完成语音会话，或关闭当前悬浮面板。
+- `Escape` 取消语音会话时不能发送 `end_audio`，不能自动粘贴，必须忽略迟到结果。
+- 录音状态源由 `recorder.ts` 管理；悬浮胶囊只消费 `voice-state`，不要在悬浮胶囊里重新实现录音状态机。
+- 悬浮胶囊录音波形只在 `electron-app/renderer/public/floating-bar.html` 展示，音量来自 `recorder.ts` 基于同一份 `MediaStream` 计算出的 `inputLevel`。
+- 自由提问录音时悬浮胶囊显示 `请随意提出问题`；最终结果不自动粘贴、不进入首页最近结果，而是通过 `floating-panel` IPC 进入独立悬浮面板展示。
+- 长按 `Right Alt` 的快捷键提示也通过 `floating-panel` IPC 和独立悬浮面板展示；提示优先级低于录音、转写、完成、取消和错误状态。
+- 悬浮胶囊和悬浮面板不要依赖本机固定坐标，应基于当前显示器 `workArea` 计算并限制在屏幕内。
+- WebSocket 语音流默认输入来自 `audio/webm;codecs=opus`；后端不能把未知音频头直接当 `.wav`，非 wav 输入必须先通过 `ffmpeg` 转码再喂 ASR。
+- ASR 后端唯一使用 `faster-whisper`，默认模型固定为 `base`；不要恢复 Handy `ggml`、SenseVoice 或其他旧模型兼容逻辑。
+- 模型扫描顺序固定为 `WHISPER_MODEL_DIR` → `%LOCALAPPDATA%\Typeless\models\faster-whisper` → `%USERPROFILE%\.cache\huggingface\hub` → 首次下载到 `%LOCALAPPDATA%\Typeless\models\faster-whisper`。
+- 开发态 `uvicorn reload` 必须显式由环境变量 `UVICORN_RELOAD` 开启，不要在代码里默认写死 `reload=True`。
+- 录音期间静音后台声音时，保持“短按开始、再次短按结束”的交互；Windows 上按音频会话静音，结束后只恢复本轮被 SpeakMore 主动静音的会话。
+
+## 前端与用户体验约束
+
+- 用户可见品牌为 `SpeakMore`。
+- 主窗口页面为：首页、历史记录、设置、诊断。
+- 首页“最近结果”只展示非自由提问的最近一次最终转录/最终结果文字；实时状态只在悬浮胶囊展示。
+- 设置页目前包含固定快捷键展示、麦克风选择、语言展示、DeepSeek API Key 输入框、开机启动和版本信息。
+- 诊断页应检查后端 `/health`、`/ready`、麦克风、系统信息和 IPC 自动粘贴能力。
+- 不要用历史阶段标签扩大范围做整套页面重构、账户体系、云同步、自动更新或复杂快捷键编辑器；需要做这些功能时先单独设计。
+
+## 数据与配置
+
+- DeepSeek 配置由后端 `server/.env` 读取；不要把真实密钥写入仓库。
+- `server/.env.example` 是环境变量模板，真实 `server/.env` 不提交。
+- 历史记录和设置统一走 Electron 主进程 JSON 数据源，renderer 不应把这类业务数据写入 `localStorage`。
+- 听写历史保存由 `AppShell` 这类全局常驻层订阅语音会话完成事件，不要放在首页、历史页等可切换页面组件里。
+- 首页累计统计来自独立 `history-stats.json`，不得从最近 200 条 `history.json` 反推；历史列表裁剪不能影响累计听写时长、累计字数、平均速度和节省时间。
+
+## 已知限制
+
+- 设置页的 `DeepSeek API Key` 输入框当前没有写回 `server/.env`，真实运行仍以后端环境变量为准。
+- 当前主进程的 `focused-context` 仍是本地 stub，选区识别与基于选区的替换流程尚未完整闭环。
+- 翻译模式未提供完整目标语言 UI；没有传入 `output_language` 时，后端默认翻译到英文。
+- 首页“最近结果”的真实 UI 以 `electron-app/renderer/src/pages/Dashboard.tsx` 为准，修改前先读当前实现和测试，不要只依赖历史上下文。
+
+## 验证命令
+
+- 前端测试：`cd electron-app/renderer; npm test`
+- 前端构建：`npm run renderer:build`
+- 主进程语法检查：`node --check electron-app/main.js`
+- 快捷键转发测试：`node --test electron-app/right-alt-relay.test.js`
+- 历史统计测试：`node --test electron-app/history-stats-store.test.mjs`
+- 后端核心语音协议验证：`npm run verify:voice`
+- 后端全部测试：`cd server; python -m pytest -q`
+
+根据改动范围选择验证命令；涉及前端运行产物时必须构建。
 
 ## 清理规则
 
-- 可以删除可再生成产物：`node_modules/`、`__pycache__/`、`*.log`。
-- 不要删除 `app-extracted/dist/`、`app-extracted/build/`、`app-extracted/lib/`、`app-extracted/drizzle/`，除非明确确认不再需要逆向参考。
-- 新增 AI 上下文文档使用 `YYYYMMDD-HHMMSS-文件名.md` 命名。
-
-## 开发偏好
-
-- 默认中文沟通和注释。
-- 优先复用现有 `server/` 和 `electron-app/`，不要把逆向包当作主要开发入口。
-- 修改前先明确 design / plan，并写入 `docs/ai/context/`。
-- 用户可见文案默认全部使用中文；仅品牌名和原始按键名可保留英文，例如 `SpeakMore`、`Right Alt`、`Right Shift`、`Space`。
-- `electron-app/renderer/` 是 Vite + React + MUI + TypeScript 前端项目，像素级复刻 Typeless UI。
-- `app-extracted/` 仅作为 UI 视觉参考和协议参考，不作为运行时加载目标。
-- `main.js` 加载 `electron-app/renderer/dist/index.html`（构建产物）。
-- 前端修改后需在 `electron-app/renderer/` 下运行 `npm run build` 再重启 Electron 验证。
-
-## 当前迭代重点
-
-- P0：优先补齐语音输入链路的错误兜底和状态统一，包括录音状态机、WebSocket 生命周期、麦克风/后端/ASR/润色/粘贴错误处理、悬浮条状态同步和测试漂移修复。
-- P1：在 P0 稳定后，再把历史、设置、诊断从静态页面升级为真实数据和真实操作。
-- 不要在 P0 中扩大范围做整套页面重构、账户体系、云同步、自动更新或复杂快捷键编辑器。
-- 快捷键驱动录音必须基于边沿触发，不要对每次 `global-keyboard` 键态更新直接做 `toggleRecording`。
-- 悬浮条显示开关以主进程状态为准；渲染进程设置变更必须通过 IPC 同步到主进程，而不是只写本地存储。
-- WebSocket 语音流默认输入来自 `audio/webm;codecs=opus`，后端不能把未知音频头直接当 `.wav`；非 wav 输入必须先转码再喂 ASR。
-- ASR 后端唯一使用 `faster-whisper`，默认模型固定为 `base`；不要再兼容 Handy `ggml` 或 SenseVoice 变量。
-- 模型扫描顺序固定为 `WHISPER_MODEL_DIR` → `%LOCALAPPDATA%\Typeless\models\faster-whisper` → `%USERPROFILE%\.cache\huggingface\hub`；三者都未命中时首次下载到 `%LOCALAPPDATA%\Typeless\models\faster-whisper`。
-- 开发态 `uvicorn reload` 必须显式由环境变量开启，不要在代码里默认写死 `reload=True`。
-- 录音期间静音后台声音时，保持现有“点按开始、再次点按结束”的交互，不改成 `PTT`；Windows 上按音频会话静音实现，结束后只恢复本轮被 Typeless 主动静音的会话。
-- 悬浮条录音波形只在 `electron-app/renderer/public/floating-bar.html` 展示；需要真实消费录音输入音量，不要再使用固定 CSS 假动画。
-- 悬浮条录音波形统一为 8 根更细的柱子；音量数据由 `recorder.ts` 基于同一份 `MediaStream` 计算整体响度并通过 `voice-state` 同步。
-- 胶囊栏可见期间按 `Escape` 必须取消当前未完成语音会话：不发送 `end_audio`、不自动粘贴、忽略迟到结果，悬浮条显示 `当前转录已取消` 后自动隐藏。
-- Right Alt 长按提示和自由提问结果统一通过 `floating-panel` IPC 在独立悬浮面板显示，主窗口不再渲染该提示卡或自由提问结果；面板可见时隐藏胶囊，关闭逻辑只影响悬浮面板展示，不回写主窗口 UI。
-- 长按提示优先级低于语音状态；录音、转写、完成、取消和错误展示不能被提示卡吞掉。录音中长按 `Right Alt` 不应触发长按提示，释放仍应按“再次点按结束”语义停止录音。
-- 悬浮条和长按提示窗口不能依赖本机固定坐标；应基于当前显示器 `workArea` 计算并限制在屏幕内。
-- 自由提问（`Right Alt + Space`）录音时胶囊栏显示 `请随意提出问题`；自由提问最终结果不自动粘贴、不进入首页，统一进入悬浮面板展示。后续接入选区能力时，有选区且原目标仍有效才直接替换选区，不再额外展示结果。
-- 首页“最近结果”只展示非自由提问的最近一次最终转录/最终结果文字，不再展示实时语音状态、中间转写、复制按钮等旧结果卡 UI；实时状态只在悬浮胶囊栏展示。
-- 历史记录和设置统一由 Electron 主进程写入 `app.getPath('userData')/local-data/` 下的 JSON 文件；renderer 不再把这类业务数据写入 `localStorage`。
-- 听写历史保存必须由 `AppShell` 这类全局常驻层订阅语音会话完成事件，不要放在首页、历史页等可切换页面组件里。
-- 首页统计只统计成功听写记录：总时长累加 `durationMs`，累计字数使用最终文本长度，平均速度为字数/听写分钟，节省时间按 60 字/分钟手打基准估算；个性化指标在真实 AI 个性化能力完成前保持未启用。
-- 首页累计统计必须来自独立累计数据源，不得从最近 200 条 `history.json` 反推；历史列表裁剪不能影响累计听写时长、累计字数、平均速度和节省时间。
-- 主窗口关闭按钮只隐藏窗口到后台，不能销毁主窗口 renderer；语音识别链路需要在后台继续运行，只有托盘“退出”或真实应用退出才结束进程。
+- 可以删除可再生成产物：`node_modules/`、`__pycache__/`、`*.log`、`.pytest_cache/`、Vite/TypeScript 缓存和构建产物。
+- 不要删除 `app-extracted/dist/`、`app-extracted/build/`、`app-extracted/lib/`、`app-extracted/drizzle/`，除非明确确认不再需要逆向参考或遗留资产。
+- 不要删除、覆盖、重命名 `docs/ai/context/` 下的历史文档。
