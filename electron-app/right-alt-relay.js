@@ -37,13 +37,23 @@ function createKeyboardEventFactory(now) {
   };
 }
 
-function createRightAltRelay({ emitKeyboardState, setTimer, clearTimer, now = Date.now }) {
+function normalizeDebugKeys(keys) {
+  return keys.map((key) => ({
+    keyName: key.keyName,
+    isKeydown: key.isKeydown,
+  }));
+}
+
+function createRightAltRelay({ emitKeyboardState, setTimer, clearTimer, now = Date.now, debugLog = null }) {
   const keyboardStateByName = new Map();
   const events = createKeyboardEventFactory(now);
   let clearStateTimer = null;
   let restoreStateTimer = null;
 
   function emit(keys) {
+    if (typeof debugLog === 'function') {
+      debugLog('right-alt-relay:emit', { keys: normalizeDebugKeys(keys) });
+    }
     emitKeyboardState(keys);
   }
 

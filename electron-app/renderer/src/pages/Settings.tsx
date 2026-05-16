@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Box, Typography, Select, MenuItem, Switch, Button, TextField } from '@mui/material'
 import { ipcClient } from '../services/ipc'
-import { loadSettings, saveSettings, type LocalSettings } from '../services/settingsStore'
+import { loadSettings, saveSettings, type LocalSettings, type TranslationTargetLanguage } from '../services/settingsStore'
 
 const keybindChip = {
   borderRadius: '6px',
@@ -37,6 +37,7 @@ export default function Settings() {
   const [settings, setSettings] = useState<LocalSettings>({
     launchAtSystemStartup: false,
     preferredLanguage: 'zh-CN',
+    translationTargetLanguage: 'en',
     selectedAudioDeviceId: 'default',
   })
   const [devices, setDevices] = useState<AudioDevice[]>([])
@@ -96,6 +97,7 @@ export default function Settings() {
       {/* 语言 */}
       <Typography sx={sectionTitle}>语言</Typography>
       <Box sx={rowSx}>
+        <Typography>界面语言</Typography>
         <Select
           size="small"
           value={settings.preferredLanguage}
@@ -103,6 +105,20 @@ export default function Settings() {
           sx={{ minWidth: 240 }}
         >
           <MenuItem value="zh-CN">简体中文 (zh-CN)</MenuItem>
+        </Select>
+      </Box>
+      <Box sx={rowSx}>
+        <Typography>翻译目标语言</Typography>
+        <Select
+          size="small"
+          value={settings.translationTargetLanguage}
+          onChange={(event) => void updateSettings({
+            ...settings,
+            translationTargetLanguage: String(event.target.value) as TranslationTargetLanguage,
+          })}
+          sx={{ minWidth: 240 }}
+        >
+          <MenuItem value="en">英文 (en)</MenuItem>
         </Select>
       </Box>
 

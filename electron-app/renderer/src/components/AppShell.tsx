@@ -58,7 +58,14 @@ export default function AppShell() {
       const next = reduceShortcutGuard(
         shortcutGuardRef.current,
         keys,
-        { voiceStatus: getVoiceSession().status },
+        {
+          voiceStatus: getVoiceSession().status,
+          debugLog: (event, payload) => {
+            if (import.meta.env.DEV) {
+              console.debug(`[shortcut-debug] ${event}`, payload)
+            }
+          },
+        },
         handleLongPress,
       )
       applyShortcutGuard(next.state)

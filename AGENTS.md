@@ -39,6 +39,11 @@
 - 录音状态源由 `recorder.ts` 管理；悬浮胶囊只消费 `voice-state`，不要在悬浮胶囊里重新实现录音状态机。
 - 悬浮胶囊录音波形只在 `electron-app/renderer/public/floating-bar.html` 展示，音量来自 `recorder.ts` 基于同一份 `MediaStream` 计算出的 `inputLevel`。
 - 自由提问录音时悬浮胶囊显示 `请随意提出问题`；最终结果不自动粘贴、不进入首页最近结果，而是通过 `floating-panel` IPC 进入独立悬浮面板展示。
+- 自由提问 `ask_anything` 当前先按“无工具安全版”设计：有 `selected_text` 时优先围绕选区执行翻译、解释、题目解答、总结、改写等任务；没有工具结果时不得编造天气、新闻、价格、政策等实时信息。
+- 选区感知链路只影响 `Ask` 和 `Translate`：`Dictate` 不读取选区；`Ask` 有选区时把选区作为 `parameters.selected_text` 上下文；`Translate` 有选区时直接文本翻译并替换选区，无选区时保留语音翻译。
+- `focused-context:get-selected-text` 的 Windows MVP 通过剪贴板临时复制实现，必须尽量恢复原剪贴板，并在失败时降级为空选区。
+- 自由提问未来如需回答实时问题，必须在后端增加意图分类和工具路由；不要只靠 prompt 假装具备联网、天气或网页检索能力。
+- 翻译录音启动时，renderer 必须从本地设置读取 `translationTargetLanguage`，并通过 WebSocket `start_audio.parameters.output_language` 传给后端；当前 MVP 固定值为 `en`。
 - 长按 `Right Alt` 的快捷键提示也通过 `floating-panel` IPC 和独立悬浮面板展示；提示优先级低于录音、转写、完成、取消和错误状态。
 - 悬浮胶囊和悬浮面板不要依赖本机固定坐标，应基于当前显示器 `workArea` 计算并限制在屏幕内。
 - WebSocket 语音流默认输入来自 `audio/webm;codecs=opus`；后端不能把未知音频头直接当 `.wav`，非 wav 输入必须先通过 `ffmpeg` 转码再喂 ASR。
@@ -52,7 +57,7 @@
 - 用户可见品牌为 `SpeakMore`。
 - 主窗口页面为：首页、历史记录、设置、诊断。
 - 首页“最近结果”只展示非自由提问的最近一次最终转录/最终结果文字；实时状态只在悬浮胶囊展示。
-- 设置页目前包含固定快捷键展示、麦克风选择、语言展示、DeepSeek API Key 输入框、开机启动和版本信息。
+- 设置页目前包含固定快捷键展示、麦克风选择、界面语言、翻译目标语言、DeepSeek API Key 输入框、开机启动和版本信息；翻译目标语言 MVP 只支持英文 `en`。
 - 诊断页应检查后端 `/health`、`/ready`、麦克风、系统信息和 IPC 自动粘贴能力。
 - 不要用历史阶段标签扩大范围做整套页面重构、账户体系、云同步、自动更新或复杂快捷键编辑器；需要做这些功能时先单独设计。
 
@@ -61,14 +66,16 @@
 - DeepSeek 配置由后端 `server/.env` 读取；不要把真实密钥写入仓库。
 - `server/.env.example` 是环境变量模板，真实 `server/.env` 不提交。
 - 历史记录和设置统一走 Electron 主进程 JSON 数据源，renderer 不应把这类业务数据写入 `localStorage`。
+- 本地设置包含 `translationTargetLanguage`，当前只允许 `en`，由主进程和 renderer 双侧归一化。
 - 听写历史保存由 `AppShell` 这类全局常驻层订阅语音会话完成事件，不要放在首页、历史页等可切换页面组件里。
 - 首页累计统计来自独立 `history-stats.json`，不得从最近 200 条 `history.json` 反推；历史列表裁剪不能影响累计听写时长、累计字数、平均速度和节省时间。
 
 ## 已知限制
 
 - 设置页的 `DeepSeek API Key` 输入框当前没有写回 `server/.env`，真实运行仍以后端环境变量为准。
-- 当前主进程的 `focused-context` 仍是本地 stub，选区识别与基于选区的替换流程尚未完整闭环。
-- 翻译模式未提供完整目标语言 UI；没有传入 `output_language` 时，后端默认翻译到英文。
+- 当前选区读取 MVP 依赖剪贴板和目标应用的 `Ctrl+C` 行为；不支持复制的应用会降级为空选区，后续可用 Windows UI Automation 增强。
+- 当前 `ask_anything` 只调用 DeepSeek 文本模型，没有联网搜索、天气查询或工具调用链路；实时信息问题必须明确能力边界。
+- 翻译模式当前支持选区文本翻译到英文并替换选区；尚未开放英文以外的目标语言。
 - 首页“最近结果”的真实 UI 以 `electron-app/renderer/src/pages/Dashboard.tsx` 为准，修改前先读当前实现和测试，不要只依赖历史上下文。
 
 ## 验证命令

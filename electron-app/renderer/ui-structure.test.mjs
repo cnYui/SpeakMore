@@ -637,15 +637,22 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   assert.match(settingsStore, /loadSettings/);
   assert.match(settingsStore, /saveSettings/);
   assert.match(settingsStore, /getSelectedAudioDeviceId/);
+  assert.match(settingsStore, /getTranslationTargetLanguage/);
   assert.match(settingsStore, /settings:get/);
   assert.match(settingsStore, /settings:update/);
   assert.doesNotMatch(settingsStore, /localStorage/);
   assert.doesNotMatch(settingsStore, /deepseekApiKey/);
+  assert.match(main, /DEFAULT_TRANSLATION_TARGET_LANGUAGE\s*=\s*['"]en['"]/);
+  assert.match(main, /translationTargetLanguage:\s*DEFAULT_TRANSLATION_TARGET_LANGUAGE/);
   assert.match(settingsPage, /permission:update-auto-launch/);
   assert.match(settingsPage, /navigator\.mediaDevices\.enumerateDevices/);
   assert.match(settingsPage, /selectedAudioDeviceId/);
   assert.match(settingsPage, /preferredLanguage/);
+  assert.match(settingsPage, /translationTargetLanguage/);
   assert.match(settingsPage, /MenuItem value="zh-CN"/);
+  assert.match(settingsPage, /MenuItem value="en"/);
+  assert.match(settingsPage, /翻译目标语言/);
+  assert.match(settingsPage, /英文 \(en\)/);
   assert.doesNotMatch(settingsPage, /显示悬浮条/);
   assert.doesNotMatch(settingsPage, /enableSoundEffects/);
   assert.doesNotMatch(settingsPage, /声音效果/);
@@ -669,6 +676,7 @@ test('P1 设置页不再暴露悬浮条开关，语言固定为简体中文', as
   assert.doesNotMatch(settingsPage, /显示悬浮条/);
   assert.match(settingsPage, /Select/);
   assert.match(settingsPage, /简体中文 \(zh-CN\)/);
+  assert.match(settingsPage, /英文 \(en\)/);
   assert.doesNotMatch(appShell, /page:set-floating-bar-enabled/);
   assert.doesNotMatch(appShell, /loadSettings/);
 });
@@ -730,7 +738,9 @@ test('P1 录音链路使用设置页选择的真实麦克风设备', async () =>
   const recorder = await readProjectFile('src/services/recorder.ts');
 
   assert.match(recorder, /getSelectedAudioDeviceId/);
+  assert.match(recorder, /getTranslationTargetLanguage/);
   assert.match(recorder, /selectedAudioDeviceId/);
+  assert.match(recorder, /output_language/);
   assert.match(recorder, /deviceId:\s*\{\s*exact:\s*selectedAudioDeviceId\s*\}/);
   assert.match(recorder, /recordingStartedAt/);
   assert.match(recorder, /durationMs/);

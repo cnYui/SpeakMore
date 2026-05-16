@@ -2,6 +2,7 @@ export const VOICE_SERVER_HTTP_BASE_URL = 'http://127.0.0.1:8000'
 export const VOICE_SERVER_HEALTH_URL = `${VOICE_SERVER_HTTP_BASE_URL}/health`
 export const VOICE_SERVER_READY_URL = `${VOICE_SERVER_HTTP_BASE_URL}/ready`
 export const VOICE_SERVER_VOICE_FLOW_URL = `${VOICE_SERVER_HTTP_BASE_URL}/ai/voice_flow`
+export const VOICE_SERVER_TEXT_FLOW_URL = `${VOICE_SERVER_HTTP_BASE_URL}/ai/text_flow`
 
 const REVERSE_COMPAT_WS_VERSION = 'win_local'
 const REVERSE_COMPAT_WS_TOKEN = 'local-dev-token'

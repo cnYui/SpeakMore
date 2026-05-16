@@ -13,6 +13,7 @@ export type ShortcutGuardAction =
 
 export type ShortcutGuardContext = {
   voiceStatus?: string
+  debugLog?: (event: string, payload: Record<string, unknown>) => void
 }
 
 export type ShortcutGuardState = {
@@ -65,46 +66,44 @@ export function reduceShortcutGuard(
   onLongPress: () => void,
 ): { state: ShortcutGuardState; action: ShortcutGuardAction } {
   const keys = Array.isArray(rawKeys) ? rawKeys as KeyboardLike[] : []
+  const debugLog = typeof context.debugLog === 'function' ? context.debugLog : null
+  const finish = (nextState: ShortcutGuardState, action: ShortcutGuardAction) => {
+    debugLog?.('shortcut-guard:reduce', {
+      keys,
+      voiceStatus: context.voiceStatus,
+      activeMode: nextState.activeMode,
+      action,
+    })
+    return { state: nextState, action }
+  }
   const rightAltDown = keys.some((key) => key.keyName === 'RightAlt' && key.isKeydown)
 
   if (!rightAltDown) {
     if (state.isRightAltDown && !state.isBlocked && state.activeMode) {
-      return {
-        state: resetPressCycle(state),
-        action: { type: 'toggle-recording', mode: state.activeMode },
-      }
+      return finish(resetPressCycle(state), { type: 'toggle-recording', mode: state.activeMode })
     }
 
-    return {
-      state: resetPressCycle(state),
-      action: { type: 'none' },
-    }
+    return finish(resetPressCycle(state), { type: 'none' })
   }
 
   const nextMode = resolveMode(keys)
 
   if (!state.isRightAltDown) {
     const timer = canUseLongPressGuard(context) ? window.setTimeout(onLongPress, LONG_PRESS_MS) : null
-    return {
-      state: {
-        ...state,
-        isRightAltDown: true,
-        isBlocked: false,
-        modalVisible: false,
-        activeMode: nextMode,
-        longPressTimer: timer,
-      },
-      action: { type: 'none' },
-    }
+    return finish({
+      ...state,
+      isRightAltDown: true,
+      isBlocked: false,
+      modalVisible: false,
+      activeMode: nextMode,
+      longPressTimer: timer,
+    }, { type: 'none' })
   }
 
-  return {
-    state: {
-      ...state,
-      activeMode: nextMode,
-    },
-    action: { type: 'none' },
-  }
+  return finish({
+    ...state,
+    activeMode: nextMode,
+  }, { type: 'none' })
 }
 
 export function blockByLongPress(state: ShortcutGuardState): ShortcutGuardState {

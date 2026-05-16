@@ -190,6 +190,25 @@ class WsProtocolContractTest(unittest.TestCase):
         self.assertEqual(websocket.sent_messages[-1]["K"], "audio_processing_error")
         self.assertEqual(websocket.sent_messages[-1]["V"]["detail"], "boom")
 
+    def test_start_audio_with_selected_text_echoes_process_mode_parameters(self):
+        websocket = FakeWebSocket([
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({
+                    "type": "start_audio",
+                    "audio_id": "audio-1",
+                    "mode": "ask_anything",
+                    "audio_context": {},
+                    "parameters": {"selected_text": "被选中的代码"},
+                }),
+            },
+        ])
+
+        asyncio.run(ws_voice_flow(websocket))
+
+        process_mode = next(message for message in websocket.sent_messages if message["K"] == "process_mode")
+        self.assertEqual(process_mode["V"]["parameters"], {"selected_text": "被选中的代码"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -94,6 +94,46 @@ class VoiceFlowContractTest(unittest.TestCase):
         self.assertEqual(payload["detail"], "boom")
         self.assertEqual(payload["code"], "voice_flow_failed")
 
+    def test_text_flow_translation_uses_text_and_output_language(self):
+        app = self.create_ready_app()
+
+        with patch("main.refine_text", return_value="hello translated") as refine_text, TestClient(app) as client:
+            self.wait_until_ready(client)
+            response = client.post(
+                "/ai/text_flow",
+                json={
+                    "mode": "translation",
+                    "text": "你好",
+                    "parameters": {"output_language": "en"},
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["refine_text"], "hello translated")
+        refine_text.assert_called_once_with(
+            raw_text="你好",
+            mode="translation",
+            context={},
+            parameters={"output_language": "en"},
+        )
+
+    def test_text_flow_requires_ready_backend(self):
+        release = threading.Event()
+
+        def slow_preload():
+            release.wait(1)
+
+        app = main.create_app(preload_model=slow_preload, exit_scheduler=lambda _code: None)
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/ai/text_flow",
+                json={"mode": "translation", "text": "你好", "parameters": {"output_language": "en"}},
+            )
+
+        release.set()
+        self.assertEqual(response.status_code, 503)
+
 
 if __name__ == "__main__":
     unittest.main()

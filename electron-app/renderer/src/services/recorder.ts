@@ -1,6 +1,8 @@
 import { ipcClient } from './ipc'
 import { hideFloatingPanel, showFreeAskResult } from './floatingPanel'
-import { getSelectedAudioDeviceId } from './settingsStore'
+import { getFocusedSelectedText } from './focusedContext'
+import { getSelectedAudioDeviceId, getTranslationTargetLanguage } from './settingsStore'
+import { requestTextFlow } from './textFlow'
 import { VOICE_SERVER_WS_URL } from './voiceServer'
 import {
   createVoiceError,
@@ -77,6 +79,18 @@ export async function startRecording(mode: VoiceMode) {
   try {
     await ensureVoiceServerReady()
     if (!isSessionActive(audioId)) return
+    if (mode === 'Translate') {
+      const selectedText = await getFocusedSelectedText()
+      if (!isSessionActive(audioId)) return
+      if (selectedText) {
+        await translateSelectedText(audioId, selectedText)
+        return
+      }
+    }
+    const selectedText = mode === 'Ask' ? await getFocusedSelectedText() : ''
+    if (!isSessionActive(audioId)) return
+    const parameters = await getStartAudioParameters(mode, selectedText)
+    if (!isSessionActive(audioId)) return
     const socket = await ensureOpenWebSocket()
     if (!isSessionActive(audioId)) {
       closeWebSocketSilently()
@@ -109,7 +123,7 @@ export async function startRecording(mode: VoiceMode) {
       audio_id: audioId,
       mode: toVoiceFlowMode(mode),
       audio_context: {},
-      parameters: {},
+      parameters,
     }))
 
     mediaRecorder.start(500)
@@ -120,6 +134,43 @@ export async function startRecording(mode: VoiceMode) {
     if (!isSessionActive(audioId) || ignoredAudioIds.has(audioId)) return
     cleanupRecording()
     failSession(normalizeVoiceError(error, 'recording_start_failed'))
+  }
+}
+
+async function translateSelectedText(audioId: string, selectedText: string) {
+  recordingStartedAt = Date.now()
+  setSession({
+    ...session,
+    status: 'transcribing',
+    rawText: selectedText,
+    textLength: countTextLength(selectedText),
+  })
+
+  try {
+    const outputLanguage = await getTranslationTargetLanguage()
+    if (!isSessionActive(audioId)) return
+    const translatedText = await requestTextFlow({
+      mode: 'translation',
+      text: selectedText,
+      parameters: { output_language: outputLanguage },
+    })
+    if (!isSessionActive(audioId)) return
+    await completeSession(translatedText)
+  } catch (error) {
+    if (!isSessionActive(audioId)) return
+    failSession(normalizeVoiceError(error, 'refine_failed'))
+  }
+}
+
+async function getStartAudioParameters(mode: VoiceMode, selectedText = ''): Promise<Record<string, string>> {
+  if (mode === 'Ask') {
+    return selectedText ? { selected_text: selectedText } : {}
+  }
+
+  if (mode !== 'Translate') return {}
+
+  return {
+    output_language: await getTranslationTargetLanguage(),
   }
 }
 

@@ -90,3 +90,31 @@ test('dispose 会清理挂起的恢复定时器', () => {
 
   assert.equal(restoreTimer.cleared, true);
 });
+
+test('RightAlt 按下后再按 RightShift，应发出翻译模式需要的当前键态', () => {
+  const { relay, emissions } = createHarness();
+
+  relay.handlePayload({ key: 'RightAlt', isKeydown: true });
+  relay.handlePayload({ key: 'RightShift', isKeydown: true });
+
+  assert.deepEqual(emissions[1], [
+    { keyName: 'RightAlt', isKeydown: true },
+    { keyName: 'RightShift', isKeydown: true },
+  ]);
+});
+
+test('开启 debug logger 时 relay 会记录每次发出的键态', () => {
+  const debugEvents = [];
+  const relay = createRightAltRelay({
+    emitKeyboardState() {},
+    setTimer: () => 1,
+    clearTimer: () => {},
+    now: () => 123,
+    debugLog: (event, payload) => debugEvents.push({ event, payload }),
+  });
+
+  relay.handlePayload({ key: 'RightAlt', isKeydown: true });
+
+  assert.equal(debugEvents[0].event, 'right-alt-relay:emit');
+  assert.deepEqual(debugEvents[0].payload.keys, [{ keyName: 'RightAlt', isKeydown: true }]);
+});
