@@ -49,10 +49,15 @@ export default function AppShell() {
 
   useEffect(() => {
     return ipcClient.on('global-keyboard', (_event, keys) => {
-      const next = reduceShortcutGuard(shortcutGuardRef.current, keys, handleLongPress)
+      const next = reduceShortcutGuard(
+        shortcutGuardRef.current,
+        keys,
+        { voiceStatus: getVoiceSession().status },
+        handleLongPress,
+      )
       applyShortcutGuard(next.state)
 
-      if (next.action.type === 'start-recording') {
+      if (next.action.type === 'toggle-recording') {
         void toggleRecording(next.action.mode)
       }
     })

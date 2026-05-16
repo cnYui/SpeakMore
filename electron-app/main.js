@@ -17,6 +17,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { createRightAltRelay } = require('./right-alt-relay');
+const { resolveBottomCenterBounds } = require('./floating-window-layout');
+const {
+  isErrorVoiceState,
+  isTerminalVoiceState,
+  shouldShowShortcutHint,
+} = require('./floating-window-state');
 const {
   MAX_HISTORY_ITEMS,
   normalizeHistoryItem,
@@ -42,6 +48,7 @@ let quitAfterBackgroundAudioRestore = false;
 let appIsQuitting = false;
 let pendingInteractiveCardPayload = null;
 let shortcutHintVisible = false;
+let lastVoiceState = null;
 
 const DEFAULT_LANGUAGE = 'zh-CN';
 const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
@@ -49,6 +56,9 @@ const VOICE_SERVER_HEALTH_URL = `${VOICE_SERVER_URL}/health`;
 const VOICE_SERVER_READY_URL = `${VOICE_SERVER_URL}/ready`;
 const VOICE_SERVER_VOICE_FLOW_URL = `${VOICE_SERVER_URL}/ai/voice_flow`;
 const FLOATING_BAR_COMPLETED_HIDE_DELAY_MS = 1000;
+const FLOATING_BAR_SIZE = { width: 400, height: 360 };
+const SHORTCUT_HINT_SIZE = { width: 440, height: 220 };
+const FLOATING_WINDOW_BOTTOM_GAP = 32;
 const AUDIO_SESSION_CONTROL_TIMEOUT_MS = 5000;
 const LOCAL_DATA_DIR_NAME = 'local-data';
 const SETTINGS_FILE_NAME = 'settings.json';
@@ -291,6 +301,7 @@ function clearFloatingBarCompletedHideTimer() {
 function showFloatingBar() {
   if (!floatingBar || floatingBar.isDestroyed()) return;
   clearFloatingBarCompletedHideTimer();
+  positionFloatingBar();
   floatingBar.setIgnoreMouseEvents(false);
   floatingBar.show();
 }
@@ -306,6 +317,7 @@ function showShortcutHint() {
   createShortcutHintWindow();
   if (!shortcutHintWindow || shortcutHintWindow.isDestroyed()) return;
   shortcutHintVisible = true;
+  positionShortcutHint();
   shortcutHintWindow.setIgnoreMouseEvents(false);
   shortcutHintWindow.show();
 }
@@ -320,14 +332,58 @@ function hideShortcutHint() {
 function scheduleFloatingBarCompletedHide() {
   clearFloatingBarCompletedHideTimer();
   floatingBarCompletedHideTimer = setTimeout(() => {
+    lastVoiceState = null;
     hideFloatingBar();
   }, FLOATING_BAR_COMPLETED_HIDE_DELAY_MS);
+}
+
+function renderFloatingBarForVoiceState(payload = {}) {
+  if (isTerminalVoiceState(payload)) {
+    showFloatingBar();
+    scheduleFloatingBarCompletedHide();
+    return;
+  }
+
+  if (payload.visible || isErrorVoiceState(payload)) {
+    clearFloatingBarCompletedHideTimer();
+    showFloatingBar();
+    return;
+  }
+
+  lastVoiceState = null;
+  hideFloatingBar();
 }
 
 function updateFloatingBarVisibility(keys) {
   if (shortcutHintVisible) return;
   const hasActiveKey = Array.isArray(keys) && keys.some((key) => key?.isKeydown);
   if (hasActiveKey) showFloatingBar();
+}
+
+function getCurrentFloatingWorkArea() {
+  try {
+    return screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  } catch {
+    return screen.getPrimaryDisplay().workArea;
+  }
+}
+
+function resolveFloatingBarBounds() {
+  return resolveBottomCenterBounds(getCurrentFloatingWorkArea(), FLOATING_BAR_SIZE, FLOATING_WINDOW_BOTTOM_GAP);
+}
+
+function resolveShortcutHintBounds() {
+  return resolveBottomCenterBounds(getCurrentFloatingWorkArea(), SHORTCUT_HINT_SIZE, FLOATING_WINDOW_BOTTOM_GAP);
+}
+
+function positionFloatingBar() {
+  if (!floatingBar || floatingBar.isDestroyed()) return;
+  floatingBar.setBounds(resolveFloatingBarBounds(), false);
+}
+
+function positionShortcutHint() {
+  if (!shortcutHintWindow || shortcutHintWindow.isDestroyed()) return;
+  shortcutHintWindow.setBounds(resolveShortcutHintBounds(), false);
 }
 
 function createRightAltKeyDownEvent() {
@@ -382,7 +438,6 @@ function keyboardEventFromListenerPayload(payload) {
 
 function emitKeyboardState(keys) {
   updateFloatingBarVisibility(keys);
-  sendToFloatingBar('global-keyboard', keys);
   sendToMain('global-keyboard', keys);
 }
 
@@ -883,22 +938,11 @@ function createMainWindow() {
 function createFloatingBar() {
   if (floatingBar && !floatingBar.isDestroyed()) return;
 
-  const display = screen.getPrimaryDisplay();
-  const { x, y, width, height } = display.workArea;
-  const windowWidth = 400;
-  const windowHeight = 360;
-  const defaultFloatingBarX = 660;
-  const defaultFloatingBarY = 739;
-  const capsuleHeight = 44.6;
-  const capsuleBottomGap = 32;
-  const windowTopToCapsuleBottom = (windowHeight + capsuleHeight) / 2;
+  const bounds = resolveFloatingBarBounds();
 
   floatingBar = new BrowserWindow({
     type: 'panel',
-    width: windowWidth,
-    height: windowHeight,
-    x: defaultFloatingBarX,
-    y: defaultFloatingBarY,
+    ...bounds,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -932,17 +976,11 @@ function createFloatingBar() {
 function createShortcutHintWindow() {
   if (shortcutHintWindow && !shortcutHintWindow.isDestroyed()) return;
 
-  const windowWidth = 405;
-  const windowHeight = 160;
-  const defaultShortcutHintWindowX = 680;
-  const defaultShortcutHintWindowY = 766;
+  const bounds = resolveShortcutHintBounds();
 
   shortcutHintWindow = new BrowserWindow({
     type: 'panel',
-    width: windowWidth,
-    height: windowHeight,
-    x: defaultShortcutHintWindowX,
-    y: defaultShortcutHintWindowY,
+    ...bounds,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -1187,6 +1225,12 @@ function registerIpcHandlers() {
   ipcMain.handle('page:floating-bar-click', () => true);
   ipcMain.on('shortcut-hint', (_, payload = {}) => {
     if (payload.visible) {
+      if (!shouldShowShortcutHint(lastVoiceState)) {
+        hideShortcutHint();
+        renderFloatingBarForVoiceState(lastVoiceState || {});
+        return;
+      }
+
       hideFloatingBar();
       showShortcutHint();
       sendToShortcutHint('shortcut-hint', payload);
@@ -1196,22 +1240,10 @@ function registerIpcHandlers() {
     hideShortcutHint();
   });
   ipcMain.on('voice-state', (_, payload = {}) => {
+    lastVoiceState = payload;
     sendToFloatingBar('voice-state', payload);
-    if (shortcutHintVisible) {
-      hideFloatingBar();
-      return;
-    }
-    if (payload.status === 'completed' || payload.status === 'cancelled') {
-      showFloatingBar();
-      scheduleFloatingBarCompletedHide();
-      return;
-    }
-    if (payload.visible) {
-      clearFloatingBarCompletedHideTimer();
-      showFloatingBar();
-      return;
-    }
-    hideFloatingBar();
+    if (shortcutHintVisible) hideShortcutHint();
+    renderFloatingBarForVoiceState(payload);
   });
   ipcMain.handle('page:floating-bar-update-positions', (_, payload = []) => {
     if (floatingBar && !floatingBar.isDestroyed()) {

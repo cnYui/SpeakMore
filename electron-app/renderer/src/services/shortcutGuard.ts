@@ -9,7 +9,11 @@ type KeyboardLike = {
 
 export type ShortcutGuardAction =
   | { type: 'none' }
-  | { type: 'start-recording'; mode: VoiceMode }
+  | { type: 'toggle-recording'; mode: VoiceMode }
+
+export type ShortcutGuardContext = {
+  voiceStatus?: string
+}
 
 export type ShortcutGuardState = {
   isRightAltDown: boolean
@@ -50,9 +54,14 @@ function resolveMode(keys: KeyboardLike[]): VoiceMode {
   return 'Dictate'
 }
 
+function canUseLongPressGuard(context: ShortcutGuardContext) {
+  return context.voiceStatus !== 'recording'
+}
+
 export function reduceShortcutGuard(
   state: ShortcutGuardState,
   rawKeys: unknown,
+  context: ShortcutGuardContext,
   onLongPress: () => void,
 ): { state: ShortcutGuardState; action: ShortcutGuardAction } {
   const keys = Array.isArray(rawKeys) ? rawKeys as KeyboardLike[] : []
@@ -62,7 +71,7 @@ export function reduceShortcutGuard(
     if (state.isRightAltDown && !state.isBlocked && state.activeMode) {
       return {
         state: resetPressCycle(state),
-        action: { type: 'start-recording', mode: state.activeMode },
+        action: { type: 'toggle-recording', mode: state.activeMode },
       }
     }
 
@@ -75,7 +84,7 @@ export function reduceShortcutGuard(
   const nextMode = resolveMode(keys)
 
   if (!state.isRightAltDown) {
-    const timer = window.setTimeout(onLongPress, LONG_PRESS_MS)
+    const timer = canUseLongPressGuard(context) ? window.setTimeout(onLongPress, LONG_PRESS_MS) : null
     return {
       state: {
         ...state,
@@ -108,13 +117,6 @@ export function blockByLongPress(state: ShortcutGuardState): ShortcutGuardState 
     isBlocked: true,
     modalVisible: true,
     longPressTimer: null,
-  }
-}
-
-export function closeShortcutHint(state: ShortcutGuardState): ShortcutGuardState {
-  return {
-    ...state,
-    modalVisible: false,
   }
 }
 

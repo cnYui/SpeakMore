@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+const require = createRequire(import.meta.url);
 const readProjectFile = (relativePath) =>
   readFile(new URL(relativePath, import.meta.url), 'utf8');
 
@@ -30,14 +32,11 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
 
   assert.match(main, /renderer[\s\S]*dist[\s\S]*floating-bar\.html/);
   assert.doesNotMatch(main, /loadExtractedPage\(floatingBar,\s*['"]floating-bar\.html['"]\)/);
-  assert.match(main, /windowWidth\s*=\s*400/);
-  assert.match(main, /windowHeight\s*=\s*360/);
-  assert.match(main, /defaultFloatingBarX\s*=\s*660/);
-  assert.match(main, /defaultFloatingBarY\s*=\s*739/);
-  assert.match(main, /capsuleHeight\s*=\s*44\.6/);
-  assert.match(main, /capsuleBottomGap\s*=\s*32/);
-  assert.match(main, /width:\s*windowWidth/);
-  assert.match(main, /height:\s*windowHeight/);
+  assert.match(main, /const\s+FLOATING_BAR_SIZE\s*=\s*\{\s*width:\s*400,\s*height:\s*360\s*\}/);
+  assert.match(main, /const\s+FLOATING_WINDOW_BOTTOM_GAP\s*=\s*32/);
+  assert.match(main, /resolveFloatingBarBounds/);
+  assert.doesNotMatch(main, /defaultFloatingBarX\s*=\s*660/);
+  assert.doesNotMatch(main, /defaultFloatingBarY\s*=\s*739/);
   assert.match(main, /payload\?\.positions/);
   assert.match(floatingBar, /gap:\s*9\.3px/);
   assert.match(floatingBar, /height:\s*44\.6px/);
@@ -65,22 +64,54 @@ test('P0 长按提示卡片使用独立窗口并支持 Escape 关闭', async () 
   assert.match(main, /function\s+showShortcutHint\(/);
   assert.match(main, /function\s+hideShortcutHint\(/);
   assert.match(main, /renderer[\s\S]*dist[\s\S]*shortcut-hint\.html/);
-  assert.match(main, /defaultShortcutHintWindowX\s*=\s*680/);
-  assert.match(main, /defaultShortcutHintWindowY\s*=\s*766/);
+  assert.match(main, /SHORTCUT_HINT_SIZE\s*=\s*\{\s*width:\s*440,\s*height:\s*220\s*\}/);
+  assert.match(main, /resolveShortcutHintBounds/);
+  assert.doesNotMatch(main, /defaultShortcutHintWindowX\s*=\s*680/);
+  assert.doesNotMatch(main, /defaultShortcutHintWindowY\s*=\s*766/);
   assert.match(main, /if\s*\(shortcutHintVisible\s*&&\s*payload\.isKeydown\)[\s\S]*hideShortcutHint\(\)[\s\S]*return/);
   assert.match(main, /function\s+updateFloatingBarVisibility\(keys\)[\s\S]*if\s*\(shortcutHintVisible\)\s*return/);
-  assert.match(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*if\s*\(shortcutHintVisible\)\s*\{[\s\S]*hideFloatingBar\(\)[\s\S]*return[\s\S]*\}/);
+  assert.match(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*if\s*\(shortcutHintVisible\)\s*hideShortcutHint\(\)/);
+  assert.match(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*renderFloatingBarForVoiceState\(payload\)/);
+  assert.doesNotMatch(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*if\s*\(shortcutHintVisible\)\s*\{[\s\S]*hideFloatingBar\(\)[\s\S]*return[\s\S]*\}/);
   assert.match(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*if\s*\(payload\.visible\)[\s\S]*hideFloatingBar\(\)[\s\S]*showShortcutHint\(\)/);
   assert.match(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*sendToShortcutHint\(['"]shortcut-hint['"]/);
   assert.doesNotMatch(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*sendToFloatingBar\(['"]shortcut-hint['"]/);
   assert.match(shortcutHint, /检测到长按快捷键/);
   assert.match(shortcutHint, /window\.ipcRenderer\.send\(['"]shortcut-hint['"],\s*\{\s*visible:\s*false\s*\}\)/);
-  assert.match(shortcutHint, /keydown[\s\S]*event\.key\s*===\s*['"]Escape['"][\s\S]*closeShortcutHint\(\)/);
+  assert.match(shortcutHint, /row-gap:\s*8px/);
+  assert.match(shortcutHint, /min-height:\s*100%/);
+  assert.doesNotMatch(shortcutHint, /document\.addEventListener\(['"]keydown['"]/);
+  assert.doesNotMatch(shortcutHint, /event\.key\s*===\s*['"]Escape['"]/);
   assert.doesNotMatch(shortcutHint, /-webkit-app-region:\s*drag/);
   assert.doesNotMatch(shortcutHint, /-webkit-app-region:\s*no-drag/);
 });
 
-test('P0 悬浮窗口位置固定且不再记录拖动坐标', async () => {
+test('P0 长按提示低于语音状态优先级', async () => {
+  const main = await readProjectFile('../main.js');
+  const {
+    isActiveVoiceState,
+    isTerminalVoiceState,
+    shouldShowShortcutHint,
+  } = require('../floating-window-state.js');
+
+  assert.equal(isActiveVoiceState({ status: 'recording' }), true);
+  assert.equal(isActiveVoiceState({ status: 'transcribing' }), true);
+  assert.equal(isTerminalVoiceState({ status: 'completed' }), true);
+  assert.equal(isTerminalVoiceState({ status: 'cancelled' }), true);
+  assert.equal(shouldShowShortcutHint(null), true);
+  assert.equal(shouldShowShortcutHint({ status: 'recording', visible: true }), false);
+  assert.equal(shouldShowShortcutHint({ status: 'completed', visible: true }), false);
+  assert.equal(shouldShowShortcutHint({ status: 'error', visible: true }), false);
+  assert.equal(shouldShowShortcutHint({ status: 'idle', visible: false }), true);
+
+  assert.match(main, /let\s+lastVoiceState\s*=\s*null/);
+  assert.match(main, /function\s+renderFloatingBarForVoiceState\(/);
+  assert.match(main, /shouldShowShortcutHint\(lastVoiceState\)/);
+  assert.match(main, /if\s*\(shortcutHintVisible\)\s*hideShortcutHint\(\)/);
+  assert.doesNotMatch(main, /if\s*\(shortcutHintVisible\)\s*\{[\s\S]*hideFloatingBar\(\)[\s\S]*return[\s\S]*\}/);
+});
+
+test('P0 悬浮窗口不再记录拖动坐标', async () => {
   const main = await readProjectFile('../main.js');
 
   assert.doesNotMatch(main, /FLOATING_BAR_POSITION_FILE_NAME/);
@@ -89,6 +120,35 @@ test('P0 悬浮窗口位置固定且不再记录拖动坐标', async () => {
   assert.doesNotMatch(main, /writeShortcutHintPositionSnapshot/);
   assert.doesNotMatch(main, /\.on\(['"]move['"]/);
   assert.doesNotMatch(main, /\.on\(['"]moved['"]/);
+});
+
+test('P1 悬浮窗口基于 workArea 动态定位并限制在屏幕内', async () => {
+  const main = await readProjectFile('../main.js');
+  const {
+    clampBoundsToWorkArea,
+    resolveBottomCenterBounds,
+  } = require('../floating-window-layout.js');
+
+  assert.deepEqual(
+    resolveBottomCenterBounds({ x: 0, y: 0, width: 1920, height: 1080 }, { width: 400, height: 360 }, 32),
+    { x: 760, y: 688, width: 400, height: 360 },
+  );
+  assert.deepEqual(
+    resolveBottomCenterBounds({ x: -1920, y: 0, width: 1920, height: 1040 }, { width: 440, height: 220 }, 32),
+    { x: -1180, y: 788, width: 440, height: 220 },
+  );
+  assert.deepEqual(
+    clampBoundsToWorkArea({ x: 900, y: 700, width: 400, height: 360 }, { x: 0, y: 0, width: 1000, height: 800 }),
+    { x: 600, y: 440, width: 400, height: 360 },
+  );
+
+  assert.match(main, /resolveBottomCenterBounds/);
+  assert.match(main, /getDisplayNearestPoint/);
+  assert.match(main, /getCursorScreenPoint/);
+  assert.doesNotMatch(main, /defaultFloatingBarX/);
+  assert.doesNotMatch(main, /defaultFloatingBarY/);
+  assert.doesNotMatch(main, /defaultShortcutHintWindowX/);
+  assert.doesNotMatch(main, /defaultShortcutHintWindowY/);
 });
 
 test('Electron 悬浮条默认隐藏且不会在松开快捷键后提前消失', async () => {
@@ -206,7 +266,18 @@ test('Right Alt 通过 Windows 低级键盘监听器转发真实 bundle 需要�
   assert.match(main, /keyCode:\s*32/);
   assert.match(main, /isKeydown:\s*true/);
   assert.match(main, /isKeydown:\s*false/);
-  assert.match(main, /sendToFloatingBar\(['"]global-keyboard['"]/);
+  assert.match(main, /sendToMain\(['"]global-keyboard['"],\s*keys\)/);
+  assert.doesNotMatch(main, /sendToFloatingBar\(['"]global-keyboard['"]/);
+});
+
+test('P1 悬浮条不再接收无效 global-keyboard，快捷键守卫无未使用关闭 API', async () => {
+  const main = await readProjectFile('../main.js');
+  const guard = await readProjectFile('src/services/shortcutGuard.ts');
+
+  assert.match(main, /sendToMain\(['"]global-keyboard['"],\s*keys\)/);
+  assert.doesNotMatch(main, /sendToFloatingBar\(['"]global-keyboard['"]/);
+  assert.doesNotMatch(guard, /function\s+closeShortcutHint/);
+  assert.doesNotMatch(guard, /export\s+function\s+closeShortcutHint/);
 });
 
 test('全局 Escape 通过 Windows 低级键盘监听器转发取消事件', async () => {
@@ -330,7 +401,7 @@ test('前端按键事件按真实快捷键模式启动和停止语音流', async
   assert.match(guard, /keyName\s*===\s*['"]RightAlt['"]/);
   assert.match(guard, /keyName\s*===\s*['"]Space['"]/);
   assert.match(guard, /keyName\s*===\s*['"]RightShift['"]/);
-  assert.match(guard, /start-recording/);
+  assert.match(guard, /toggle-recording/);
   assert.match(voiceTypes, /toVoiceFlowMode/);
   assert.match(voiceTypes, /ask_anything/);
   assert.match(voiceTypes, /translation/);
@@ -396,10 +467,12 @@ test('AppShell 接管全局快捷键，允许 Escape 取消未完成会话，并
   assert.match(appShell, /ipcClient\.on\(['"]voice-cancel-requested['"]/);
   assert.match(appShell, /cancelRecording/);
   assert.match(appShell, /getVoiceSession/);
+  assert.match(appShell, /getVoiceSession\(\)\.status/);
   assert.match(appShell, /ipcClient\.send\(['"]shortcut-hint['"]/);
   assert.doesNotMatch(appShell, /检测到长按快捷键/);
   assert.doesNotMatch(appShell, /handleCloseShortcutHint/);
   assert.match(guard, /LONG_PRESS_MS\s*=\s*500/);
+  assert.match(guard, /voiceStatus/);
   assert.match(guard, /isBlocked/);
   assert.match(guard, /modalVisible/);
 });
@@ -409,7 +482,8 @@ test('P0 快捷键守卫在释放边沿单次触发录音，并在长按时阻�
 
   assert.match(guard, /if\s*\(!rightAltDown\)/);
   assert.match(guard, /state\.isRightAltDown\s*&&\s*!state\.isBlocked\s*&&\s*state\.activeMode/);
-  assert.match(guard, /type:\s*['"]start-recording['"]/);
+  assert.match(guard, /type:\s*['"]toggle-recording['"]/);
+  assert.doesNotMatch(guard, /type:\s*['"]start-recording['"]/);
   assert.match(guard, /blockByLongPress/);
   assert.match(guard, /modalVisible:\s*true/);
   assert.match(guard, /isBlocked:\s*true/);
@@ -480,8 +554,8 @@ test('P0 悬浮条在完成或取消后自动消失，并在错误后保持可�
   const voiceTypes = await readProjectFile('src/services/voiceTypes.ts');
 
   assert.match(main, /function\s+scheduleFloatingBarCompletedHide\(/);
-  assert.match(main, /payload\.status\s*===\s*['"]completed['"][\s\S]*scheduleFloatingBarCompletedHide\(\)/);
-  assert.match(main, /payload\.status\s*===\s*['"]cancelled['"][\s\S]*scheduleFloatingBarCompletedHide\(\)/);
+  assert.match(main, /function\s+renderFloatingBarForVoiceState\(/);
+  assert.match(main, /isTerminalVoiceState\(payload\)[\s\S]*scheduleFloatingBarCompletedHide\(\)/);
   assert.match(main, /setTimeout\([\s\S]*hideFloatingBar\(\)/);
   assert.doesNotMatch(main, /payload\.status\s*===\s*['"]error['"][\s\S]*hideFloatingBar\(\)/);
   assert.match(floatingBar, /当前转录已取消/);
