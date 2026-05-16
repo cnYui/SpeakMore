@@ -30,11 +30,18 @@ function assertTask(actual: VoiceTask, expected: VoiceTask) {
 }
 
 test('普通听写意图无选区时保持 Dictate 录音粘贴', async () => {
-  const task = await resolveVoiceTask('DictateShortcut', reader({ selectedText: '', focusInfo: null }))
+  const task = await resolveVoiceTask('DictateShortcut', reader({
+    selectedText: '',
+    source: 'none',
+    confidence: 'none',
+    focusInfo: null,
+  }))
 
   assertTask(task, {
     mode: 'Dictate',
     selectedText: '',
+    source: 'none',
+    confidence: 'none',
     focusInfo: null,
     delivery: 'paste',
     shouldRecordAudio: true,
@@ -42,11 +49,18 @@ test('普通听写意图无选区时保持 Dictate 录音粘贴', async () => {
 })
 
 test('普通听写意图有选区时转为 Translate 选区替换任务', async () => {
-  const task = await resolveVoiceTask('DictateShortcut', reader({ selectedText: '你好', focusInfo }))
+  const task = await resolveVoiceTask('DictateShortcut', reader({
+    selectedText: '你好',
+    source: 'uia',
+    confidence: 'confirmed',
+    focusInfo,
+  }))
 
   assertTask(task, {
     mode: 'Translate',
     selectedText: '你好',
+    source: 'uia',
+    confidence: 'confirmed',
     focusInfo,
     delivery: 'replace-selection',
     shouldRecordAudio: false,
@@ -54,47 +68,94 @@ test('普通听写意图有选区时转为 Translate 选区替换任务', async 
 })
 
 test('自由提问意图无选区时录音并展示悬浮结果', async () => {
-  const task = await resolveVoiceTask('AskShortcut', reader({ selectedText: '', focusInfo: null }))
+  const task = await resolveVoiceTask('AskShortcut', reader({
+    selectedText: '',
+    source: 'none',
+    confidence: 'none',
+    focusInfo: null,
+  }))
 
   assertTask(task, {
     mode: 'Ask',
     selectedText: '',
+    source: 'none',
+    confidence: 'none',
     focusInfo: null,
     delivery: 'floating-panel',
     shouldRecordAudio: true,
   })
 })
 
-test('自由提问意图有选区时录音并优先替换选区', async () => {
-  const task = await resolveVoiceTask('AskShortcut', reader({ selectedText: 'const a = 1', focusInfo }))
+test('自由提问意图有 UIA 选区时录音并展示悬浮结果', async () => {
+  const task = await resolveVoiceTask('AskShortcut', reader({
+    selectedText: 'const a = 1',
+    source: 'uia',
+    confidence: 'confirmed',
+    focusInfo,
+  }))
 
   assertTask(task, {
     mode: 'Ask',
     selectedText: 'const a = 1',
+    source: 'uia',
+    confidence: 'confirmed',
     focusInfo,
-    delivery: 'replace-selection',
+    delivery: 'floating-panel',
+    shouldRecordAudio: true,
+  })
+})
+
+test('普通听写意图忽略非 confirmed 选区文本', async () => {
+  const task = await resolveVoiceTask('DictateShortcut', reader({
+    selectedText: 'current line copied by app',
+    source: 'none',
+    confidence: 'none',
+    focusInfo: null,
+  }))
+
+  assertTask(task, {
+    mode: 'Dictate',
+    selectedText: '',
+    source: 'none',
+    confidence: 'none',
+    focusInfo: null,
+    delivery: 'paste',
     shouldRecordAudio: true,
   })
 })
 
 test('翻译意图有选区时仍录音并把翻译结果粘贴到光标位置', async () => {
-  const task = await resolveVoiceTask('TranslateShortcut', reader({ selectedText: '你好', focusInfo }))
+  const task = await resolveVoiceTask('TranslateShortcut', reader({
+    selectedText: '你好',
+    source: 'uia',
+    confidence: 'confirmed',
+    focusInfo,
+  }))
 
   assertTask(task, {
     mode: 'Translate',
-    selectedText: '你好',
-    focusInfo,
+    selectedText: '',
+    source: 'none',
+    confidence: 'none',
+    focusInfo: null,
     delivery: 'paste',
     shouldRecordAudio: true,
   })
 })
 
 test('翻译意图无选区时保留语音翻译粘贴', async () => {
-  const task = await resolveVoiceTask('TranslateShortcut', reader({ selectedText: '', focusInfo: null }))
+  const task = await resolveVoiceTask('TranslateShortcut', reader({
+    selectedText: '',
+    source: 'none',
+    confidence: 'none',
+    focusInfo: null,
+  }))
 
   assertTask(task, {
     mode: 'Translate',
     selectedText: '',
+    source: 'none',
+    confidence: 'none',
     focusInfo: null,
     delivery: 'paste',
     shouldRecordAudio: true,

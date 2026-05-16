@@ -49,6 +49,35 @@ function normalizeSelectedTextResult(value) {
   };
 }
 
+function normalizeUiaSelectionResult(value) {
+  if (!value || typeof value !== 'object') {
+    return { success: false, text: '', source: 'none', confidence: 'none', reason: 'invalid_result' };
+  }
+
+  const text = typeof value.text === 'string' ? value.text.trim() : '';
+  const isConfirmed = value.success === true
+    && value.source === 'uia'
+    && value.confidence === 'confirmed'
+    && Boolean(text);
+
+  if (!isConfirmed) {
+    return {
+      success: false,
+      text: '',
+      source: 'none',
+      confidence: 'none',
+      reason: typeof value.reason === 'string' ? value.reason : 'empty',
+    };
+  }
+
+  return {
+    success: true,
+    text,
+    source: 'uia',
+    confidence: 'confirmed',
+  };
+}
+
 function createEmptyFocusedInfo() {
   return {
     appInfo: {
@@ -155,6 +184,55 @@ try { $process = Get-Process -Id $processId -ErrorAction Stop } catch {}
   process_name = if ($process) { $process.ProcessName } else { "" }
   window_title = $titleBuilder.ToString()
 } | ConvertTo-Json -Compress
+`;
+
+const UIA_SELECTION_SCRIPT = `
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+$element = [System.Windows.Automation.AutomationElement]::FocusedElement
+if ($null -eq $element) {
+  [PSCustomObject]@{ success = $false; text = ""; source = "none"; confidence = "none"; reason = "no_focused_element" } | ConvertTo-Json -Compress
+  exit 0
+}
+
+$textPattern = $null
+try {
+  $textPattern = $element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+} catch {}
+
+if ($null -eq $textPattern) {
+  [PSCustomObject]@{ success = $false; text = ""; source = "none"; confidence = "none"; reason = "text_pattern_unavailable" } | ConvertTo-Json -Compress
+  exit 0
+}
+
+$ranges = $null
+try {
+  $ranges = $textPattern.GetSelection()
+} catch {}
+
+if ($null -eq $ranges -or $ranges.Length -eq 0) {
+  [PSCustomObject]@{ success = $false; text = ""; source = "none"; confidence = "none"; reason = "empty" } | ConvertTo-Json -Compress
+  exit 0
+}
+
+$parts = New-Object System.Collections.Generic.List[string]
+foreach ($range in $ranges) {
+  try {
+    $text = $range.GetText(-1)
+    if (-not [string]::IsNullOrWhiteSpace($text)) {
+      [void]$parts.Add($text.Trim())
+    }
+  } catch {}
+}
+
+$selectedText = ($parts -join "\\n").Trim()
+if ([string]::IsNullOrWhiteSpace($selectedText)) {
+  [PSCustomObject]@{ success = $false; text = ""; source = "none"; confidence = "none"; reason = "empty" } | ConvertTo-Json -Compress
+  exit 0
+}
+
+[PSCustomObject]@{ success = $true; text = $selectedText; source = "uia"; confidence = "confirmed" } | ConvertTo-Json -Compress
 `;
 
 async function readFocusedInfo({
@@ -291,22 +369,44 @@ async function readSelectedTextByClipboard({
   }
 }
 
+async function readSelectedTextByUia({
+  readUiaSelection = powershellJsonCommand(UIA_SELECTION_SCRIPT),
+} = {}) {
+  try {
+    return normalizeUiaSelectionResult(await readUiaSelection());
+  } catch (error) {
+    return {
+      success: false,
+      text: '',
+      source: 'none',
+      confidence: 'none',
+      reason: 'uia_failed',
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 async function readSelectionSnapshot({
   clipboard,
   readFocusedInfo: readFocus = readFocusedInfo,
+  readUiaSelection,
   sendCopyShortcut,
   wait,
   marker,
   copyWaitMs,
 } = {}) {
   const focusInfo = normalizeFocusedInfo(await readFocus());
-  const selection = await readSelectedTextByClipboard({
-    clipboard,
-    sendCopyShortcut,
-    wait,
-    marker,
-    copyWaitMs,
-  });
+  const selection = await readSelectedTextByUia({ readUiaSelection });
+
+  if (clipboard && sendCopyShortcut) {
+    await readSelectedTextByClipboard({
+      clipboard,
+      sendCopyShortcut,
+      wait,
+      marker,
+      copyWaitMs,
+    });
+  }
 
   return {
     ...selection,
@@ -317,7 +417,9 @@ async function readSelectionSnapshot({
 module.exports = {
   isSameFocusedContext,
   normalizeFocusedInfo,
+  normalizeUiaSelectionResult,
   readSelectedTextByClipboard,
+  readSelectedTextByUia,
   readFocusedInfo,
   readSelectionSnapshot,
   normalizeSelectedTextResult,

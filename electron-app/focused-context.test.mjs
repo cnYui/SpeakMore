@@ -5,6 +5,7 @@ import {
   normalizeSelectedTextResult,
   readSelectionSnapshot,
   readSelectedTextByClipboard,
+  readSelectedTextByUia,
 } from './focused-context.js';
 
 function createFakeClipboard(initialText = 'old clipboard') {
@@ -116,7 +117,44 @@ test('normalizeSelectedTextResult 同时兼容字符串和对象返回值', () =
   assert.equal(normalizeSelectedTextResult({ success: false, text: 'ignored' }).text, '');
 });
 
-test('readSelectionSnapshot 会同时返回前台窗口信息和选区文本', async () => {
+test('readSelectedTextByUia 返回 confirmed 选区', async () => {
+  const result = await readSelectedTextByUia({
+    readUiaSelection: async () => ({
+      success: true,
+      text: 'selected by uia',
+      source: 'uia',
+      confidence: 'confirmed',
+    }),
+  });
+
+  assert.deepEqual(result, {
+    success: true,
+    text: 'selected by uia',
+    source: 'uia',
+    confidence: 'confirmed',
+  });
+});
+
+test('readSelectedTextByUia 在 UIA 空文本时返回 none', async () => {
+  const result = await readSelectedTextByUia({
+    readUiaSelection: async () => ({
+      success: true,
+      text: '',
+      source: 'uia',
+      confidence: 'confirmed',
+    }),
+  });
+
+  assert.deepEqual(result, {
+    success: false,
+    text: '',
+    source: 'none',
+    confidence: 'none',
+    reason: 'empty',
+  });
+});
+
+test('readSelectionSnapshot 会同时返回前台窗口信息和 UIA confirmed 选区文本', async () => {
   const clipboard = createFakeClipboard('old clipboard');
   const result = await readSelectionSnapshot({
     clipboard,
@@ -137,15 +175,64 @@ test('readSelectionSnapshot 会同时返回前台窗口信息和选区文本', a
         bounds: { x: 0, y: 0, width: 0, height: 0 },
       },
     }),
-    sendCopyShortcut: async () => clipboard.writeText('selected text'),
+    readUiaSelection: async () => ({
+      success: true,
+      text: 'selected text',
+      source: 'uia',
+      confidence: 'confirmed',
+    }),
+    sendCopyShortcut: async () => clipboard.writeText('clipboard fallback should be ignored'),
     wait: async () => undefined,
     marker: 'TYPELESS_SELECTION_MARKER',
   });
 
   assert.equal(result.success, true);
   assert.equal(result.text, 'selected text');
+  assert.equal(result.source, 'uia');
+  assert.equal(result.confidence, 'confirmed');
   assert.equal(result.focusInfo.appInfo.app_identifier, 'notepad.exe');
   assert.equal(result.focusInfo.appInfo.app_metadata.hwnd, '100');
+  assert.equal(clipboard.current(), 'old clipboard');
+});
+
+test('readSelectionSnapshot 只使用 UIA，不用剪贴板文本当选区', async () => {
+  const clipboard = createFakeClipboard('old clipboard');
+  const result = await readSelectionSnapshot({
+    clipboard,
+    readFocusedInfo: async () => ({
+      appInfo: {
+        app_name: 'Code',
+        app_identifier: 'Code.exe',
+        window_title: 'main.ts',
+        app_type: 'native_app',
+        app_metadata: { hwnd: '100', process_id: 123 },
+        browser_context: null,
+      },
+      elementInfo: {
+        role: '',
+        focused: true,
+        editable: true,
+        selected: false,
+        bounds: { x: 0, y: 0, width: 0, height: 0 },
+      },
+    }),
+    readUiaSelection: async () => ({
+      success: false,
+      text: '',
+      source: 'none',
+      confidence: 'none',
+      reason: 'empty',
+    }),
+    sendCopyShortcut: async () => clipboard.writeText('current line copied by app'),
+    wait: async () => undefined,
+    marker: 'TYPELESS_SELECTION_MARKER',
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.text, '');
+  assert.equal(result.source, 'none');
+  assert.equal(result.confidence, 'none');
+  assert.equal(result.focusInfo.appInfo.app_identifier, 'Code.exe');
   assert.equal(clipboard.current(), 'old clipboard');
 });
 

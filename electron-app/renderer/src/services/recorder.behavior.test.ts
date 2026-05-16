@@ -29,6 +29,7 @@ function createTestEnvironment(options: {
   selectionSnapshot?: unknown
   focusStillActive?: boolean
   fetchResponseText?: string
+  pasteShouldFail?: boolean
 } = {}) {
   const originalWindow = globalThis.window
   const originalNavigator = globalThis.navigator
@@ -157,9 +158,13 @@ function createTestEnvironment(options: {
         return (options.selectedTextResult ?? { success: false, text: '' }) as never
       }
       if (channel === 'focused-context:get-selection-snapshot') {
+        const selectedText = (options.selectedTextResult as { text?: string } | undefined)?.text ?? ''
+        const hasSelectedText = Boolean(selectedText)
         return (options.selectionSnapshot ?? {
-          success: Boolean((options.selectedTextResult as { text?: string } | undefined)?.text),
-          text: (options.selectedTextResult as { text?: string } | undefined)?.text ?? '',
+          success: hasSelectedText,
+          text: selectedText,
+          source: hasSelectedText ? 'uia' : 'none',
+          confidence: hasSelectedText ? 'confirmed' : 'none',
           focusInfo: {
             appInfo: {
               app_name: 'Notepad',
@@ -189,7 +194,10 @@ function createTestEnvironment(options: {
           launchAtSystemStartup: false,
         } as never
       }
-      if (channel === 'keyboard:type-transcript') return { success: true } as never
+      if (channel === 'keyboard:type-transcript') {
+        if (options.pasteShouldFail) throw new Error('paste boom')
+        return { success: true } as never
+      }
       return {} as never
     },
     send: (channel: string, payload?: unknown) => {
@@ -659,7 +667,7 @@ test('RightAlt 无选区时通过快捷键意图保留普通听写录音', async
   }
 })
 
-test('RightAlt + Space 有选区且目标仍有效时完成后覆盖选区，不展示结果面板', async () => {
+test('RightAlt + Space 有 UIA 选区时传 selected_text 且结果展示悬浮卡片', async () => {
   const env = createTestEnvironment({
     selectedTextResult: { success: true, text: '旧内容' },
     focusStillActive: true,
@@ -667,8 +675,16 @@ test('RightAlt + Space 有选区且目标仍有效时完成后覆盖选区，不
   let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
 
   try {
-    recorder = await loadRecorderModule('ask-selection-replace')
+    recorder = await loadRecorderModule('ask-selection-panel')
     await recorder.toggleRecordingByShortcut('AskShortcut')
+
+    const startAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'start_audio')
+
+    assert.deepEqual(startAudioMessage.parameters, { selected_text: '旧内容' })
+
     recorder.stopRecording()
 
     const socket = env.sockets[env.sockets.length - 1]
@@ -685,11 +701,17 @@ test('RightAlt + Space 有选区且目标仍有效时完成后覆盖选区，不
     await Promise.resolve()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript' && call.payload === '新内容'), true)
-    assert.equal(env.sendCalls.some((call) => {
+    const resultPanelCall = env.sendCalls.find((call) => {
       const payload = call.payload as { type?: string } | undefined
       return call.channel === 'floating-panel' && payload?.type === 'free-ask-result'
-    }), false)
+    })
+
+    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript'), false)
+    assert.deepEqual(resultPanelCall?.payload, {
+      visible: true,
+      type: 'free-ask-result',
+      text: '新内容',
+    })
   } finally {
     recorder?.disposeRecorder()
     env.restore()
@@ -732,6 +754,116 @@ test('RightAlt + Space 有选区但目标失效时展示悬浮结果，不覆盖
       visible: true,
       type: 'free-ask-result',
       text: '新内容',
+    })
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('普通听写粘贴失败时展示悬浮卡片', async () => {
+  const env = createTestEnvironment({ pasteShouldFail: true })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('dictate-paste-fallback')
+    await recorder.startRecording('Dictate')
+    recorder.stopRecording()
+
+    const socket = env.sockets[env.sockets.length - 1]
+    socket.emitJson({
+      K: 'refine_completed',
+      V: {
+        audio_id: 'audio-1',
+        refined_text: 'hello refined',
+        refine_text: 'hello refined',
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const resultPanelCall = env.sendCalls.find((call) => {
+      const payload = call.payload as { type?: string } | undefined
+      return call.channel === 'floating-panel' && payload?.type === 'free-ask-result'
+    })
+
+    assert.equal(recorder.getVoiceSession().status, 'completed')
+    assert.deepEqual(resultPanelCall?.payload, {
+      visible: true,
+      type: 'free-ask-result',
+      text: 'hello refined',
+    })
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('RightAlt 有 UIA 选区翻译但替换失败时展示悬浮卡片', async () => {
+  const env = createTestEnvironment({
+    selectedTextResult: { success: true, text: '你好' },
+    fetchResponseText: 'hello',
+    pasteShouldFail: true,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('selection-translate-paste-fallback')
+    await recorder.toggleRecordingByShortcut('DictateShortcut')
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const resultPanelCall = env.sendCalls.find((call) => {
+      const payload = call.payload as { type?: string } | undefined
+      return call.channel === 'floating-panel' && payload?.type === 'free-ask-result'
+    })
+
+    assert.equal(recorder.getVoiceSession().status, 'completed')
+    assert.deepEqual(resultPanelCall?.payload, {
+      visible: true,
+      type: 'free-ask-result',
+      text: 'hello',
+    })
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('RightAlt + RightShift 语音翻译粘贴失败时展示悬浮卡片', async () => {
+  const env = createTestEnvironment({ pasteShouldFail: true })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('voice-translate-paste-fallback')
+    await recorder.toggleRecordingByShortcut('TranslateShortcut')
+    recorder.stopRecording()
+
+    const socket = env.sockets[env.sockets.length - 1]
+    socket.emitJson({
+      K: 'refine_completed',
+      V: {
+        audio_id: 'audio-1',
+        refined_text: 'translated voice',
+        refine_text: 'translated voice',
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const resultPanelCall = env.sendCalls.find((call) => {
+      const payload = call.payload as { type?: string } | undefined
+      return call.channel === 'floating-panel' && payload?.type === 'free-ask-result'
+    })
+
+    assert.equal(recorder.getVoiceSession().status, 'completed')
+    assert.deepEqual(resultPanelCall?.payload, {
+      visible: true,
+      type: 'free-ask-result',
+      text: 'translated voice',
     })
   } finally {
     recorder?.disposeRecorder()

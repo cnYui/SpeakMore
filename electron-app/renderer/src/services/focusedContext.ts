@@ -4,6 +4,7 @@ export type SelectedTextResult = {
   success?: boolean
   text?: string
   source?: string
+  confidence?: string
   reason?: string
 }
 
@@ -25,8 +26,13 @@ export type FocusedInfo = {
   }
 }
 
+export type SelectionSource = 'uia' | 'none'
+export type SelectionConfidence = 'confirmed' | 'none'
+
 export type FocusedSelectionSnapshot = {
   selectedText: string
+  source: SelectionSource
+  confidence: SelectionConfidence
   focusInfo: FocusedInfo | null
 }
 
@@ -80,13 +86,30 @@ function normalizeFocusedInfo(value: unknown): FocusedInfo | null {
 
 export function normalizeSelectionSnapshot(value: unknown): FocusedSelectionSnapshot {
   if (!value || typeof value !== 'object') {
-    return { selectedText: '', focusInfo: null }
+    return { selectedText: '', source: 'none', confidence: 'none', focusInfo: null }
   }
 
   const snapshot = value as SelectedTextResult & { focusInfo?: unknown }
+  const text = normalizeSelectedTextResult(snapshot)
+  const focusInfo = normalizeFocusedInfo(snapshot.focusInfo)
+  const isConfirmedUia = snapshot.source === 'uia'
+    && snapshot.confidence === 'confirmed'
+    && Boolean(text)
+
+  if (!isConfirmedUia) {
+    return {
+      selectedText: '',
+      source: 'none',
+      confidence: 'none',
+      focusInfo,
+    }
+  }
+
   return {
-    selectedText: normalizeSelectedTextResult(snapshot),
-    focusInfo: normalizeFocusedInfo(snapshot.focusInfo),
+    selectedText: text,
+    source: 'uia',
+    confidence: 'confirmed',
+    focusInfo,
   }
 }
 
@@ -102,7 +125,7 @@ export async function getFocusedSelectionSnapshot(): Promise<FocusedSelectionSna
   try {
     return normalizeSelectionSnapshot(await ipcClient.invoke('focused-context:get-selection-snapshot'))
   } catch {
-    return { selectedText: '', focusInfo: null }
+    return { selectedText: '', source: 'none', confidence: 'none', focusInfo: null }
   }
 }
 
