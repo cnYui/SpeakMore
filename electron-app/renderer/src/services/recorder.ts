@@ -1,4 +1,5 @@
 import { ipcClient } from './ipc'
+import { hideFloatingPanel, showFreeAskResult } from './floatingPanel'
 import { getSelectedAudioDeviceId } from './settingsStore'
 import { VOICE_SERVER_WS_URL } from './voiceServer'
 import {
@@ -61,6 +62,7 @@ export async function toggleRecording(mode: VoiceMode) {
 }
 
 export async function startRecording(mode: VoiceMode) {
+  hideFloatingPanel()
   backgroundAudioRestorePending = false
   recordingStartedAt = 0
   const audioId = crypto.randomUUID()
@@ -211,16 +213,31 @@ async function completeSession(refinedText: string) {
   activeSessionId = null
   clearTranscribeTimeout()
   const durationMs = getRecordingDurationMs()
-  const textLength = countTextLength(refinedText || session.rawText)
-  setSession({ ...session, status: 'completed', refinedText, durationMs, textLength, error: null })
+  const resultText = refinedText || session.rawText
+  const textLength = countTextLength(resultText)
+  const completedSession = {
+    ...session,
+    status: 'completed' as const,
+    refinedText: resultText,
+    durationMs,
+    textLength,
+    error: null,
+  }
+
+  setSession(completedSession)
   recordingStartedAt = 0
   await restoreBackgroundAudio()
-  if (!refinedText) return
+  if (!resultText) return
 
-  ipcClient.invoke('keyboard:type-transcript', refinedText).catch((error) => {
+  if (completedSession.mode === 'Ask') {
+    showFreeAskResult(resultText)
+    return
+  }
+
+  ipcClient.invoke('keyboard:type-transcript', resultText).catch((error) => {
     void restoreBackgroundAudio()
     setSession({
-      ...session,
+      ...completedSession,
       status: 'error',
       error: createVoiceError('paste_failed', error instanceof Error ? error.message : String(error)),
     })

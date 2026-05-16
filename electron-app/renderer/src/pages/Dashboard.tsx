@@ -1,8 +1,5 @@
-import { Box, Typography, IconButton } from '@mui/material'
+import { Box, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import { ipcClient } from '../services/ipc'
-import { getVoiceStatusLabel, initialVoiceSession, type VoiceSession } from '../services/voiceTypes'
 import { subscribeVoiceSession } from '../services/recorder'
 import {
   emptyVoiceStats,
@@ -16,12 +13,17 @@ import {
 import { cardSx, subtlePanelSx } from '../uiTokens'
 
 export default function Dashboard() {
-  const [voiceSession, setVoiceSession] = useState<VoiceSession>(initialVoiceSession)
+  const [recentResult, setRecentResult] = useState('')
   const [stats, setStats] = useState<VoiceStats>(emptyVoiceStats)
 
   useEffect(() => {
-    const unsubscribe = subscribeVoiceSession(setVoiceSession)
-    return unsubscribe
+    return subscribeVoiceSession((voiceSession) => {
+      if (voiceSession.status === 'completed' && voiceSession.mode !== 'Ask') {
+        const { refinedText, rawText } = voiceSession
+        const result = refinedText || rawText
+        if (result) setRecentResult(result)
+      }
+    })
   }, [])
 
   useEffect(() => {
@@ -33,14 +35,6 @@ export default function Dashboard() {
     window.addEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshStats)
     return () => window.removeEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshStats)
   }, [])
-
-  const handleCopy = () => {
-    const text = voiceSession.refinedText || voiceSession.rawText
-    if (!text) return
-    ipcClient.invoke('clipboard:write-text', text).catch(() => navigator.clipboard.writeText(text))
-  }
-
-  const voiceStatusLabel = voiceSession.status === 'idle' ? '准备就绪' : getVoiceStatusLabel(voiceSession)
 
   return (
     <Box sx={{ maxWidth: 980, mx: 'auto', p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -90,20 +84,9 @@ export default function Dashboard() {
 
       <Box>
         <Box sx={{ ...cardSx, p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box>
-              <Typography sx={{ fontSize: 16, fontWeight: 500 }}>最近结果</Typography>
-              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{voiceStatusLabel}</Typography>
-            </Box>
-            <IconButton size="small" onClick={handleCopy}>
-              <ContentCopyIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Box>
-          <Box sx={{ bgcolor: 'rgba(119,119,119,0.06)', borderRadius: '12px', p: 1.5, minHeight: 48 }}>
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{voiceSession.rawText || '-'}</Typography>
-          </Box>
+          <Typography sx={{ fontSize: 16, fontWeight: 500 }}>最近结果</Typography>
           <Box sx={{ bgcolor: 'rgba(119,119,119,0.03)', borderRadius: '12px', p: 1.5, minHeight: 64 }}>
-            <Typography sx={{ fontSize: 15 }}>{voiceSession.refinedText || '-'}</Typography>
+            <Typography sx={{ fontSize: 15, whiteSpace: 'pre-wrap' }}>{recentResult || '-'}</Typography>
           </Box>
         </Box>
       </Box>

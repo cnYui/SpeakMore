@@ -9,6 +9,7 @@ import { type Page } from '../navigation'
 import { ipcClient } from '../services/ipc'
 import { cancelRecording, disposeRecorder, getVoiceSession, subscribeVoiceSession, toggleRecording } from '../services/recorder'
 import { saveVoiceHistory, VOICE_HISTORY_UPDATED_EVENT } from '../services/historyStore'
+import { hideFloatingPanel, showShortcutHintPanel } from '../services/floatingPanel'
 import {
   blockByLongPress,
   createInitialShortcutGuardState,
@@ -44,7 +45,12 @@ export default function AppShell() {
       return
     }
 
-    ipcClient.send('shortcut-hint', { visible: shortcutGuard.modalVisible })
+    if (shortcutGuard.modalVisible) {
+      showShortcutHintPanel()
+      return
+    }
+
+    hideFloatingPanel()
   }, [shortcutGuard.modalVisible])
 
   useEffect(() => {

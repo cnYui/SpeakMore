@@ -55,35 +55,36 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   assert.doesNotMatch(floatingBar, /@keyframes\s+level/);
 });
 
-test('P0 长按提示卡片使用独立窗口并支持 Escape 关闭', async () => {
+test('悬浮面板复用长按提示框位置，并支持快捷键提示和自由提问结果两种模式', async () => {
   const main = await readProjectFile('../main.js');
-  const shortcutHint = await readProjectFile('public/shortcut-hint.html');
+  const floatingPanel = await readProjectFile('public/floating-panel.html');
 
-  assert.match(main, /let\s+shortcutHintWindow\s*=\s*null/);
-  assert.match(main, /function\s+sendToShortcutHint\(/);
-  assert.match(main, /function\s+showShortcutHint\(/);
-  assert.match(main, /function\s+hideShortcutHint\(/);
-  assert.match(main, /renderer[\s\S]*dist[\s\S]*shortcut-hint\.html/);
-  assert.match(main, /SHORTCUT_HINT_SIZE\s*=\s*\{\s*width:\s*440,\s*height:\s*220\s*\}/);
-  assert.match(main, /resolveShortcutHintBounds/);
-  assert.doesNotMatch(main, /defaultShortcutHintWindowX\s*=\s*680/);
-  assert.doesNotMatch(main, /defaultShortcutHintWindowY\s*=\s*766/);
-  assert.match(main, /if\s*\(shortcutHintVisible\s*&&\s*payload\.isKeydown\)[\s\S]*hideShortcutHint\(\)[\s\S]*return/);
-  assert.match(main, /function\s+updateFloatingBarVisibility\(keys\)[\s\S]*if\s*\(shortcutHintVisible\)\s*return/);
-  assert.match(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*if\s*\(shortcutHintVisible\)\s*hideShortcutHint\(\)/);
-  assert.match(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*renderFloatingBarForVoiceState\(payload\)/);
-  assert.doesNotMatch(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*if\s*\(shortcutHintVisible\)\s*\{[\s\S]*hideFloatingBar\(\)[\s\S]*return[\s\S]*\}/);
-  assert.match(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*if\s*\(payload\.visible\)[\s\S]*hideFloatingBar\(\)[\s\S]*showShortcutHint\(\)/);
-  assert.match(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*sendToShortcutHint\(['"]shortcut-hint['"]/);
-  assert.doesNotMatch(main, /ipcMain\.on\(['"]shortcut-hint['"][\s\S]*sendToFloatingBar\(['"]shortcut-hint['"]/);
-  assert.match(shortcutHint, /检测到长按快捷键/);
-  assert.match(shortcutHint, /window\.ipcRenderer\.send\(['"]shortcut-hint['"],\s*\{\s*visible:\s*false\s*\}\)/);
-  assert.match(shortcutHint, /row-gap:\s*8px/);
-  assert.match(shortcutHint, /min-height:\s*100%/);
-  assert.doesNotMatch(shortcutHint, /document\.addEventListener\(['"]keydown['"]/);
-  assert.doesNotMatch(shortcutHint, /event\.key\s*===\s*['"]Escape['"]/);
-  assert.doesNotMatch(shortcutHint, /-webkit-app-region:\s*drag/);
-  assert.doesNotMatch(shortcutHint, /-webkit-app-region:\s*no-drag/);
+  assert.match(main, /let\s+floatingPanelWindow\s*=\s*null/);
+  assert.match(main, /let\s+floatingPanelVisible\s*=\s*false/);
+  assert.match(main, /let\s+floatingPanelType\s*=\s*null/);
+  assert.match(main, /function\s+sendToFloatingPanel\(/);
+  assert.match(main, /function\s+showFloatingPanel\(/);
+  assert.match(main, /function\s+hideFloatingPanel\(/);
+  assert.match(main, /renderer[\s\S]*dist[\s\S]*floating-panel\.html/);
+  assert.match(main, /FLOATING_PANEL_SIZE\s*=\s*\{\s*width:\s*440,\s*height:\s*220\s*\}/);
+  assert.match(main, /resolveFloatingPanelBounds/);
+  assert.match(main, /ipcMain\.on\(['"]floating-panel['"]/);
+  assert.match(main, /type:\s*['"]shortcut-hint['"]/);
+  assert.match(main, /free-ask-result/);
+  assert.match(main, /if\s*\(isActiveVoiceState\(lastVoiceState\)\)[\s\S]*sendToMain\(['"]voice-cancel-requested['"]/);
+  assert.match(main, /if\s*\(floatingPanelVisible\)\s*\{[\s\S]*hideFloatingPanel\(\)/);
+  assert.doesNotMatch(main, /shortcutHintWindow/);
+  assert.doesNotMatch(main, /SHORTCUT_HINT_SIZE/);
+
+  assert.match(floatingPanel, /检测到长按快捷键/);
+  assert.match(floatingPanel, /free-ask-result/);
+  assert.match(floatingPanel, /result-text/);
+  assert.match(floatingPanel, /white-space:\s*pre-wrap/);
+  assert.match(floatingPanel, /overflow:\s*auto/);
+  assert.match(floatingPanel, /window\.ipcRenderer\.send\(['"]floating-panel['"],\s*\{\s*visible:\s*false\s*\}\)/);
+  assert.doesNotMatch(floatingPanel, /原选区已失效/);
+  assert.doesNotMatch(floatingPanel, /复制/);
+  assert.doesNotMatch(floatingPanel, /-webkit-app-region:\s*drag/);
 });
 
 test('P0 长按提示低于语音状态优先级', async () => {
@@ -107,8 +108,8 @@ test('P0 长按提示低于语音状态优先级', async () => {
   assert.match(main, /let\s+lastVoiceState\s*=\s*null/);
   assert.match(main, /function\s+renderFloatingBarForVoiceState\(/);
   assert.match(main, /shouldShowShortcutHint\(lastVoiceState\)/);
-  assert.match(main, /if\s*\(shortcutHintVisible\)\s*hideShortcutHint\(\)/);
-  assert.doesNotMatch(main, /if\s*\(shortcutHintVisible\)\s*\{[\s\S]*hideFloatingBar\(\)[\s\S]*return[\s\S]*\}/);
+  assert.match(main, /if\s*\(floatingPanelVisible\s*&&\s*isActiveVoiceState\(payload\)\)\s*hideFloatingPanel\(\)/);
+  assert.doesNotMatch(main, /ipcMain\.on\(['"]voice-state['"][\s\S]*if\s*\(floatingPanelVisible\)\s*\{[\s\S]*hideFloatingBar\(\)[\s\S]*return/);
 });
 
 test('P0 悬浮窗口不再记录拖动坐标', async () => {
@@ -445,11 +446,21 @@ test('P0 recorder 暴露可订阅状态机并支持主动取消', async () => {
   assert.doesNotMatch(recorder, /export\s+function\s+getIsRecording/);
 });
 
-test('P0 Dashboard 消费语音状态机而不是 setTimeout 猜录音状态', async () => {
+test('Dashboard 最近结果只展示最终结果，不再展示实时语音状态和中间转写', async () => {
   const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
 
   assert.match(dashboard, /subscribeVoiceSession/);
-  assert.match(dashboard, /voiceSession\.status/);
+  assert.match(dashboard, /status\s*===\s*['"]completed['"]/);
+  assert.match(dashboard, /voiceSession\.mode\s*!==\s*['"]Ask['"]/);
+  assert.match(dashboard, /refinedText\s*\|\|\s*rawText/);
+  assert.match(dashboard, /最近结果/);
+  assert.doesNotMatch(dashboard, /getVoiceStatusLabel/);
+  assert.doesNotMatch(dashboard, /voiceStatusLabel/);
+  assert.doesNotMatch(dashboard, /ContentCopyIcon/);
+  assert.doesNotMatch(dashboard, /IconButton/);
+  assert.doesNotMatch(dashboard, /clipboard:write-text/);
+  assert.doesNotMatch(dashboard, /voiceSession\.rawText\s*\|\|\s*['"]-['"]/);
+  assert.doesNotMatch(dashboard, /voiceSession\.status\s*===\s*['"]idle['"]/);
   assert.doesNotMatch(dashboard, /saveVoiceHistory/);
   assert.doesNotMatch(dashboard, /global-keyboard/);
   assert.doesNotMatch(dashboard, /findKeyboardShortcutMode/);
@@ -468,7 +479,9 @@ test('AppShell 接管全局快捷键，允许 Escape 取消未完成会话，并
   assert.match(appShell, /cancelRecording/);
   assert.match(appShell, /getVoiceSession/);
   assert.match(appShell, /getVoiceSession\(\)\.status/);
-  assert.match(appShell, /ipcClient\.send\(['"]shortcut-hint['"]/);
+  assert.match(appShell, /showShortcutHintPanel/);
+  assert.match(appShell, /hideFloatingPanel/);
+  assert.doesNotMatch(appShell, /ipcClient\.send\(['"]shortcut-hint['"]/);
   assert.doesNotMatch(appShell, /检测到长按快捷键/);
   assert.doesNotMatch(appShell, /handleCloseShortcutHint/);
   assert.match(guard, /LONG_PRESS_MS\s*=\s*500/);
@@ -501,17 +514,30 @@ test('P0 悬浮条消费 voice-state 而不是自行 toggle 快捷键状态', as
   assert.doesNotMatch(floatingBar, /global-keyboard[\s\S]*toggle\(\)/);
 });
 
-test('P0 长按提示通过 shortcut-hint 独立显示在悬浮条位置', async () => {
+test('自由提问录音文案由 voice-state.displayText 覆盖胶囊默认 recording 文案', async () => {
+  const voiceTypes = await readProjectFile('src/services/voiceTypes.ts');
+  const floatingBar = await readProjectFile('public/floating-bar.html');
+
+  assert.match(voiceTypes, /mode:\s*session\.mode/);
+  assert.match(voiceTypes, /session\.status\s*===\s*['"]recording['"][\s\S]*session\.mode\s*===\s*['"]Ask['"]/);
+  assert.match(voiceTypes, /displayText:\s*['"]请随意提出问题['"]/);
+  assert.match(floatingBar, /if\s*\(displayText\)\s*\{[\s\S]*text\.textContent\s*=\s*displayText[\s\S]*return;/);
+  assert.match(floatingBar, /if\s*\(status\s*===\s*['"]recording['"]\)\s*\{[\s\S]*text\.textContent\s*=\s*['"]正在监听\.\.\.['"]/);
+});
+
+test('P0 长按提示通过通用悬浮面板独立显示在悬浮条位置', async () => {
   const main = await readProjectFile('../main.js');
-  const shortcutHint = await readProjectFile('public/shortcut-hint.html');
+  const floatingPanel = await readProjectFile('public/floating-panel.html');
   const appShell = await readProjectFile('src/components/AppShell.tsx');
 
-  assert.match(main, /shortcut-hint/);
-  assert.match(main, /sendToShortcutHint\(['"]shortcut-hint['"]/);
-  assert.match(shortcutHint, /shortcut-hint/);
-  assert.match(shortcutHint, /检测到长按快捷键/);
-  assert.match(shortcutHint, /Right Alt/);
+  assert.match(main, /floating-panel/);
+  assert.match(main, /sendToFloatingPanel\(['"]floating-panel['"]/);
+  assert.match(floatingPanel, /floating-panel/);
+  assert.match(floatingPanel, /检测到长按快捷键/);
+  assert.match(floatingPanel, /Right Alt/);
+  assert.match(appShell, /showShortcutHintPanel/);
   assert.doesNotMatch(appShell, /检测到长按快捷键/);
+  assert.doesNotMatch(appShell, /ipcClient\.send\(['"]shortcut-hint['"]/);
 });
 
 test('P0 悬浮条提示卡依赖完整视口尺寸，避免定位容器塌陷', async () => {

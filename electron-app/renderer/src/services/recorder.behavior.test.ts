@@ -35,6 +35,7 @@ function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream
 
   const sentPayloads: Array<string | ArrayBufferLike | Blob | ArrayBufferView> = []
   const invokeCalls: Array<{ channel: string; payload?: unknown }> = []
+  const sendCalls: Array<{ channel: string; payload?: unknown }> = []
   const sockets: FakeWebSocket[] = []
   let restoreCalls = 0
   let trackStops = 0
@@ -154,7 +155,9 @@ function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream
       if (channel === 'keyboard:type-transcript') return { success: true } as never
       return {} as never
     },
-    send: () => undefined,
+    send: (channel: string, payload?: unknown) => {
+      sendCalls.push({ channel, payload })
+    },
     on: () => undefined,
     off: () => undefined,
   }
@@ -196,6 +199,7 @@ function createTestEnvironment(options: { userMediaPromise?: Promise<MediaStream
     mediaStream,
     sentPayloads,
     invokeCalls,
+    sendCalls,
     sockets,
     getRestoreCalls: () => restoreCalls,
     getTrackStops: () => trackStops,
@@ -359,7 +363,7 @@ test('startRecording 会先通过新 IPC 检查 ready，并连接集中定义的
   }
 })
 
-test('refine_completed 会被当作最终结果收口并触发自动粘贴', async () => {
+test('普通听写完成后仍自动粘贴最终结果', async () => {
   const env = createTestEnvironment()
   let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
 
@@ -385,6 +389,66 @@ test('refine_completed 会被当作最终结果收口并触发自动粘贴', asy
     assert.equal(recorder.getVoiceSession().status, 'completed')
     assert.equal(recorder.getVoiceSession().refinedText, 'hello refined')
     assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript'), true)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('自由提问完成后不自动粘贴，改为展示悬浮结果面板', async () => {
+  const env = createTestEnvironment()
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('ask-completed-panel')
+    await recorder.startRecording('Ask')
+    recorder.stopRecording()
+
+    const socket = env.sockets[env.sockets.length - 1]
+    assert.ok(socket)
+
+    socket.emitJson({
+      K: 'refine_completed',
+      V: {
+        audio_id: 'audio-1',
+        refined_text: '1 加 1 等于 2。',
+        refine_text: '1 加 1 等于 2。',
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const resultPanelCall = env.sendCalls.find((call) => {
+      const payload = call.payload as { type?: string } | undefined
+      return call.channel === 'floating-panel' && payload?.type === 'free-ask-result'
+    })
+
+    assert.equal(recorder.getVoiceSession().status, 'completed')
+    assert.equal(recorder.getVoiceSession().mode, 'Ask')
+    assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript'), false)
+    assert.deepEqual(resultPanelCall?.payload, {
+      visible: true,
+      type: 'free-ask-result',
+      text: '1 加 1 等于 2。',
+    })
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('开始新录音时会关闭旧悬浮结果面板', async () => {
+  const env = createTestEnvironment()
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('hide-panel-on-start')
+    await recorder.startRecording('Ask')
+
+    assert.deepEqual(env.sendCalls[0], {
+      channel: 'floating-panel',
+      payload: { visible: false },
+    })
   } finally {
     recorder?.disposeRecorder()
     env.restore()
