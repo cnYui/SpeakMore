@@ -44,11 +44,10 @@ test('普通听写意图无选区时保持 Dictate 录音粘贴', async () => {
     confidence: 'none',
     focusInfo: null,
     delivery: 'paste',
-    shouldRecordAudio: true,
   })
 })
 
-test('普通听写意图有选区时转为 Translate 选区替换任务', async () => {
+test('普通听写意图有 UIA 选区时仍保持 Dictate 录音粘贴', async () => {
   const task = await resolveVoiceTask('DictateShortcut', reader({
     selectedText: '你好',
     source: 'uia',
@@ -57,13 +56,12 @@ test('普通听写意图有选区时转为 Translate 选区替换任务', async 
   }))
 
   assertTask(task, {
-    mode: 'Translate',
-    selectedText: '你好',
-    source: 'uia',
-    confidence: 'confirmed',
-    focusInfo,
-    delivery: 'replace-selection',
-    shouldRecordAudio: false,
+    mode: 'Dictate',
+    selectedText: '',
+    source: 'none',
+    confidence: 'none',
+    focusInfo: null,
+    delivery: 'paste',
   })
 })
 
@@ -82,7 +80,6 @@ test('自由提问意图无选区时录音并展示悬浮结果', async () => {
     confidence: 'none',
     focusInfo: null,
     delivery: 'floating-panel',
-    shouldRecordAudio: true,
   })
 })
 
@@ -101,7 +98,6 @@ test('自由提问意图有 UIA 选区时录音并展示悬浮结果', async () 
     confidence: 'confirmed',
     focusInfo,
     delivery: 'floating-panel',
-    shouldRecordAudio: true,
   })
 })
 
@@ -120,7 +116,6 @@ test('普通听写意图忽略非 confirmed 选区文本', async () => {
     confidence: 'none',
     focusInfo: null,
     delivery: 'paste',
-    shouldRecordAudio: true,
   })
 })
 
@@ -139,7 +134,6 @@ test('翻译意图有选区时仍录音并把翻译结果粘贴到光标位置',
     confidence: 'none',
     focusInfo: null,
     delivery: 'paste',
-    shouldRecordAudio: true,
   })
 })
 
@@ -158,6 +152,5 @@ test('翻译意图无选区时保留语音翻译粘贴', async () => {
     confidence: 'none',
     focusInfo: null,
     delivery: 'paste',
-    shouldRecordAudio: true,
   })
 })
