@@ -1,7 +1,6 @@
 import { ipcClient } from './ipc'
 import { hideFloatingPanel, showFreeAskResult } from './floatingPanel'
 import { getSelectedAudioDeviceId, getTranslationTargetLanguage } from './settingsStore'
-import { requestTextFlow } from './textFlow'
 import type { ShortcutIntent } from './shortcutGuard'
 import { VOICE_SERVER_WS_URL } from './voiceServer'
 import { resolveVoiceTask, type VoiceTask } from './voiceTaskResolver'
@@ -117,10 +116,6 @@ async function startRecordingFromIntent(intent: ShortcutIntent) {
 
     await ensureVoiceServerReady()
     if (!isSessionActive(audioId)) return
-    if (!task.shouldRecordAudio && task.selectedText) {
-      await translateSelectedText(audioId, task.selectedText)
-      return
-    }
     const parameters = await getStartAudioParameters(task.mode, task.selectedText)
     if (!isSessionActive(audioId)) return
     const socket = await ensureOpenWebSocket()
@@ -167,31 +162,6 @@ async function startRecordingFromIntent(intent: ShortcutIntent) {
     cleanupRecording()
     activeTask = null
     failSession(normalizeVoiceError(error, 'recording_start_failed'))
-  }
-}
-
-async function translateSelectedText(audioId: string, selectedText: string) {
-  recordingStartedAt = Date.now()
-  setSession({
-    ...session,
-    status: 'transcribing',
-    rawText: selectedText,
-    textLength: countTextLength(selectedText),
-  })
-
-  try {
-    const outputLanguage = await getTranslationTargetLanguage()
-    if (!isSessionActive(audioId)) return
-    const translatedText = await requestTextFlow({
-      mode: 'translation',
-      text: selectedText,
-      parameters: { output_language: outputLanguage },
-    })
-    if (!isSessionActive(audioId)) return
-    await completeSession(translatedText)
-  } catch (error) {
-    if (!isSessionActive(audioId)) return
-    failSession(normalizeVoiceError(error, 'refine_failed'))
   }
 }
 
@@ -325,11 +295,6 @@ async function completeSession(refinedText: string) {
   const task = activeTask
   activeTask = null
   if (!resultText) return
-
-  if (task?.delivery === 'replace-selection') {
-    await pasteResultOrShowPanel(resultText)
-    return
-  }
 
   if (task?.delivery === 'floating-panel' || completedSession.mode === 'Ask') {
     showFreeAskResult(resultText)

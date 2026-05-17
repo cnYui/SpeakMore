@@ -6,7 +6,7 @@ import {
 } from './focusedContext'
 import type { VoiceMode } from './voiceTypes'
 
-export type VoiceTaskDelivery = 'paste' | 'replace-selection' | 'floating-panel'
+export type VoiceTaskDelivery = 'paste' | 'floating-panel'
 
 export type VoiceTask = {
   mode: VoiceMode
@@ -15,7 +15,6 @@ export type VoiceTask = {
   confidence: FocusedSelectionSnapshot['confidence']
   focusInfo: FocusedInfo | null
   delivery: VoiceTaskDelivery
-  shouldRecordAudio: boolean
 }
 
 type SelectionSnapshotReader = () => Promise<FocusedSelectionSnapshot>
@@ -24,7 +23,6 @@ function createTask(
   mode: VoiceMode,
   snapshot: FocusedSelectionSnapshot,
   delivery: VoiceTaskDelivery,
-  shouldRecordAudio: boolean,
 ): VoiceTask {
   return {
     mode,
@@ -33,7 +31,6 @@ function createTask(
     confidence: snapshot.confidence,
     focusInfo: snapshot.focusInfo,
     delivery,
-    shouldRecordAudio,
   }
 }
 
@@ -57,16 +54,12 @@ export async function resolveVoiceTask(
     && Boolean(snapshot.selectedText)
 
   if (intent === 'AskShortcut') {
-    return createTask('Ask', hasConfirmedSelection ? snapshot : createNoSelectionSnapshot(snapshot), 'floating-panel', true)
+    return createTask('Ask', hasConfirmedSelection ? snapshot : createNoSelectionSnapshot(snapshot), 'floating-panel')
   }
 
   if (intent === 'TranslateShortcut') {
-    return createTask('Translate', createNoSelectionSnapshot(snapshot), 'paste', true)
+    return createTask('Translate', createNoSelectionSnapshot(snapshot), 'paste')
   }
 
-  if (hasConfirmedSelection) {
-    return createTask('Translate', snapshot, 'replace-selection', false)
-  }
-
-  return createTask('Dictate', createNoSelectionSnapshot(snapshot), 'paste', true)
+  return createTask('Dictate', createNoSelectionSnapshot(snapshot), 'paste')
 }
