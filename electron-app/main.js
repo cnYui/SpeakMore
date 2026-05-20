@@ -11,13 +11,19 @@ const {
   screen,
   session,
 } = require('electron');
-const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const TRANSLATION_TARGET_LANGUAGES = require('../shared/translation-target-languages.json');
-const { createRightAltRelay } = require('./right-alt-relay');
+const { createRightAltListenerService } = require('./right-alt-listener-service');
+const {
+  DEFAULT_LANGUAGE,
+  DEFAULT_TRANSLATION_TARGET_LANGUAGE,
+  createSettingsStore,
+  normalizeLlmRequestConfig,
+} = require('./settings-store');
+const { createVoiceBackendClient } = require('./voice-backend-client');
+const { createAudioSessionService } = require('./audio-session-service');
 const {
   createClipboardSnapshot,
   isSameFocusedContext,
@@ -34,1383 +40,353 @@ const {
   isTerminalVoiceState,
   shouldShowShortcutHint,
 } = require('./floating-window-state');
+const { createWindowManager } = require('./window-manager');
 const {
-  MAX_HISTORY_ITEMS,
   normalizeHistoryItem,
-  normalizeHistoryStats,
-  createHistoryStatsFromItems,
-  calculateHistoryStatsForDashboard,
-  upsertHistoryItemWithStats,
 } = require('./history-stats-store');
-const {
-  normalizeDictionaryEntry,
-  normalizeDictionaryCandidate,
-  upsertDictionaryEntry,
-  buildPromptDictionaryTerms,
-  learnDictionaryCandidate,
-} = require('./dictionary-store');
-const {
-  createDictionaryEntryResult,
-  updateDictionaryEntryResult,
-} = require('./dictionary-actions');
-const { createTextObservationSessionManager } = require('./text-observation-session');
+const { createAppPaths } = require('./app-paths');
+const { createLocalJsonStore } = require('./local-json-store');
+const { createHistoryRepository } = require('./history-repository');
+const { createDictionaryRepository } = require('./dictionary-repository');
+const { createTextObserverService } = require('./text-observer-service');
+const { createLocalCompatState } = require('./local-compat-state');
+const { createMainIpcRegistry } = require('./main-ipc-registry');
 
-let mainWindow = null;
-let floatingBar = null;
-let floatingPanelWindow = null;
-let tray = null;
-let registeredIpc = false;
-let rightAltReleaseTimer = null;
-let rightAltRelay = null;
-let rightAltListener = null;
-let rightAltListenerStdout = '';
-let floatingBarCompletedHideTimer = null;
-let backgroundMuteActive = false;
-let mutedBackgroundSessions = [];
 let quitAfterBackgroundAudioRestore = false;
 let appIsQuitting = false;
 let pendingInteractiveCardPayload = null;
-let floatingPanelVisible = false;
-let floatingPanelType = null;
-let lastVoiceState = null;
-let textObserverProcess = null;
-let textObserverStdoutBuffer = '';
+let sendToMainRef = () => undefined;
+let sendToFloatingBarRef = () => undefined;
 
-const DEFAULT_LANGUAGE = 'zh-CN';
-const VOICE_SERVER_URL = 'http://127.0.0.1:8000';
-const VOICE_SERVER_HEALTH_URL = `${VOICE_SERVER_URL}/health`;
-const VOICE_SERVER_READY_URL = `${VOICE_SERVER_URL}/ready`;
-const VOICE_SERVER_VOICE_FLOW_URL = `${VOICE_SERVER_URL}/ai/voice_flow`;
-const VOICE_SERVER_MODELS_URL = `${VOICE_SERVER_URL}/models`;
-const VOICE_SERVER_CONFIG_RELOAD_URL = `${VOICE_SERVER_URL}/config/reload`;
-const FLOATING_BAR_COMPLETED_HIDE_DELAY_MS = 1000;
-const FLOATING_BAR_SIZE = { width: 400, height: 360 };
-const FLOATING_PANEL_SIZE = { width: 440, height: 220 };
-const FLOATING_WINDOW_BOTTOM_GAP = 32;
-const AUDIO_SESSION_CONTROL_TIMEOUT_MS = 5000;
-const LOCAL_DATA_DIR_NAME = 'local-data';
 const SETTINGS_FILE_NAME = 'settings.json';
 const HISTORY_FILE_NAME = 'history.json';
 const HISTORY_STATS_FILE_NAME = 'history-stats.json';
 const DICTIONARY_FILE_NAME = 'dictionary.json';
 const DICTIONARY_CANDIDATES_FILE_NAME = 'dictionary-candidates.json';
-const DEFAULT_TRANSLATION_TARGET_LANGUAGE = TRANSLATION_TARGET_LANGUAGES[0]?.id || 'en';
-const SUPPORTED_TRANSLATION_TARGET_LANGUAGES = new Set(
-  TRANSLATION_TARGET_LANGUAGES.map((language) => language.id),
-);
-const DEFAULT_LLM_PROVIDER_ID = 'deepseek';
-const DEFAULT_LLM_PROVIDERS = [
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
-    defaultModel: 'deepseek-chat',
-    allowBaseUrlEdit: false,
-    authType: 'bearer',
-  },
-  {
-    id: 'openai',
-    label: 'OpenAI',
-    baseUrl: 'https://api.openai.com/v1',
-    defaultModel: 'gpt-5.4',
-    allowBaseUrlEdit: false,
-    authType: 'bearer',
-  },
-  {
-    id: 'zai',
-    label: 'Z.AI',
-    baseUrl: 'https://api.z.ai/api/paas/v4',
-    defaultModel: 'glm-4.6',
-    allowBaseUrlEdit: false,
-    authType: 'bearer',
-  },
-  {
-    id: 'openrouter',
-    label: 'OpenRouter',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    defaultModel: 'openai/gpt-5.4',
-    allowBaseUrlEdit: false,
-    authType: 'bearer',
-  },
-  {
-    id: 'anthropic',
-    label: 'Anthropic',
-    baseUrl: 'https://api.anthropic.com/v1',
-    defaultModel: 'claude-sonnet-4-5',
-    allowBaseUrlEdit: false,
-    authType: 'anthropic',
-  },
-  {
-    id: 'groq',
-    label: 'Groq',
-    baseUrl: 'https://api.groq.com/openai/v1',
-    defaultModel: 'llama-3.3-70b-versatile',
-    allowBaseUrlEdit: false,
-    authType: 'bearer',
-  },
-  {
-    id: 'cerebras',
-    label: 'Cerebras',
-    baseUrl: 'https://api.cerebras.ai/v1',
-    defaultModel: 'llama-3.3-70b',
-    allowBaseUrlEdit: false,
-    authType: 'bearer',
-  },
-  {
-    id: 'custom',
-    label: 'Custom',
-    baseUrl: 'http://localhost:11434/v1',
-    defaultModel: '',
-    allowBaseUrlEdit: true,
-    authType: 'bearer',
-  },
-];
 const SHORTCUT_DEBUG_ENABLED = ['1', 'true', 'yes', 'on'].includes(
   String(process.env.TYPELESS_SHORTCUT_DEBUG || '').toLowerCase(),
 );
 
-const localStores = {
-  'app-onboarding': {
-    isCompleted: true,
-    onboardingIsCompleted: true,
-    onboardingStep: null,
-    onboardingMaxReachedStep: null,
-  },
-  'app-settings': {
-    keyboardShortcut: {
-      pushToTalk: 'RightAlt',
-      handlesFreeMode: 'RightAlt+Space',
-      pasteLastTranscript: 'LeftCtrl+RightShift+V',
-      translationMode: 'RightAlt+RightShift',
-    },
-    microphoneDevices: [],
-    selectedMicrophoneDevice: null,
-    preferredLanguage: DEFAULT_LANGUAGE,
-    translationTargetLanguage: DEFAULT_TRANSLATION_TARGET_LANGUAGE,
-    selectedLanguages: [],
-    autoSelectLanguages: false,
-    launchAtSystemStartup: false,
-    enableInteractionSoundEffects: true,
-    enableShowAppInDock: true,
-    historyDurationSeconds: -1,
-    enabledMuteBackgroundAudio: true,
-    enabledOpusCompression: false,
-  },
-  'app-storage': {},
-};
+const appPaths = createAppPaths({
+  baseDir: __dirname,
+  getUserDataPath: () => app.getPath('userData'),
+});
 
-let localUser = {
-  user_id: 'local-user',
-  client_user_id: 'local-user',
-  email: 'local@typeless.local',
-  name: 'SpeakMore',
-  plan: 'pro',
-  subscription: {
-    plan: 'pro',
-    status: 'active',
-  },
-};
+const localJsonStore = createLocalJsonStore({
+  fs,
+  localDataDir: appPaths.localDataDir,
+  localDataPath: appPaths.localDataPath,
+});
 
-const defaultLocalSettings = {
-  preferredLanguage: DEFAULT_LANGUAGE,
-  translationTargetLanguage: DEFAULT_TRANSLATION_TARGET_LANGUAGE,
-  launchAtSystemStartup: false,
-  selectedAudioDeviceId: 'default',
-  llm: createDefaultLlmSettings(),
-};
+function localDataDir() { return appPaths.localDataDir(); }
+function logFilePath() { return appPaths.logFilePath(); }
+function recordingsDir() { return appPaths.recordingsDir(); }
+function readJsonFile(fileName, fallback) { return localJsonStore.readJsonFile(fileName, fallback); }
+function writeJsonFile(fileName, value) { return localJsonStore.writeJsonFile(fileName, value); }
 
-function localDataDir() {
-  return path.join(app.getPath('userData'), LOCAL_DATA_DIR_NAME);
-}
+const localCompatState = createLocalCompatState({
+  defaultLanguage: DEFAULT_LANGUAGE,
+  defaultTranslationTargetLanguage: DEFAULT_TRANSLATION_TARGET_LANGUAGE,
+  sendToMain: (...args) => sendToMainRef(...args),
+  sendToFloatingBar: (...args) => sendToFloatingBarRef(...args),
+});
 
-function localDataPath(fileName) {
-  return path.join(localDataDir(), fileName);
-}
-
-function logFilePath() {
-  return localDataPath('recording.log');
-}
-
-function recordingsDir() {
-  return localDataPath('recordings');
-}
-
-function readJsonFile(fileName, fallback) {
-  try {
-    const filePath = localDataPath(fileName);
-    if (!fs.existsSync(filePath)) return fallback;
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (error) {
-    console.error(`读取本地数据失败: ${fileName}`, error);
-    return fallback;
-  }
-}
-
-function writeJsonFile(fileName, value) {
-  const dir = localDataDir();
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(localDataPath(fileName), JSON.stringify(value, null, 2), 'utf8');
-  return value;
-}
-
-function createDefaultLlmSettings() {
-  return {
-    providerId: DEFAULT_LLM_PROVIDER_ID,
-    providers: DEFAULT_LLM_PROVIDERS,
-    apiKeys: Object.fromEntries(DEFAULT_LLM_PROVIDERS.map((provider) => [provider.id, ''])),
-    models: Object.fromEntries(DEFAULT_LLM_PROVIDERS.map((provider) => [provider.id, provider.defaultModel])),
-  };
-}
-
-function normalizeStringMap(value = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter((entry) => typeof entry[1] === 'string')
-      .map(([key, item]) => [key, item]),
-  );
-}
-
-function normalizeLlmProvider(candidate, fallback) {
-  const value = candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate : {};
-  const baseUrl = typeof value.baseUrl === 'string' && value.baseUrl.trim()
-    ? value.baseUrl.trim()
-    : fallback.baseUrl;
-  const defaultModel = typeof value.defaultModel === 'string'
-    ? value.defaultModel.trim()
-    : fallback.defaultModel;
-  return {
-    id: fallback.id,
-    label: typeof value.label === 'string' && value.label.trim() ? value.label.trim() : fallback.label,
-    baseUrl: fallback.allowBaseUrlEdit ? baseUrl : fallback.baseUrl,
-    defaultModel: defaultModel || fallback.defaultModel,
-    allowBaseUrlEdit: fallback.allowBaseUrlEdit,
-    authType: value.authType === 'anthropic' ? 'anthropic' : fallback.authType,
-  };
-}
-
-function normalizeLlmSettings(value = {}) {
-  const settings = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  const existingProviders = Array.isArray(settings.providers) ? settings.providers : [];
-  const providers = DEFAULT_LLM_PROVIDERS.map((fallback) => {
-    const existing = existingProviders.find((provider) => provider?.id === fallback.id);
-    return normalizeLlmProvider(existing, fallback);
-  });
-  const providerId = providers.some((provider) => provider.id === settings.providerId)
-    ? settings.providerId
-    : DEFAULT_LLM_PROVIDER_ID;
-  const apiKeySource = normalizeStringMap(settings.apiKeys);
-  const modelSource = normalizeStringMap(settings.models);
-  const apiKeys = Object.fromEntries(providers.map((provider) => [provider.id, apiKeySource[provider.id] || '']));
-  const models = Object.fromEntries(providers.map((provider) => [
-    provider.id,
-    (modelSource[provider.id] || provider.defaultModel || '').trim(),
-  ]));
-
-  return { providerId, providers, apiKeys, models };
-}
-
-function buildCurrentLlmRequestConfig(settings = readLocalSettings()) {
-  const llm = normalizeLlmSettings(settings.llm);
-  const provider = llm.providers.find((item) => item.id === llm.providerId) || llm.providers[0] || DEFAULT_LLM_PROVIDERS[0];
-  return {
-    provider_id: provider.id,
-    base_url: provider.baseUrl,
-    api_key: llm.apiKeys[provider.id] || '',
-    model: llm.models[provider.id] || provider.defaultModel,
-    auth_type: provider.authType,
-  };
-}
-
-function normalizeLlmRequestConfig(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const providerId = typeof value.provider_id === 'string' ? value.provider_id.trim() : '';
-  const baseUrl = typeof value.base_url === 'string' ? value.base_url.trim() : '';
-  const model = typeof value.model === 'string' ? value.model.trim() : '';
-  if (!providerId || !baseUrl || !model) return null;
-  return {
-    provider_id: providerId,
-    base_url: baseUrl,
-    api_key: typeof value.api_key === 'string' ? value.api_key : '',
-    model,
-    auth_type: value.auth_type === 'anthropic' ? 'anthropic' : 'bearer',
-  };
-}
-
-function normalizeLocalSettings(value = {}) {
-  return {
-    ...defaultLocalSettings,
-    preferredLanguage: DEFAULT_LANGUAGE,
-    translationTargetLanguage: SUPPORTED_TRANSLATION_TARGET_LANGUAGES.has(value.translationTargetLanguage)
-      ? value.translationTargetLanguage
-      : DEFAULT_TRANSLATION_TARGET_LANGUAGE,
-    launchAtSystemStartup: Boolean(value.launchAtSystemStartup),
-    selectedAudioDeviceId: typeof value.selectedAudioDeviceId === 'string' && value.selectedAudioDeviceId
-      ? value.selectedAudioDeviceId
-      : 'default',
-    llm: normalizeLlmSettings(value.llm),
-  };
-}
-
-function syncLocalSettingsToLegacyStore(settings) {
-  localStores['app-settings'].launchAtSystemStartup = settings.launchAtSystemStartup;
-  localStores['app-settings'].translationTargetLanguage = settings.translationTargetLanguage;
-  localStores['app-settings'].selectedMicrophoneDevice = settings.selectedAudioDeviceId === 'default'
-    ? null
-    : settings.selectedAudioDeviceId;
-}
+const settingsStore = createSettingsStore({
+  readJsonFile,
+  writeJsonFile,
+  syncSettings: (...args) => localCompatState.syncLocalSettingsToLegacyStore(...args),
+  fileName: SETTINGS_FILE_NAME,
+});
 
 function readLocalSettings() {
-  const settings = normalizeLocalSettings(readJsonFile(SETTINGS_FILE_NAME, defaultLocalSettings));
-  syncLocalSettingsToLegacyStore(settings);
-  return settings;
+  return settingsStore.readLocalSettings();
 }
 
 function writeLocalSettings(settings) {
-  const normalized = normalizeLocalSettings(settings);
-  writeJsonFile(SETTINGS_FILE_NAME, normalized);
-  syncLocalSettingsToLegacyStore(normalized);
-  return normalized;
+  return settingsStore.writeLocalSettings(settings);
 }
 
+function buildCurrentLlmRequestConfig(settings = readLocalSettings()) {
+  return settingsStore.buildCurrentLlmRequestConfig(settings);
+}
+
+const voiceBackendClient = createVoiceBackendClient({
+  fetchImpl: fetch,
+  checkReadyFetchImpl: fetch,
+  buildCurrentLlmRequestConfig: () => buildCurrentLlmRequestConfig(),
+  normalizeLlmRequestConfig,
+});
+
+const audioSessionService = createAudioSessionService({
+  isEnabled: () => localCompatState.localStores['app-settings'].enabledMuteBackgroundAudio !== false,
+  getTypelessProcessIds: () => {
+    const processIds = new Set([process.pid]);
+
+    for (const windowInstance of BrowserWindow.getAllWindows()) {
+      if (windowInstance.isDestroyed()) continue;
+      const osProcessId = windowInstance.webContents?.getOSProcessId?.();
+      if (typeof osProcessId === 'number' && osProcessId > 0) {
+        processIds.add(osProcessId);
+      }
+    }
+
+    return Array.from(processIds);
+  },
+  audioSessionControlPath: () => audioSessionControlPath(),
+  processEnv: process.env,
+  platform: process.platform,
+  workDir: __dirname,
+  timeoutMs: 5000,
+  spawnProcess: spawn,
+  logger: console,
+});
+
+const historyRepository = createHistoryRepository({
+  readJsonFile,
+  writeJsonFile,
+  historyFileName: HISTORY_FILE_NAME,
+  statsFileName: HISTORY_STATS_FILE_NAME,
+});
+
+const dictionaryRepository = createDictionaryRepository({
+  readJsonFile,
+  writeJsonFile,
+  dictionaryFileName: DICTIONARY_FILE_NAME,
+  candidatesFileName: DICTIONARY_CANDIDATES_FILE_NAME,
+});
+
 function readHistoryItems() {
-  const value = readJsonFile(HISTORY_FILE_NAME, []);
-  if (!Array.isArray(value)) return [];
-  return value.map(normalizeHistoryItem).slice(0, MAX_HISTORY_ITEMS);
+  return historyRepository.readHistoryItems();
 }
 
 function writeHistoryItems(items) {
-  return writeJsonFile(HISTORY_FILE_NAME, items.map(normalizeHistoryItem).slice(0, MAX_HISTORY_ITEMS));
-}
-
-function isPersistedHistoryStats(value) {
-  return Boolean(value)
-    && typeof value === 'object'
-    && !Array.isArray(value)
-    && Array.isArray(value.countedHistoryIds);
+  return historyRepository.writeHistoryItems(items);
 }
 
 function readHistoryStats() {
-  const value = readJsonFile(HISTORY_STATS_FILE_NAME, null);
-  if (isPersistedHistoryStats(value)) return normalizeHistoryStats(value);
-
-  const migrated = createHistoryStatsFromItems(readHistoryItems());
-  writeHistoryStats(migrated);
-  return migrated;
+  return historyRepository.readHistoryStats();
 }
 
-function writeHistoryStats(stats) {
-  return writeJsonFile(HISTORY_STATS_FILE_NAME, normalizeHistoryStats(stats));
+function readHistoryStatsForDashboard() {
+  return historyRepository.readHistoryStatsForDashboard();
 }
 
-function readDictionaryEntries() {
-  const value = readJsonFile(DICTIONARY_FILE_NAME, []);
-  if (!Array.isArray(value)) return [];
-  return value.map(normalizeDictionaryEntry).filter((entry) => entry.phrase);
-}
-
-function writeDictionaryEntries(entries) {
-  return writeJsonFile(
-    DICTIONARY_FILE_NAME,
-    entries.map(normalizeDictionaryEntry).filter((entry) => entry.phrase),
-  );
-}
-
-function readDictionaryCandidates() {
-  const value = readJsonFile(DICTIONARY_CANDIDATES_FILE_NAME, []);
-  if (!Array.isArray(value)) return [];
-  return value.map(normalizeDictionaryCandidate).filter((candidate) => candidate.wrong && candidate.correct);
-}
-
-function writeDictionaryCandidates(candidates) {
-  return writeJsonFile(
-    DICTIONARY_CANDIDATES_FILE_NAME,
-    candidates.map(normalizeDictionaryCandidate).filter((candidate) => candidate.wrong && candidate.correct),
-  );
-}
-
-function readPromptDictionaryTerms() {
-  return buildPromptDictionaryTerms(readDictionaryEntries());
+function upsertHistoryItem(item) {
+  return historyRepository.upsertHistoryItem(item);
 }
 
 function learnDictionaryCorrection(candidate) {
-  const result = learnDictionaryCandidate(readDictionaryCandidates(), candidate);
-  writeDictionaryCandidates(result.candidates);
-  if (result.promotedEntry) {
-    writeDictionaryEntries(upsertDictionaryEntry(readDictionaryEntries(), result.promotedEntry));
-  }
-  return result;
+  return dictionaryRepository.learnDictionaryCorrection(candidate);
 }
 
-function textObserverExecutablePath() {
-  return path.join(__dirname, 'windows-text-observer', 'bin', 'Debug', 'net8.0-windows', 'WindowsTextObserver.exe');
-}
-
-function handleTextObserverLine(line) {
-  try {
-    const message = JSON.parse(line);
-    if (message.type === 'observed-text') {
-      void textObservationManager.handleObservedText(message);
-    }
-  } catch (error) {
-    console.error('解析文本观察 helper 消息失败', error);
-  }
-}
-
-function ensureTextObserverProcess() {
-  if (process.platform !== 'win32') return null;
-  if (textObserverProcess && !textObserverProcess.killed) return textObserverProcess;
-
-  const exePath = textObserverExecutablePath();
-  if (!fs.existsSync(exePath)) return null;
-
-  textObserverProcess = spawn(exePath, [], { windowsHide: true });
-  textObserverStdoutBuffer = '';
-  textObserverProcess.stdout.setEncoding('utf8');
-  textObserverProcess.stdout.on('data', (chunk) => {
-    textObserverStdoutBuffer += chunk;
-    const lines = textObserverStdoutBuffer.split(/\r?\n/);
-    textObserverStdoutBuffer = lines.pop() || '';
-    lines.filter(Boolean).forEach(handleTextObserverLine);
-  });
-  textObserverProcess.on('exit', () => {
-    textObserverProcess = null;
-    textObserverStdoutBuffer = '';
-  });
-  return textObserverProcess;
-}
-
-function sendTextObserverMessage(message) {
-  const child = ensureTextObserverProcess();
-  if (!child || !child.stdin.writable) return false;
-  child.stdin.write(`${JSON.stringify(message)}\n`);
-  return true;
-}
-
-const textObservationManager = createTextObservationSessionManager({
-  startNativeObservation: async (session) => {
-    const sent = sendTextObserverMessage({
-      type: 'observe-start',
-      audioId: session.audioId,
-      pastedText: session.pastedText,
-      timeoutMs: session.timeoutMs,
-    });
-    return sent ? { success: true } : { success: false, code: 'native_observer_unavailable' };
-  },
-  stopNativeObservation: async (session) => {
-    sendTextObserverMessage({ type: 'observe-stop', audioId: session.audioId });
-  },
+const textObserverService = createTextObserverService({
+  exePath: appPaths.textObserverExecutablePath(),
+  processPlatform: process.platform,
+  spawnProcess: spawn,
+  fileExists: fs.existsSync,
   learnCorrection: async (candidate) => learnDictionaryCorrection(candidate),
+  logger: console,
 });
+
+const textObservationManager = textObserverService.textObservationManager;
 
 function debugShortcut(event, payload = {}) {
   if (!SHORTCUT_DEBUG_ENABLED) return;
   console.log(`[shortcut-debug] ${event} ${JSON.stringify(payload)}`);
 }
 
-function readHistoryStatsForDashboard() {
-  return calculateHistoryStatsForDashboard(readHistoryStats());
+function calculateDirectorySize(targetPath) { return localJsonStore.calculateDirectorySize(targetPath); }
+function preloadPath() { return appPaths.preloadPath(); }
+function iconPath() { return appPaths.iconPath(); }
+function trayIconPath() { return appPaths.trayIconPath(); }
+function rightAltListenerPath() { return appPaths.rightAltListenerPath(); }
+function audioSessionControlPath() { return appPaths.audioSessionControlPath(); }
+
+let windowManager = null;
+
+function getMainWindow() {
+  return windowManager?.getMainWindow() || null;
 }
 
-function upsertHistoryItem(item) {
-  const result = upsertHistoryItemWithStats(readHistoryItems(), readHistoryStats(), item);
-  writeHistoryItems(result.items);
-  writeHistoryStats(result.stats);
-  return result.items[0];
+function getFloatingBar() {
+  return windowManager?.getFloatingBar() || null;
 }
 
-function calculateDirectorySize(targetPath) {
-  if (!fs.existsSync(targetPath)) return 0;
-
-  const stat = fs.statSync(targetPath);
-  if (!stat.isDirectory()) return stat.size;
-
-  return fs.readdirSync(targetPath, { withFileTypes: true }).reduce((total, entry) => {
-    const nextPath = path.join(targetPath, entry.name);
-    if (entry.isDirectory()) return total + calculateDirectorySize(nextPath);
-    return total + fs.statSync(nextPath).size;
-  }, 0);
-}
-
-function extractedPath(...segments) {
-  return path.join(__dirname, '..', 'app-extracted', ...segments);
-}
-
-function extractedRendererPath(fileName) {
-  return extractedPath('dist', 'renderer', fileName);
-}
-
-function preloadPath() {
-  return path.join(__dirname, 'preload.js');
-}
-
-function iconPath() {
-  return extractedPath('build', 'icons', 'png', '32x32.png');
-}
-
-function trayIconPath() {
-  return extractedPath('build', 'tray-win32.png');
-}
-
-function rightAltListenerPath() {
-  return path.join(__dirname, 'right-alt-listener.ps1');
-}
-
-function audioSessionControlPath() {
-  return path.join(__dirname, 'audio-session-control.ps1');
-}
-
-function loadExtractedPage(windowInstance, fileName) {
-  windowInstance.loadFile(extractedRendererPath(fileName));
+function getFloatingPanelWindow() {
+  return windowManager?.getFloatingPanelWindow() || null;
 }
 
 function sendToMain(channel, payload) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(channel, payload);
+  const target = getMainWindow();
+  if (target && !target.isDestroyed()) {
+    target.webContents.send(channel, payload);
   }
 }
 
 function sendToFloatingBar(channel, payload) {
-  if (floatingBar && !floatingBar.isDestroyed()) {
-    floatingBar.webContents.send(channel, payload);
+  const target = getFloatingBar();
+  if (target && !target.isDestroyed()) {
+    target.webContents.send(channel, payload);
   }
 }
 
 function sendToFloatingPanel(channel, payload) {
-  if (floatingPanelWindow && !floatingPanelWindow.isDestroyed()) {
-    floatingPanelWindow.webContents.send(channel, payload);
+  const target = getFloatingPanelWindow();
+  if (target && !target.isDestroyed()) {
+    target.webContents.send(channel, payload);
   }
 }
 
-function emitUserStateChange() {
-  sendToMain('user-state-change', localUser);
-}
-
-function emitUserRoleChange() {
-  sendToMain('user-role-change', {
-    plan: localUser.plan,
-    subscription: localUser.subscription,
-  });
-}
-
-function clearFloatingBarCompletedHideTimer() {
-  if (!floatingBarCompletedHideTimer) return;
-  clearTimeout(floatingBarCompletedHideTimer);
-  floatingBarCompletedHideTimer = null;
-}
-
-function showFloatingBar() {
-  if (!floatingBar || floatingBar.isDestroyed()) return;
-  clearFloatingBarCompletedHideTimer();
-  positionFloatingBar();
-  floatingBar.setIgnoreMouseEvents(false);
-  floatingBar.show();
-}
-
-function hideFloatingBar() {
-  if (!floatingBar || floatingBar.isDestroyed()) return;
-  clearFloatingBarCompletedHideTimer();
-  floatingBar.setIgnoreMouseEvents(true, { forward: true });
-  floatingBar.hide();
-}
-
-function showFloatingPanel(payload = { visible: true, type: 'shortcut-hint' }) {
-  createFloatingPanelWindow();
-  if (!floatingPanelWindow || floatingPanelWindow.isDestroyed()) return;
-  floatingPanelVisible = true;
-  floatingPanelType = payload.type || 'shortcut-hint';
-  positionFloatingPanel();
-  floatingPanelWindow.setIgnoreMouseEvents(false);
-  floatingPanelWindow.show();
-}
-
-function hideFloatingPanel() {
-  floatingPanelVisible = false;
-  floatingPanelType = null;
-  if (!floatingPanelWindow || floatingPanelWindow.isDestroyed()) return;
-  floatingPanelWindow.setIgnoreMouseEvents(true, { forward: true });
-  floatingPanelWindow.hide();
-}
-
-function normalizeFloatingPanelPayload(payload = {}) {
-  const type = payload.type === 'free-ask-result' ? 'free-ask-result' : 'shortcut-hint';
-  return { ...payload, type };
-}
-
-function scheduleFloatingBarCompletedHide() {
-  clearFloatingBarCompletedHideTimer();
-  floatingBarCompletedHideTimer = setTimeout(() => {
-    lastVoiceState = null;
-    hideFloatingBar();
-  }, FLOATING_BAR_COMPLETED_HIDE_DELAY_MS);
-}
-
-function renderFloatingBarForVoiceState(payload = {}) {
-  if (isTerminalVoiceState(payload)) {
-    showFloatingBar();
-    scheduleFloatingBarCompletedHide();
-    return;
-  }
-
-  if (payload.visible || isErrorVoiceState(payload)) {
-    clearFloatingBarCompletedHideTimer();
-    showFloatingBar();
-    return;
-  }
-
-  lastVoiceState = null;
-  hideFloatingBar();
-}
-
-function updateFloatingBarVisibility(keys) {
-  if (floatingPanelVisible) return;
-  const hasActiveKey = Array.isArray(keys) && keys.some((key) => key?.isKeydown);
-  if (hasActiveKey) showFloatingBar();
-}
-
-function getCurrentFloatingWorkArea() {
-  try {
-    return screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  } catch {
-    return screen.getPrimaryDisplay().workArea;
-  }
-}
-
-function resolveFloatingBarBounds() {
-  return resolveBottomCenterBounds(getCurrentFloatingWorkArea(), FLOATING_BAR_SIZE, FLOATING_WINDOW_BOTTOM_GAP);
-}
-
-function resolveFloatingPanelBounds() {
-  return resolveBottomCenterBounds(getCurrentFloatingWorkArea(), FLOATING_PANEL_SIZE, FLOATING_WINDOW_BOTTOM_GAP);
-}
-
-function positionFloatingBar() {
-  if (!floatingBar || floatingBar.isDestroyed()) return;
-  floatingBar.setBounds(resolveFloatingBarBounds(), false);
-}
-
-function positionFloatingPanel() {
-  if (!floatingPanelWindow || floatingPanelWindow.isDestroyed()) return;
-  floatingPanelWindow.setBounds(resolveFloatingPanelBounds(), false);
-}
-
-function createRightAltKeyDownEvent() {
-  return {
-    keyCode: 165,
-    keyName: 'RightAlt',
-    enKeyName: 'RightAlt',
-    isKeydown: true,
-    isBlocked: false,
-    timestamp: Date.now(),
-  };
-}
-
-function createRightAltKeyUpEvent() {
-  return {
-    keyCode: 165,
-    keyName: 'RightAlt',
-    enKeyName: 'RightAlt',
-    isKeydown: false,
-    isBlocked: false,
-    timestamp: Date.now(),
-  };
-}
-
-function createSpaceKeyboardEvent(isKeydown) {
-  return {
-    keyCode: 32,
-    keyName: 'Space',
-    enKeyName: 'Space',
-    isKeydown,
-    isBlocked: false,
-    timestamp: Date.now(),
-  };
-}
-
-function createRightShiftKeyboardEvent(isKeydown) {
-  return {
-    keyCode: 161,
-    keyName: 'RightShift',
-    enKeyName: 'RightShift',
-    isKeydown,
-    isBlocked: false,
-    timestamp: Date.now(),
-  };
-}
-
-function keyboardEventFromListenerPayload(payload) {
-  if (payload.key === 'Space') return createSpaceKeyboardEvent(Boolean(payload.isKeydown));
-  if (payload.key === 'RightShift') return createRightShiftKeyboardEvent(Boolean(payload.isKeydown));
-  return payload.isKeydown ? createRightAltKeyDownEvent() : createRightAltKeyUpEvent();
-}
+sendToMainRef = sendToMain;
+sendToFloatingBarRef = sendToFloatingBar;
 
 function emitKeyboardState(keys) {
-  updateFloatingBarVisibility(keys);
+  windowManager?.updateFloatingBarVisibility(keys);
   sendToMain('global-keyboard', keys);
 }
 
-function getRightAltRelay() {
-  if (rightAltRelay) return rightAltRelay;
-
-  rightAltRelay = createRightAltRelay({
-    emitKeyboardState,
-    setTimer: setTimeout,
-    clearTimer: clearTimeout,
-    now: () => Date.now(),
-    debugLog: debugShortcut,
-  });
-
-  return rightAltRelay;
-}
-
-function emitRightAltPulse() {
-  if (rightAltReleaseTimer) {
-    clearTimeout(rightAltReleaseTimer);
-  }
-
-  emitKeyboardState([createRightAltKeyDownEvent()]);
-  rightAltReleaseTimer = setTimeout(() => {
-    emitKeyboardState([createRightAltKeyUpEvent()]);
-    setTimeout(() => emitKeyboardState([]), 40);
-    rightAltReleaseTimer = null;
-  }, 900);
-}
-
-function handleRightAltListenerLine(line) {
-  if (!line.trim()) return;
-
-  try {
-    const payload = JSON.parse(line);
-    debugShortcut('right-alt-listener:payload', payload);
-    if (payload.key === 'Escape') {
-      if (payload.isKeydown) {
-        if (isActiveVoiceState(lastVoiceState)) {
-          sendToMain('voice-cancel-requested');
-          return;
-        }
-        if (floatingPanelVisible) {
-          hideFloatingPanel();
-          return;
-        }
-        sendToMain('voice-cancel-requested');
-      }
-      return;
-    }
-    getRightAltRelay().handlePayload(payload);
-  } catch (error) {
-    console.error('Right Alt 监听器输出解析失败:', error);
-  }
-}
-
-function startRightAltListener() {
-  if (process.platform !== 'win32') return false;
-  if (rightAltListener && !rightAltListener.killed) return true;
-
-  rightAltListener = spawn('powershell.exe', [
-    '-NoProfile',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-WindowStyle',
-    'Hidden',
-    '-File',
-    rightAltListenerPath(),
-  ], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-    env: {
-      SystemRoot: process.env.SystemRoot,
-      PATH: process.env.PATH,
-      TEMP: process.env.TEMP,
-      TMP: process.env.TMP,
-      USERPROFILE: process.env.USERPROFILE,
-      APPDATA: process.env.APPDATA,
-    },
-  });
-
-  rightAltListener.stdout.on('data', (chunk) => {
-    rightAltListenerStdout += chunk.toString('utf8');
-    const lines = rightAltListenerStdout.split(/\r?\n/);
-    rightAltListenerStdout = lines.pop() || '';
-    lines.forEach(handleRightAltListenerLine);
-  });
-
-  rightAltListener.stderr.on('data', (chunk) => {
-    console.error(`Right Alt 监听器错误: ${chunk.toString('utf8').trim()}`);
-  });
-
-  rightAltListener.on('exit', () => {
-    rightAltListener = null;
-    rightAltListenerStdout = '';
-  });
-
-  return true;
-}
-
-function stopRightAltListener() {
-  if (!rightAltListener || rightAltListener.killed) return;
-  rightAltListener.kill();
-  rightAltListener = null;
-}
-
-function minimalProcessEnv(extra = {}) {
-  return {
-    SystemRoot: process.env.SystemRoot,
-    PATH: process.env.PATH,
-    TEMP: process.env.TEMP,
-    TMP: process.env.TMP,
-    USERPROFILE: process.env.USERPROFILE,
-    APPDATA: process.env.APPDATA,
-    LOCALAPPDATA: process.env.LOCALAPPDATA,
-    ...extra,
-  };
-}
-
-function shouldMuteBackgroundAudio() {
-  return process.platform === 'win32' && localStores['app-settings'].enabledMuteBackgroundAudio !== false;
-}
-
-function getTypelessProcessIds() {
-  const processIds = new Set([process.pid]);
-
-  for (const windowInstance of BrowserWindow.getAllWindows()) {
-    if (windowInstance.isDestroyed()) continue;
-    const osProcessId = windowInstance.webContents?.getOSProcessId?.();
-    if (typeof osProcessId === 'number' && osProcessId > 0) {
-      processIds.add(osProcessId);
-    }
-  }
-
-  return Array.from(processIds);
-}
-
-function runAudioSessionControl(action, payload = {}) {
-  return new Promise((resolve, reject) => {
-    if (!shouldMuteBackgroundAudio()) {
-      resolve({ success: true, mutedSessions: [], restoredSessions: [] });
-      return;
-    }
-
-    const child = spawn('powershell.exe', [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-File',
-      audioSessionControlPath(),
-      '-Action',
-      action,
-      '-Payload',
-      JSON.stringify(payload),
-    ], {
-      cwd: __dirname,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: minimalProcessEnv(),
-    });
-
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`audio session control timeout after ${AUDIO_SESSION_CONTROL_TIMEOUT_MS}ms`));
-    }, AUDIO_SESSION_CONTROL_TIMEOUT_MS);
-
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString('utf8');
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString('utf8');
-    });
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on('exit', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `audio session control exited with code ${code}`));
-        return;
-      }
-
-      try {
-        resolve(stdout.trim() ? JSON.parse(stdout) : {});
-      } catch (error) {
-        reject(error);
-      }
-    });
-  });
-}
-
-async function restoreMutedBackgroundSessions() {
-  if (!mutedBackgroundSessions.length) {
-    backgroundMuteActive = false;
-    return { success: true, restoredSessions: [] };
-  }
-
-  try {
-    const result = await runAudioSessionControl('restore-sessions', {
-      mutedSessions: mutedBackgroundSessions,
-    });
-    mutedBackgroundSessions = [];
-    backgroundMuteActive = false;
-    return {
-      success: Boolean(result?.success),
-      restoredSessions: Array.isArray(result?.restoredSessions) ? result.restoredSessions : [],
-    };
-  } catch (error) {
-    console.error('恢复后台音频会话失败:', error);
-    mutedBackgroundSessions = [];
-    backgroundMuteActive = false;
-    return {
-      success: false,
-      restoredSessions: [],
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-async function muteBackgroundSessionsForRecording() {
-  if (!shouldMuteBackgroundAudio()) {
-    mutedBackgroundSessions = [];
-    backgroundMuteActive = false;
-    return { success: true, mutedSessions: [] };
-  }
-
-  if (backgroundMuteActive || mutedBackgroundSessions.length) {
-    await restoreMutedBackgroundSessions();
-  }
-
-  try {
-    const result = await runAudioSessionControl('mute-active-sessions', {
-      excludedProcessIds: getTypelessProcessIds(),
-    });
-    mutedBackgroundSessions = Array.isArray(result?.mutedSessions) ? result.mutedSessions : [];
-    backgroundMuteActive = mutedBackgroundSessions.length > 0;
-    return {
-      success: Boolean(result?.success),
-      mutedSessions: mutedBackgroundSessions,
-    };
-  } catch (error) {
-    console.error('静音后台音频会话失败:', error);
-    mutedBackgroundSessions = [];
-    backgroundMuteActive = false;
-    return {
-      success: false,
-      mutedSessions: [],
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-async function readJsonSafely(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function resolveVoiceServerProbeDetail(url, status, payload) {
-  if (payload && typeof payload === 'object') {
-    if (typeof payload.detail === 'string' && payload.detail) return payload.detail;
-    if (typeof payload.status === 'string' && payload.status) return payload.status;
-  }
-
-  return status > 0 ? `${url} 返回 ${status}` : `无法连接 ${url}`;
-}
-
-async function probeVoiceServer(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 700);
-
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    const payload = await readJsonSafely(response);
-    return {
-      success: response.ok,
-      status: response.status,
-      detail: resolveVoiceServerProbeDetail(url, response.status, payload),
-      payload,
-    };
-  } catch {
-    return {
-      success: false,
-      status: 0,
-      detail: `无法连接 ${url}`,
-      payload: null,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function checkVoiceServerReady() {
-  return probeVoiceServer(VOICE_SERVER_READY_URL);
-}
-
-async function callModelBackend(pathname = '', options = {}) {
-  const url = `${VOICE_SERVER_MODELS_URL}${pathname}`;
-  try {
-    const response = await fetch(url, {
-      method: options.method || 'GET',
-      headers: { 'Content-Type': 'application/json' },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
-    const payload = await readJsonSafely(response);
-
-    if (!response.ok) {
-      return {
-        success: false,
-        code: response.status === 0 ? 'backend_unavailable' : 'model_request_failed',
-        detail: payload?.detail || resolveVoiceServerProbeDetail(url, response.status, payload),
-        data: payload,
-      };
-    }
-
-    return { success: true, data: payload };
-  } catch (error) {
-    return {
-      success: false,
-      code: 'backend_unavailable',
-      detail: error instanceof Error ? error.message : String(error),
-      data: null,
-    };
-  }
-}
-
-async function reloadVoiceServerConfig() {
-  try {
-    const response = await fetch(VOICE_SERVER_CONFIG_RELOAD_URL, { method: 'POST' });
-    const payload = await readJsonSafely(response);
-    if (!response.ok) {
-      return {
-        success: false,
-        code: 'config_reload_failed',
-        detail: payload?.detail || resolveVoiceServerProbeDetail(VOICE_SERVER_CONFIG_RELOAD_URL, response.status, payload),
-        data: payload,
-      };
-    }
-    return { success: true, detail: payload?.detail || '大模型配置已重载', data: payload };
-  } catch (error) {
-    return {
-      success: false,
-      code: 'backend_unavailable',
-      detail: error instanceof Error ? error.message : String(error),
-      data: null,
-    };
-  }
-}
-
-function normalizeVoiceMode(mode) {
-  const normalized = String(mode || 'transcript').toLowerCase();
-  if (normalized === 'dictate' || normalized === 'dictation') return 'transcript';
-  if (normalized === 'ask' || normalized === 'ask_anything') return 'ask_anything';
-  if (normalized === 'translate' || normalized === 'translation') return 'translation';
-  return 'transcript';
-}
-
-function bufferFromVoicePayload(payload = {}) {
-  const candidates = [
-    payload.arrayBuffer,
-    payload.audioBuffer,
-    payload.buffer,
-    payload.data,
-    payload.audio,
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    if (Buffer.isBuffer(candidate)) return candidate;
-    if (candidate instanceof ArrayBuffer) return Buffer.from(candidate);
-    if (ArrayBuffer.isView(candidate)) {
-      return Buffer.from(candidate.buffer, candidate.byteOffset, candidate.byteLength);
-    }
-    if (candidate.type === 'Buffer' && Array.isArray(candidate.data)) {
-      return Buffer.from(candidate.data);
-    }
-    if (typeof candidate === 'string') {
-      return Buffer.from(candidate, 'base64');
-    }
-  }
-
-  return null;
-}
-
-function appendJsonFormField(formData, name, value, fallback = {}) {
-  if (typeof value === 'string') {
-    formData.append(name, value || JSON.stringify(fallback));
-    return;
-  }
-  formData.append(name, JSON.stringify(value || fallback));
-}
-
-function parseJsonObject(value, fallback = {}) {
-  if (!value) return fallback;
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value);
-      return parsed && typeof parsed === 'object' ? parsed : fallback;
-    } catch {
-      return fallback;
-    }
-  }
-  return typeof value === 'object' ? value : fallback;
-}
-
-function buildVoiceFlowParameters(payload = {}) {
-  const parameters = parseJsonObject(payload.parameters);
-  const audioContext = parseJsonObject(payload.audioContext || payload.audio_context);
-  const modeConfig = parseJsonObject(payload.modeConfig || payload.mode_config);
-
-  const selectedText = (
-    parameters.selected_text
-    || payload.selectedText
-    || payload.selected_text
-    || audioContext.selected_text
-    || audioContext.selectedText
-    || ''
-  );
-  const outputLanguage = (
-    parameters.output_language
-    || payload.outputLanguage
-    || payload.output_language
-    || modeConfig.output_language
-    || modeConfig.outputLanguage
-    || ''
-  );
-
-  return {
-    ...parameters,
-    llm: normalizeLlmRequestConfig(parameters.llm) || buildCurrentLlmRequestConfig(),
-    ...(selectedText ? { selected_text: selectedText } : {}),
-    ...(outputLanguage ? { output_language: outputLanguage } : {}),
-  };
-}
-
-function buildVoiceFlowFormData(payload = {}) {
-  const audioBuffer = bufferFromVoicePayload(payload);
-  if (!audioBuffer || audioBuffer.length === 0) {
-    throw new Error('缺少音频数据');
-  }
-
-  const mimeType = payload.mimeType || payload.contentType || 'audio/webm;codecs=opus';
-  const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('wav') ? 'wav' : 'webm';
-  const audioId = payload.audioId || payload.audio_id || crypto.randomUUID();
-  const formData = new FormData();
-  const audioBlob = new Blob([audioBuffer], { type: mimeType });
-
-  formData.append('audio_file', audioBlob, `${audioId}.${extension}`);
-  formData.append('audio_id', audioId);
-  formData.append('mode', normalizeVoiceMode(payload.mode));
-  appendJsonFormField(formData, 'audio_context', payload.audioContext || payload.audio_context);
-  appendJsonFormField(formData, 'audio_metadata', payload.audioMetadata || payload.audio_metadata);
-  appendJsonFormField(formData, 'parameters', buildVoiceFlowParameters(payload));
-  formData.append('is_retry', String(Boolean(payload.isRetry || payload.is_retry)));
-  formData.append('device_name', payload.deviceName || payload.device_name || '');
-  formData.append('user_over_time', String(payload.userOverTime || payload.user_over_time || ''));
-  formData.append('send_time', String(Date.now()));
-
-  return formData;
-}
-
-async function callVoiceFlowBackend(payload = {}) {
-  const readyState = await checkVoiceServerReady();
-  if (!readyState.success) {
-    return {
-      success: false,
-      aborted: false,
-      debug: readyState.payload,
-      detail: readyState.detail,
-      code: 'backend_not_ready',
-      paywall: null,
-      error: readyState.detail,
-    };
-  }
-
-  const response = await fetch(VOICE_SERVER_VOICE_FLOW_URL, {
-    method: 'POST',
-    body: buildVoiceFlowFormData(payload),
-  });
-  const result = await readJsonSafely(response);
-
-  if (!response.ok || !result || typeof result !== 'object' || result?.status === 'ERROR') {
-    const detail = result?.data?.detail || result?.data?.refine_text || resolveVoiceServerProbeDetail(VOICE_SERVER_VOICE_FLOW_URL, response.status, result);
-    return {
-      success: false,
-      aborted: false,
-      debug: result,
-      detail,
-      code: result?.data?.code || 'voice_flow_failed',
-      paywall: result?.data?.important_notification || null,
-      web_metadata: result?.data?.web_metadata ?? null,
-      external_action: result?.data?.external_action ?? null,
-      error: result?.data?.refine_text || detail,
-    };
-  }
-
-  const resultData = result.data || {};
-
-  return {
-    success: true,
-    aborted: false,
-    debug: result,
-    data: resultData,
-    detail: '',
-    code: '',
-    paywall: null,
-    web_metadata: resultData.web_metadata ?? null,
-    external_action: resultData.external_action ?? null,
-    ...resultData,
-  };
+function handleRightAltEscapeKeydown() {
+  return windowManager?.handleEscapeKeydown();
 }
 
 function createMainWindow() {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.show();
-    mainWindow.focus();
-    return;
-  }
-
-  mainWindow = new BrowserWindow({
-    width: 1080,
-    height: 750,
-    minWidth: 988,
-    minHeight: 658,
-    title: 'SpeakMore',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#ffffff00', symbolColor: 'rgba(0, 0, 0, 0.9)', height: 48 },
-    backgroundColor: '#ffffff',
-    hasShadow: true,
-    transparent: false,
-    icon: iconPath(),
-    webPreferences: {
-      preload: preloadPath(),
-      contextIsolation: true,
-      nodeIntegration: false,
-      session: session.fromPartition('persist:no-proxy-session'),
-      backgroundThrottling: false,
-    },
-  });
-
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'dist', 'index.html'));
-  mainWindow.on('close', (event) => {
-    if (appIsQuitting) return;
-    event.preventDefault();
-    mainWindow.hide();
-    sendToMain('page-event--hub--window-blurred');
-  });
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
-  mainWindow.on('blur', () => sendToMain('page-event--hub--window-blurred'));
+  return windowManager?.createMainWindow() || null;
 }
 
 function createFloatingBar() {
-  if (floatingBar && !floatingBar.isDestroyed()) return;
-
-  const bounds = resolveFloatingBarBounds();
-
-  floatingBar = new BrowserWindow({
-    type: 'panel',
-    ...bounds,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    alwaysOnTop: true,
-    hasShadow: false,
-    maximizable: false,
-    minimizable: false,
-    resizable: false,
-    show: false,
-    skipTaskbar: true,
-    focusable: false,
-    fullscreen: false,
-    webPreferences: {
-      preload: preloadPath(),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  floatingBar.loadFile(path.join(__dirname, 'renderer', 'dist', 'floating-bar.html'));
-  floatingBar.setIgnoreMouseEvents(true, { forward: true });
-  floatingBar.setAlwaysOnTop(true, 'screen-saver', 1);
-  floatingBar.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-  floatingBar.setFullScreenable(false);
-  floatingBar.on('closed', () => {
-    clearFloatingBarCompletedHideTimer();
-    floatingBar = null;
-  });
-}
-
-function createFloatingPanelWindow() {
-  if (floatingPanelWindow && !floatingPanelWindow.isDestroyed()) return;
-
-  const bounds = resolveFloatingPanelBounds();
-
-  floatingPanelWindow = new BrowserWindow({
-    type: 'panel',
-    ...bounds,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    alwaysOnTop: true,
-    hasShadow: false,
-    maximizable: false,
-    minimizable: false,
-    resizable: false,
-    show: false,
-    skipTaskbar: true,
-    focusable: false,
-    fullscreen: false,
-    webPreferences: {
-      preload: preloadPath(),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  floatingPanelWindow.loadFile(path.join(__dirname, 'renderer', 'dist', 'floating-panel.html'));
-  floatingPanelWindow.setIgnoreMouseEvents(true, { forward: true });
-  floatingPanelWindow.setAlwaysOnTop(true, 'screen-saver', 1);
-  floatingPanelWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-  floatingPanelWindow.setFullScreenable(false);
-  floatingPanelWindow.on('closed', () => {
-    floatingPanelVisible = false;
-    floatingPanelType = null;
-    floatingPanelWindow = null;
-  });
+  return windowManager?.createFloatingBar() || null;
 }
 
 function createTray() {
-  const image = nativeImage.createFromPath(trayIconPath()).resize({ width: 16, height: 16 });
-  tray = new Tray(image);
-  tray.setToolTip('SpeakMore');
-  tray.on('click', createMainWindow);
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '打开主窗口', click: createMainWindow },
-    { label: '显示悬浮条', click: createFloatingBar },
-    { label: '退出', click: () => app.quit() },
-  ]));
+  return windowManager?.createTray() || null;
 }
 
-function handleStoreUse(_, payload = {}) {
-  const { action, store, key, value } = payload;
-  const targetStore = localStores[store];
-  if (!targetStore) return null;
+function restoreMutedBackgroundSessions() {
+  return audioSessionService.restoreMutedBackgroundSessions();
+}
 
-  if (action === 'get-all') return { ...targetStore };
-  if (action === 'get') return key ? targetStore[key] : null;
-  if (action === 'set') {
-    targetStore[key] = key === 'preferredLanguage' ? DEFAULT_LANGUAGE : value;
-    sendToMain('app-settings-updated', {});
-    sendToFloatingBar('app-settings-updated', {});
-    return value;
-  }
-  if (action === 'delete') {
-    delete targetStore[key];
-    return true;
-  }
-  return null;
+function muteBackgroundSessionsForRecording() {
+  return audioSessionService.muteBackgroundSessionsForRecording();
+}
+
+async function checkVoiceServerReady() {
+  return voiceBackendClient.checkVoiceServerReady();
+}
+
+async function callModelBackend(pathname = '', options = {}) {
+  return voiceBackendClient.callModelBackend(pathname, options);
+}
+
+async function reloadVoiceServerConfig() {
+  return voiceBackendClient.reloadVoiceServerConfig();
+}
+
+async function callVoiceFlowBackend(payload = {}) {
+  return voiceBackendClient.callVoiceFlowBackend(payload);
+}
+
+windowManager = createWindowManager({
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  nativeImage,
+  session,
+  screen,
+  baseDir: __dirname,
+  preloadPath,
+  iconPath,
+  trayIconPath,
+  resolveBottomCenterBounds,
+  isActiveVoiceState,
+  isErrorVoiceState,
+  isTerminalVoiceState,
+  shouldShowShortcutHint,
+  sendToMain,
+  sendToFloatingBar,
+  sendToFloatingPanel,
+  getAppIsQuitting: () => appIsQuitting,
+});
+
+const mainIpcRegistry = createMainIpcRegistry({
+  app,
+  calculateDirectorySize,
+  callModelBackend,
+  callVoiceFlowBackend,
+  checkVoiceServerReady,
+  clipboard,
+  createClipboardSnapshot,
+  createFloatingBar,
+  createMainWindow,
+  crypto,
+  defaultLanguage: DEFAULT_LANGUAGE,
+  dictionaryRepository,
+  fs,
+  getFloatingBar,
+  getInteractiveCardPayload: () => pendingInteractiveCardPayload,
+  getMainWindow,
+  handleFloatingBarSetAlwaysOnTopForWindows: () => windowManager.handleFloatingBarSetAlwaysOnTopForWindows(),
+  handleFloatingBarUpdatePositions: (payload) => windowManager.handleFloatingBarUpdatePositions(payload),
+  handleFloatingPanelEvent: (payload) => windowManager.handleFloatingPanelEvent(payload),
+  handleVoiceState: (payload) => windowManager.handleVoiceState(payload),
+  ipcMain,
+  isMuted: () => audioSessionService.isMuted(),
+  isSameFocusedContext,
+  localCompatState,
+  localDataDir,
+  logFilePath,
+  logger: console,
+  muteBackgroundSessionsForRecording,
+  normalizeHistoryItem,
+  openExternalUrl,
+  os,
+  processEnv: process.env,
+  processExecPath: process.execPath,
+  readFocusedInfo,
+  readFocusedTextTarget,
+  readHistoryItems,
+  readHistoryStats,
+  readHistoryStatsForDashboard,
+  readLocalSettings,
+  readSelectedTextByClipboard,
+  readSelectionSnapshot,
+  recordingsDir,
+  reloadVoiceServerConfig,
+  restoreClipboardSnapshot,
+  restoreMutedBackgroundSessions,
+  sendToMain,
+  sendToFloatingBar,
+  setInteractiveCardPayload: (payload) => {
+    pendingInteractiveCardPayload = payload;
+  },
+  shell,
+  spawnProcess: spawn,
+  textObservationManager,
+  upsertHistoryItem,
+  writeHistoryItems,
+  writeLocalSettings,
+});
+
+function registerIpcHandlers() {
+  return mainIpcRegistry.registerIpcHandlers();
+}
+
+const rightAltListenerService = createRightAltListenerService({
+  emitKeyboardState,
+  handleEscapeKeydown: handleRightAltEscapeKeydown,
+  rightAltListenerPath: () => rightAltListenerPath(),
+  processPlatform: process.platform,
+  processEnv: process.env,
+  spawnProcess: spawn,
+  debugLog: debugShortcut,
+});
+
+function startRightAltListener() {
+  return rightAltListenerService.start();
+}
+
+function stopRightAltListener() {
+  return rightAltListenerService.stop();
 }
 
 function openExternalUrl(url) {
@@ -1420,470 +396,6 @@ function openExternalUrl(url) {
     return true;
   }
   return false;
-}
-
-function registerIpcHandlers() {
-  if (registeredIpc) return;
-  registeredIpc = true;
-
-  ipcMain.handle('clipboard-write', (_, text) => {
-    clipboard.writeText(String(text || ''));
-    return true;
-  });
-  ipcMain.handle('clipboard:write-text', (_, text) => {
-    clipboard.writeText(String(text || ''));
-    return { success: true };
-  });
-
-  ipcMain.handle('user:get-current', () => localUser);
-  ipcMain.handle('user:is-logged-in', () => true);
-  ipcMain.handle('user:login', (_, payload = {}) => {
-    localUser = {
-      ...localUser,
-      ...(payload || {}),
-      subscription: {
-        ...localUser.subscription,
-        ...(payload?.subscription || {}),
-      },
-    };
-    emitUserStateChange();
-    emitUserRoleChange();
-    return true;
-  });
-  ipcMain.handle('user:logout', () => {
-    emitUserStateChange();
-    return true;
-  });
-
-  ipcMain.handle('db:get-device-id', () => crypto.createHash('sha256').update(os.hostname()).digest('hex'));
-  ipcMain.handle('db:history-list', (_, cursor, limit) => {
-    const items = readHistoryItems();
-    if (cursor !== undefined || limit !== undefined) {
-      const start = Math.max(0, Number(cursor) || 0);
-      const size = Math.max(1, Number(limit) || items.length || 1);
-      const data = items.slice(start, start + size);
-      return { data, total: items.length, hasMore: start + size < items.length };
-    }
-    return items;
-  });
-  ipcMain.handle('db:history-latest-id', () => {
-    const latest = readHistoryItems()[0];
-    return latest ? { success: true, id: latest.id } : { success: false, id: '' };
-  });
-  ipcMain.handle('db:history-latest-id-for-error-tracking', () => {
-    const latest = readHistoryItems()[0];
-    return latest ? { success: true, id: latest.id } : { success: false, reason: 'empty' };
-  });
-  ipcMain.handle('db:history-latest', () => {
-    const latest = readHistoryItems()[0];
-    return latest ? { success: true, data: latest } : { success: false, data: null, error: 'empty' };
-  });
-  ipcMain.handle('db:history-get', (_, id) => {
-    const item = readHistoryItems().find((historyItem) => historyItem.id === id);
-    return item ? { success: true, data: item } : { success: false, error: 'not_found' };
-  });
-  ipcMain.handle('db:history-clear', () => {
-    readHistoryStats();
-    writeHistoryItems([]);
-    return { success: true };
-  });
-  ipcMain.handle('db:history-delete', (_, id) => {
-    readHistoryStats();
-    writeHistoryItems(readHistoryItems().filter((historyItem) => historyItem.id !== id));
-    return { success: true };
-  });
-  ipcMain.handle('db:history-delete-by-duration', () => ({ success: true }));
-  ipcMain.handle('db:history-save-audio', () => ({ success: true }));
-  ipcMain.handle('db:history-upsert', (_, history) => ({ success: true, data: upsertHistoryItem(history || {}) }));
-  ipcMain.handle('db:history-upsert-client-metadata', () => ({ success: true }));
-  ipcMain.handle('db:history-trigger-history-cleanup', () => ({ success: true }));
-  ipcMain.handle('db:history-trigger-disk-cleanup', () => ({ success: true }));
-  ipcMain.handle('db:history-stats', () => readHistoryStatsForDashboard());
-
-  ipcMain.handle('settings:get', () => readLocalSettings());
-  ipcMain.handle('settings:update', (_, payload = {}) => writeLocalSettings({ ...readLocalSettings(), ...payload }));
-  ipcMain.handle('settings:reload-llm-backend', async () => reloadVoiceServerConfig());
-
-  ipcMain.handle('dictionary:list', () => readDictionaryEntries());
-  ipcMain.handle('dictionary:create', (_, payload = {}) => {
-    const result = createDictionaryEntryResult(readDictionaryEntries(), payload);
-    if (result.success) writeDictionaryEntries(result.entries);
-    return { success: result.success, code: result.code, data: result.data };
-  });
-  ipcMain.handle('dictionary:update', (_, payload = {}) => {
-    const result = updateDictionaryEntryResult(readDictionaryEntries(), payload);
-    if (result.success) writeDictionaryEntries(result.entries);
-    return { success: result.success, code: result.code, data: result.data };
-  });
-  ipcMain.handle('dictionary:delete', (_, id) => {
-    writeDictionaryEntries(readDictionaryEntries().filter((entry) => entry.id !== id));
-    return { success: true };
-  });
-  ipcMain.handle('dictionary:candidates-list', () => readDictionaryCandidates());
-  ipcMain.handle('dictionary:candidate-promote', (_, id) => {
-    const now = new Date().toISOString();
-    const candidates = readDictionaryCandidates();
-    const candidate = candidates.find((item) => item.id === id);
-    if (!candidate) return { success: false, code: 'dictionary_candidate_not_found' };
-
-    const entries = upsertDictionaryEntry(readDictionaryEntries(), {
-      phrase: candidate.correct,
-      aliases: [candidate.wrong],
-      source: 'auto',
-      status: 'active',
-      hitCount: candidate.count,
-      lastLearnedAt: now,
-    }, now);
-    const nextCandidates = candidates.map((item) => (
-      item.id === id ? normalizeDictionaryCandidate({ ...item, status: 'promoted', lastSeenAt: now }) : item
-    ));
-    writeDictionaryEntries(entries);
-    writeDictionaryCandidates(nextCandidates);
-    const promoted = entries.find((entry) => entry.phrase.toLowerCase() === candidate.correct.toLowerCase()) || entries[0] || null;
-    return { success: Boolean(promoted), data: promoted };
-  });
-  ipcMain.handle('dictionary:candidate-ignore', (_, id) => {
-    writeDictionaryCandidates(readDictionaryCandidates().map((item) => (
-      item.id === id ? normalizeDictionaryCandidate({ ...item, status: 'ignored' }) : item
-    )));
-    return { success: true };
-  });
-  ipcMain.handle('dictionary:prompt-terms', () => readPromptDictionaryTerms());
-
-  ipcMain.handle('model:list', () => callModelBackend());
-  ipcMain.handle('model:download', (_, modelId) => (
-    callModelBackend(`/${encodeURIComponent(String(modelId))}/download`, { method: 'POST' })
-  ));
-  ipcMain.handle('model:cancel-download', (_, modelId) => (
-    callModelBackend(`/${encodeURIComponent(String(modelId))}/cancel`, { method: 'POST' })
-  ));
-  ipcMain.handle('model:delete', (_, modelId) => (
-    callModelBackend(`/${encodeURIComponent(String(modelId))}`, { method: 'DELETE' })
-  ));
-  ipcMain.handle('model:select', (_, modelId) => (
-    callModelBackend(`/${encodeURIComponent(String(modelId))}/select`, { method: 'POST' })
-  ));
-
-  ipcMain.handle('keyboard:start-keyboard-listener', () => true);
-  ipcMain.handle('keyboard:stop-keyboard-listener', () => true);
-  ipcMain.handle('keyboard:type-transcript', async (_, text) => {
-    const pastedText = String(text || '');
-    if (!pastedText) return false;
-
-    const textTarget = await readFocusedTextTarget();
-    if (!textTarget.success) {
-      return { success: false, reason: textTarget.reason || 'focused_text_target_unavailable' };
-    }
-
-    const previousClipboard = createClipboardSnapshot(clipboard);
-    let restoreFailed = false;
-
-    try {
-      clipboard.writeText(pastedText);
-      const ps = spawn('powershell.exe', [
-        '-NoProfile', '-Command',
-        'Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 100; [System.Windows.Forms.SendKeys]::SendWait("^v")',
-      ], {
-        windowsHide: true,
-        env: {
-          SystemRoot: process.env.SystemRoot,
-          PATH: process.env.PATH,
-          TEMP: process.env.TEMP,
-          TMP: process.env.TMP,
-        },
-      });
-      const pasteSucceeded = await new Promise((resolve) => {
-        ps.on('exit', (code) => resolve(code === 0));
-        ps.on('error', () => resolve(false));
-      });
-      if (pasteSucceeded && pastedText.trim()) {
-        await textObservationManager.start({
-          audioId: crypto.randomUUID(),
-          pastedText,
-          focusInfo: await readFocusedInfo(),
-        });
-      }
-      return { success: pasteSucceeded };
-    } finally {
-      try {
-        restoreClipboardSnapshot(clipboard, previousClipboard);
-      } catch {
-        restoreFailed = true;
-      }
-
-      if (restoreFailed) {
-        console.warn('自动粘贴后恢复剪贴板失败');
-      }
-    }
-  });
-  ipcMain.handle('keyboard:set-watcher-interval', () => true);
-  ipcMain.handle('keyboard-input:reload-keyboard-shortcuts', () => true);
-
-  ipcMain.handle('permission:request', () => true);
-  ipcMain.handle('permission:check-with-child-process', () => true);
-  ipcMain.handle('permission:reset-accessibility-permission', () => true);
-  ipcMain.handle('permission:update-auto-launch', (_, payload = {}) => {
-    app.setLoginItemSettings({ openAtLogin: Boolean(payload.enable), path: process.execPath });
-    return true;
-  });
-  ipcMain.handle('permission:update-show-app-in-dock', () => true);
-
-  ipcMain.handle('updater:check-for-update', () => null);
-  ipcMain.handle('updater:download-update', () => null);
-  ipcMain.handle('updater:quit-and-install', () => null);
-  ipcMain.handle('updater:check-update-and-download-silently', () => null);
-
-  ipcMain.handle('page:open-url', (_, payload) => openExternalUrl(payload?.url || payload));
-  ipcMain.handle('page:open-url-scheme', (_, payload) => openExternalUrl(payload?.url || payload));
-  ipcMain.handle('page:open-hub', () => {
-    createMainWindow();
-    return true;
-  });
-  ipcMain.handle('page:open-typeless-bar', () => {
-    createFloatingBar();
-    return true;
-  });
-  ipcMain.handle('page:restart-typeless-bar', () => {
-    if (floatingBar && !floatingBar.isDestroyed()) {
-      floatingBar.close();
-    }
-    createFloatingBar();
-    return true;
-  });
-  ipcMain.handle('page:open-settings-modal', (_, payload = {}) => {
-    createMainWindow();
-    sendToMain('page-event--hub--open-settings-hub', payload);
-    return true;
-  });
-  ipcMain.handle('page:change-hub-route', (_, payload = {}) => {
-    createMainWindow();
-    sendToMain('page-event--hub--change-route', payload);
-    return true;
-  });
-  ipcMain.handle('page:open-devtools', (_, payload = {}) => {
-    const target = payload?.target === 'floating-bar' ? floatingBar : mainWindow;
-    if (target && !target.isDestroyed()) {
-      target.webContents.openDevTools({ mode: payload?.mode || 'detach' });
-      return true;
-    }
-    createMainWindow();
-    mainWindow?.webContents.openDevTools({ mode: payload?.mode || 'detach' });
-    return true;
-  });
-  ipcMain.handle('page:close-all-devtools', () => {
-    for (const target of [mainWindow, floatingBar]) {
-      if (target && !target.isDestroyed() && target.webContents.isDevToolsOpened()) {
-        target.webContents.closeDevTools();
-      }
-    }
-    return true;
-  });
-  ipcMain.handle('page:open-sidebar', (_, payload = {}) => {
-    createMainWindow();
-    sendToMain('page-event--hub--open-sidebar', payload);
-    return true;
-  });
-  ipcMain.handle('page:floating-bar-click', () => true);
-  ipcMain.on('floating-panel', (_, payload = {}) => {
-    if (payload.visible) {
-      const panelPayload = normalizeFloatingPanelPayload(payload);
-
-      if (panelPayload.type === 'shortcut-hint' && !shouldShowShortcutHint(lastVoiceState)) {
-        hideFloatingPanel();
-        renderFloatingBarForVoiceState(lastVoiceState || {});
-        return;
-      }
-
-      hideFloatingBar();
-      showFloatingPanel(panelPayload);
-      sendToFloatingPanel('floating-panel', panelPayload);
-      return;
-    }
-    sendToFloatingPanel('floating-panel', { visible: false });
-    hideFloatingPanel();
-  });
-  ipcMain.on('voice-state', (_, payload = {}) => {
-    lastVoiceState = payload;
-    sendToFloatingBar('voice-state', payload);
-    if (floatingPanelVisible && isActiveVoiceState(payload)) hideFloatingPanel();
-    renderFloatingBarForVoiceState(payload);
-  });
-  ipcMain.handle('page:floating-bar-update-positions', (_, payload = []) => {
-    if (floatingBar && !floatingBar.isDestroyed()) {
-      const positions = Array.isArray(payload) ? payload : payload?.positions;
-      floatingBar.setIgnoreMouseEvents(!Array.isArray(positions) || positions.length === 0, { forward: false });
-    }
-    return true;
-  });
-  ipcMain.handle('page:floating-bar-set-always-on-top-for-windows', () => {
-    if (floatingBar && !floatingBar.isDestroyed()) {
-      floatingBar.setAlwaysOnTop(true, 'screen-saver', 1);
-      floatingBar.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-    }
-    return true;
-  });
-  ipcMain.handle('page:complete-onboarding', () => true);
-  ipcMain.handle('page:open-interactive-card', (_, payload = {}) => {
-    pendingInteractiveCardPayload = payload;
-    sendToMain('interactive-card:update', payload);
-    return true;
-  });
-  ipcMain.handle('page:close-interactive-card', () => {
-    pendingInteractiveCardPayload = null;
-    sendToMain('interactive-card:update', null);
-    return true;
-  });
-  ipcMain.handle('page:get-interactive-card-payload', () => pendingInteractiveCardPayload);
-  ipcMain.handle('page:update-interactive-card-bounds', () => true);
-  ipcMain.handle('page:close-sidebar', () => true);
-  ipcMain.handle('page:launch-application', async (_, payload = {}) => {
-    const candidate = payload?.path || payload?.applicationPath || payload?.url || payload;
-    if (typeof candidate !== 'string' || !candidate) return false;
-    if (candidate.startsWith('http:') || candidate.startsWith('https:') || candidate.startsWith('ms-settings:')) {
-      return openExternalUrl(candidate);
-    }
-    return shell.openPath(candidate).then((result) => result === '');
-  });
-  ipcMain.handle('page:set-debug-window-position', () => true);
-
-  ipcMain.handle('audio:opus-compress-by-buffer', (_, payload = {}) => ({
-    success: false,
-    arrayBuffer: payload.arrayBuffer || null,
-    message: '本地兼容层未启用 opus 压缩',
-  }));
-  ipcMain.handle('audio:opus-compress-by-audio-id', () => ({ success: false, message: '本地兼容层未启用 opus 压缩' }));
-  ipcMain.handle('audio:clean-opus-audio-file', () => true);
-  ipcMain.handle('audio:ai-voice-flow', async (_, payload = {}) => {
-    try {
-      return await callVoiceFlowBackend(payload);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        aborted: false,
-        debug: null,
-        detail,
-        code: 'voice_flow_failed',
-        paywall: null,
-        web_metadata: null,
-        external_action: null,
-        error: detail,
-      };
-    }
-  });
-  ipcMain.handle('audio:abort-ai-voice-flow-request', () => true);
-  ipcMain.handle('audio:get-devices-async', () => ({ success: true, devices: [], message: 'no devices in shim' }));
-  ipcMain.handle('audio:check-voice-server-ready', async () => checkVoiceServerReady());
-  ipcMain.handle('audio:ensure-voice-server', async () => checkVoiceServerReady());
-  ipcMain.handle('audio:mute-background-sessions', async () => muteBackgroundSessionsForRecording());
-  ipcMain.handle('audio:restore-background-sessions', async () => restoreMutedBackgroundSessions());
-  ipcMain.handle('audio:is-muted', () => ({ success: true, isMuted: backgroundMuteActive }));
-  ipcMain.handle('audio:mute', async () => muteBackgroundSessionsForRecording());
-  ipcMain.handle('audio:unmute', async () => restoreMutedBackgroundSessions());
-
-  ipcMain.handle('store:use', handleStoreUse);
-  ipcMain.handle('i18n:get-language', () => localStores['app-settings'].preferredLanguage);
-  ipcMain.handle('i18n:set-language', () => {
-    localStores['app-settings'].preferredLanguage = DEFAULT_LANGUAGE;
-    sendToMain('i18n:language-changed', { lng: localStores['app-settings'].preferredLanguage });
-    sendToFloatingBar('i18n:language-changed', { lng: localStores['app-settings'].preferredLanguage });
-    return true;
-  });
-  ipcMain.handle('i18n:reset-to-system-language', () => {
-    localStores['app-settings'].preferredLanguage = DEFAULT_LANGUAGE;
-    sendToMain('i18n:language-changed', { lng: DEFAULT_LANGUAGE });
-    sendToFloatingBar('i18n:language-changed', { lng: DEFAULT_LANGUAGE });
-    return true;
-  });
-  ipcMain.handle('mixpanel:track-event', () => ({ success: true }));
-  ipcMain.handle('release-notes:prefetch', () => true);
-  ipcMain.handle('release-notes:clear-cache', () => true);
-  ipcMain.handle('context:get-app-icon', () => null);
-  ipcMain.handle('focused-context:get-last-focused-info', () => readFocusedInfo());
-  ipcMain.handle('focused-context:get-selected-text', () => readSelectedTextByClipboard({ clipboard }));
-  ipcMain.handle('focused-context:get-selection-snapshot', () => readSelectionSnapshot({ clipboard }));
-  ipcMain.handle('focused-context:is-current-focus', async (_, previousFocusInfo) => {
-    const currentFocusInfo = await readFocusedInfo();
-    return {
-      success: true,
-      same: isSameFocusedContext(previousFocusInfo, currentFocusInfo),
-      currentFocusInfo,
-    };
-  });
-  ipcMain.handle('focused-context:get-full-context', () => ({ success: true, data: null }));
-  ipcMain.handle('device:is-lid-open', () => true);
-  ipcMain.handle('file:save-recording-log', (_, payload = {}) => {
-    fs.mkdirSync(localDataDir(), { recursive: true });
-    const content = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
-    fs.writeFileSync(logFilePath(), `${content}\n`, 'utf8');
-    return true;
-  });
-  ipcMain.handle('file:open-log', async () => {
-    fs.mkdirSync(localDataDir(), { recursive: true });
-    if (!fs.existsSync(logFilePath())) {
-      fs.writeFileSync(logFilePath(), '', 'utf8');
-    }
-    return (await shell.openPath(logFilePath())) === '';
-  });
-  ipcMain.handle('file:clear-log', () => {
-    fs.mkdirSync(localDataDir(), { recursive: true });
-    fs.writeFileSync(logFilePath(), '', 'utf8');
-    return true;
-  });
-  ipcMain.handle('file:open-recordings', async () => {
-    fs.mkdirSync(recordingsDir(), { recursive: true });
-    return (await shell.openPath(recordingsDir())) === '';
-  });
-  ipcMain.handle('file:read-recordings-size', async () => ({
-    success: true,
-    size: calculateDirectorySize(recordingsDir()),
-  }));
-  ipcMain.handle('file:save-audio-with-dialog', () => ({ success: false, canceled: true }));
-  ipcMain.handle('rsa:set-config', () => true);
-  ipcMain.handle('rsa:get-config', () => ({ publicKey: '', enabled: false }));
-  ipcMain.handle('rsa:is-enabled', () => false);
-  ipcMain.handle('rsa:clear', () => true);
-  ipcMain.handle('rsa:encrypt', (_, payload = {}) => payload.value || '');
-  ipcMain.handle('test:get-latest-history', () => {
-    const latest = readHistoryItems()[0] || null;
-    return { success: Boolean(latest), data: latest };
-  });
-  ipcMain.handle('test:generate-test-records', (_, payload = {}) => {
-    const count = Math.max(1, Number(payload?.count) || 3);
-    const records = Array.from({ length: count }, (_, index) => normalizeHistoryItem({
-      id: `test-record-${Date.now()}-${index}`,
-      mode: 'Dictate',
-      status: 'completed',
-      rawText: `test raw ${index + 1}`,
-      refinedText: `test refined ${index + 1}`,
-      durationMs: 1000 * (index + 1),
-      textLength: 16,
-      isTestRecord: true,
-    }));
-    writeHistoryItems([...records, ...readHistoryItems()]);
-    return { success: true, count: records.length };
-  });
-  ipcMain.handle('test:clear-test-records', () => {
-    writeHistoryItems(readHistoryItems().filter((item) => !item.isTestRecord));
-    return { success: true };
-  });
-  ipcMain.handle('troubleshooting:get-system-info', () => ({
-    success: true,
-    data: {
-      basic: {
-        platform: process.platform,
-        osVersion: os.release(),
-        architecture: os.arch(),
-        cpuCores: os.cpus().length,
-        totalMemory: os.totalmem(),
-      },
-    },
-  }));
-  ipcMain.handle('app:restart', () => {
-    app.relaunch();
-    app.exit();
-  });
-
 }
 
 app.whenReady().then(() => {
@@ -1915,7 +427,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', (event) => event.preventDefault());
 app.on('before-quit', (event) => {
-  if (quitAfterBackgroundAudioRestore || (!backgroundMuteActive && !mutedBackgroundSessions.length)) {
+  if (quitAfterBackgroundAudioRestore || (!audioSessionService.isMuted() && !audioSessionService.hasMutedSessions())) {
     appIsQuitting = true;
     return;
   }
@@ -1928,14 +440,8 @@ app.on('before-quit', (event) => {
   });
 });
 app.on('will-quit', () => {
-  if (rightAltReleaseTimer) {
-    clearTimeout(rightAltReleaseTimer);
-    rightAltReleaseTimer = null;
-  }
-  if (rightAltRelay) {
-    rightAltRelay.dispose();
-    rightAltRelay = null;
-  }
+  windowManager?.dispose();
+  rightAltListenerService.dispose();
   stopRightAltListener();
   globalShortcut.unregisterAll();
 });
