@@ -16,6 +16,39 @@ test('extractCorrectionCandidates 提取短词级纠错', () => {
   ]);
 });
 
+test('extractCorrectionCandidates 提取中文词级替换', () => {
+  const candidates = extractCorrectionCandidates(
+    '请打开谷歌浏览器',
+    '请打开 Chrome 浏览器',
+  );
+
+  assert.deepEqual(candidates, [
+    { wrong: '谷歌', correct: 'Chrome' },
+  ]);
+});
+
+test('extractCorrectionCandidates 忽略多处修改', () => {
+  const candidates = extractCorrectionCandidates(
+    '请打开谷歌浏览器然后搜索天气',
+    '请打开 Chrome 浏览器然后搜索新闻',
+  );
+
+  assert.deepEqual(candidates, []);
+});
+
+test('extractCorrectionCandidates 忽略大段重写', () => {
+  const candidates = extractCorrectionCandidates(
+    '今天我们讨论这个问题的整体解决方案',
+    '我想换一种完全不同的说法来表达',
+  );
+
+  assert.deepEqual(candidates, []);
+});
+
+test('extractCorrectionCandidates 忽略大小写无意义变化', () => {
+  assert.deepEqual(extractCorrectionCandidates('Client2API', 'client2api'), []);
+});
+
 test('isLearnableCorrection 过滤整句重写', () => {
   assert.equal(isLearnableCorrection({
     wrong: '今天我们讨论这个问题的整体解决方案',
