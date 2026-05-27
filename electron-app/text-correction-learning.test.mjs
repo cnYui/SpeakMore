@@ -45,6 +45,31 @@ test('extractCorrectionCandidates 忽略大段重写', () => {
   assert.deepEqual(candidates, []);
 });
 
+test('extractCorrectionCandidates 忽略整句替换成短命令的自动学习噪声', () => {
+  const cases = [
+    [
+      '那如果我是语音输入的话，这一套东西我能拿过来用吗',
+      '问问 Gemini',
+    ],
+    [
+      '等会儿开完会，我们去买十杯咖啡吧。哦，不，还是买八杯咖啡吧',
+      'sayso.cn',
+    ],
+    [
+      '输入法有一个功能，就是我越用它，那些常用字就越会提前显示，这种是怎么做的',
+      '问问 Gemini',
+    ],
+    [
+      '这里的输入法我想做成 Windows 电脑版的',
+      '问问 Gemini',
+    ],
+  ];
+
+  for (const [original, edited] of cases) {
+    assert.deepEqual(extractCorrectionCandidates(original, edited), []);
+  }
+});
+
 test('extractCorrectionCandidates 忽略大小写无意义变化', () => {
   assert.deepEqual(extractCorrectionCandidates('Client2API', 'client2api'), []);
 });

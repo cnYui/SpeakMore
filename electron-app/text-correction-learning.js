@@ -89,6 +89,35 @@ function hasSharedComparableToken(leftTokens, rightTokens) {
   return leftTokens.some((token) => rightValues.has(token.comparable));
 }
 
+function countComparableTokens(text) {
+  const tokens = tokenizeComparableWords(text);
+  if (tokens) return tokens.length;
+
+  const normalized = normalizeText(text);
+  if (!normalized) return 0;
+  if (/[\u4e00-\u9fff]/.test(normalized)) return Array.from(normalized).length;
+  return normalized.split(/\s+/).filter(Boolean).length;
+}
+
+function hasSentencePunctuation(text) {
+  return /[，。！？,.!?;；:：]/.test(normalizeText(text));
+}
+
+function isShortStandaloneCorrection(candidate) {
+  const wrong = normalizeText(candidate?.wrong);
+  const correct = normalizeText(candidate?.correct);
+  if (!wrong || !correct) return false;
+  if (wrong.length > 24 || correct.length > 24) return false;
+  if (hasSentencePunctuation(wrong) || hasSentencePunctuation(correct)) return false;
+
+  const wrongTokenCount = countComparableTokens(wrong);
+  const correctTokenCount = countComparableTokens(correct);
+  return wrongTokenCount > 0
+    && correctTokenCount > 0
+    && wrongTokenCount <= 4
+    && correctTokenCount <= 4;
+}
+
 function extractTokenCorrectionCandidate(original, edited) {
   const originalTokens = tokenizeComparableWords(original);
   const editedTokens = tokenizeComparableWords(edited);
@@ -115,6 +144,7 @@ function extractTokenCorrectionCandidate(original, edited) {
 
   return {
     status: 'candidate',
+    hasContext: prefix > 0 || suffix > 0,
     candidate: {
       wrong: normalizeText(original.slice(wrongStart, wrongEnd)),
       correct: normalizeText(edited.slice(correctStart, correctEnd)),
@@ -159,6 +189,7 @@ function extractCorrectionCandidates(originalText, editedText) {
 
   const tokenResult = extractTokenCorrectionCandidate(original, edited);
   if (tokenResult.status === 'candidate') {
+    if (!tokenResult.hasContext && !isShortStandaloneCorrection(tokenResult.candidate)) return [];
     return isLearnableCorrection(tokenResult.candidate) ? [tokenResult.candidate] : [];
   }
   if (tokenResult.status === 'rejected') return [];
@@ -172,6 +203,8 @@ function extractCorrectionCandidates(originalText, editedText) {
     wrong: normalizeText(original.slice(originalRange[0], originalRange[1])),
     correct: normalizeText(edited.slice(editedRange[0], editedRange[1])),
   };
+
+  if (prefix === 0 && suffix === 0 && !isShortStandaloneCorrection(candidate)) return [];
 
   return isLearnableCorrection(candidate) ? [candidate] : [];
 }
