@@ -84,12 +84,17 @@ body[data-tone="idle"] #hint-text {
 <script src="./lib/three.min.js"></script>
 <script>
 const IDLE_TEXT = 'Right Alt 录音';
+const LONG_PROCESSING_TEXT = '正在努力处理中...';
+const LONG_PROCESSING_DELAY_MS = 3000;
 const hintText = document.getElementById('hint-text');
 const particleContainer = document.getElementById('particle-sphere-container');
 const particleCanvas = document.getElementById('particle-canvas');
 
 let voiceState = null;
 let particleSphere = null;
+let processingHintTimer = null;
+let longProcessingHintVisible = false;
+let processingHintToken = 0;
 
 function clampLevel(value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return 0;
@@ -115,6 +120,43 @@ function getProcessingText(mode) {
   if (mode === 'Ask') return '正在处理...';
   if (mode === 'Translate') return '正在翻译...';
   return '正在转写...';
+}
+
+function isProcessingStatus(status) {
+  return status === 'stopping' || status === 'transcribing';
+}
+
+function clearProcessingHintTimer() {
+  if (!processingHintTimer) return;
+  window.clearTimeout(processingHintTimer);
+  processingHintTimer = null;
+}
+
+function resetProcessingHint() {
+  clearProcessingHintTimer();
+  longProcessingHintVisible = false;
+  processingHintToken += 1;
+}
+
+function scheduleProcessingHint(status) {
+  if (!isProcessingStatus(status)) {
+    resetProcessingHint();
+    return;
+  }
+
+  if (processingHintTimer || longProcessingHintVisible) return;
+
+  const token = processingHintToken + 1;
+  processingHintToken = token;
+  processingHintTimer = window.setTimeout(() => {
+    processingHintTimer = null;
+    const currentStatus = voiceState && typeof voiceState.status === 'string' ? voiceState.status : 'idle';
+
+    if (processingHintToken !== token || !isProcessingStatus(currentStatus)) return;
+
+    longProcessingHintVisible = true;
+    render();
+  }, LONG_PROCESSING_DELAY_MS);
 }
 
 class ParticleSphere {
@@ -345,6 +387,7 @@ function renderVoiceState(state) {
   const displayText = state && typeof state.displayText === 'string' ? state.displayText : '';
   const errorMessage = state && typeof state.errorMessage === 'string' ? state.errorMessage : '';
   const stateLevel = state && typeof state.inputLevel === 'number' ? state.inputLevel : 0;
+  scheduleProcessingHint(status);
 
   if (particleSphere) {
     particleSphere.setInputLevel(stateLevel);
@@ -378,7 +421,9 @@ function renderVoiceState(state) {
   }
 
   if (status === 'connecting') setHintText('正在连接...');
-  else if (status === 'stopping' || status === 'transcribing') setHintText(getProcessingText(mode));
+  else if (isProcessingStatus(status)) {
+    setHintText(longProcessingHintVisible ? LONG_PROCESSING_TEXT : getProcessingText(mode));
+  }
   else if (status === 'cancelled') {
     setHintText('当前转录已取消');
   } else if (status === 'completed') {
