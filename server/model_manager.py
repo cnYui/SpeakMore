@@ -64,6 +64,8 @@ def configure_model_cache_dir(cache_dir: str | None):
     normalized = normalize_model_cache_dir(cache_dir)
     if normalized:
         os.environ[MODEL_CACHE_DIR_ENV] = normalized
+    else:
+        os.environ.pop(MODEL_CACHE_DIR_ENV, None)
     return get_managed_model_cache_root()
 
 

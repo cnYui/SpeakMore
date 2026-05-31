@@ -50,6 +50,23 @@ class AsrConfigTest(unittest.TestCase):
 
         self.assertEqual(result, selected_root)
 
+    def test_model_manager_empty_cache_root_resets_to_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            selected_root = Path(temp_dir) / "CustomFunASR"
+            local_app_data = Path(temp_dir) / "LocalAppData"
+
+            with patch.dict(
+                os.environ,
+                {
+                    "TYPELESS_MODEL_CACHE_DIR": str(selected_root),
+                    "LOCALAPPDATA": str(local_app_data),
+                },
+                clear=False,
+            ):
+                result = model_manager.configure_model_cache_dir("")
+
+        self.assertEqual(result, local_app_data / "Typeless" / "models" / "funasr")
+
     def test_resolve_streaming_model_source_uses_hf_cache_by_default(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             local_app_data = Path(temp_dir) / "LocalAppData"
