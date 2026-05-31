@@ -10,6 +10,7 @@ const {
   shell,
   screen,
   session,
+  dialog,
 } = require('electron');
 const os = require('os');
 const crypto = require('crypto');
@@ -129,10 +130,20 @@ const voiceBackendClient = createVoiceBackendClient({
   normalizeLlmRequestConfig,
 });
 
+function getConfiguredModelCacheDir(settings = readLocalSettings()) {
+  return typeof settings.modelCacheDir === 'string' ? settings.modelCacheDir.trim() : '';
+}
+
+function resolveModelCacheDirOption(options = {}) {
+  const requestedCacheDir = typeof options.cacheDir === 'string' ? options.cacheDir.trim() : '';
+  return requestedCacheDir || getConfiguredModelCacheDir();
+}
+
 const voiceBackendService = createVoiceBackendService({
   isPackaged: app.isPackaged,
   backendExecutablePath: () => appPaths.backendExecutablePath(),
   ffmpegBinDir: () => path.dirname(appPaths.ffmpegExecutablePath()),
+  getModelCacheDir: () => getConfiguredModelCacheDir(),
   spawnProcess: spawn,
   probeReady: () => voiceBackendClient.checkVoiceServerReady(),
   processEnv: process.env,
@@ -314,12 +325,12 @@ async function ensureVoiceBackendStarted() {
   return voiceBackendService.start();
 }
 
-async function getVoiceModelStatus() {
-  return voiceBackendClient.getVoiceModelStatus();
+async function getVoiceModelStatus(options = {}) {
+  return voiceBackendClient.getVoiceModelStatus({ cacheDir: resolveModelCacheDirOption(options) });
 }
 
-async function startVoiceModelDownload() {
-  return voiceBackendClient.startVoiceModelDownload();
+async function startVoiceModelDownload(options = {}) {
+  return voiceBackendClient.startVoiceModelDownload({ cacheDir: resolveModelCacheDirOption(options) });
 }
 
 async function reloadVoiceServerConfig() {
@@ -365,6 +376,7 @@ const mainIpcRegistry = createMainIpcRegistry({
   crypto,
   defaultLanguage: DEFAULT_LANGUAGE,
   dictionaryRepository,
+  dialog,
   emitDictionaryChanged,
   ensureVoiceBackendStarted,
   ensureVoiceServer,

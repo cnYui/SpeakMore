@@ -57,6 +57,16 @@ test('loadSettings 会补齐默认大模型 provider 配置', async () => {
   assert.equal(settings.llm.providers.some((provider: LlmProvider) => provider.id === 'anthropic'), true)
   assert.equal(settings.llm.providers.some((provider: LlmProvider) => provider.id === 'custom'), true)
   assert.equal(settings.llm.models.deepseek, 'deepseek-chat')
+  assert.equal(settings.modelCacheDir, '')
+})
+
+test('loadSettings 会保留用户选择的模型缓存目录', async () => {
+  installSettingsResponse({ modelCacheDir: '  D:\\Models\\FunASR  ' })
+  const settingsStore = await loadSettingsStore('model-cache-dir')
+
+  const settings = await settingsStore.loadSettings()
+
+  assert.equal(settings.modelCacheDir, 'D:\\Models\\FunASR')
 })
 
 test('默认 LLM provider 元数据来自共享 JSON', async () => {

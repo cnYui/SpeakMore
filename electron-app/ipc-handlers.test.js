@@ -297,6 +297,13 @@ test('registerFileIpcHandlers 注册文件通道', async () => {
         return '';
       },
     },
+    dialog: {
+      showOpenDialog: async (...args) => {
+        const options = args.at(-1);
+        writes.push(['dialog', options.defaultPath]);
+        return { canceled: false, filePaths: ['D:\\Models\\FunASR'] };
+      },
+    },
     localDataDir: () => 'D:\\data',
     logFilePath: () => 'D:\\data\\recording.log',
     recordingsDir: () => 'D:\\data\\recordings',
@@ -306,6 +313,11 @@ test('registerFileIpcHandlers 注册文件通道', async () => {
   assert.equal(await ipcMain.invoke('file:save-recording-log', { hello: 'world' }), true);
   assert.equal(await ipcMain.invoke('file:open-log'), true);
   assert.deepEqual(await ipcMain.invoke('file:read-recordings-size'), { success: true, size: 42 });
+  assert.deepEqual(await ipcMain.invoke('file:choose-directory', { defaultPath: 'D:\\Models' }), {
+    success: true,
+    canceled: false,
+    path: 'D:\\Models\\FunASR',
+  });
   assert.equal(writes.length > 0, true);
 });
 

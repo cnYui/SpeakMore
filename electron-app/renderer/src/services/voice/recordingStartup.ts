@@ -161,16 +161,19 @@ export function getStartAudioParameters(
 }
 
 export async function ensureVoiceServerReady() {
-  let result: { success?: boolean; detail?: string; status?: string } | null = null
+  let result: { success?: boolean; detail?: string; status?: string; code?: string } | null = null
 
   try {
     // /ready 才代表当前 ASR 模型可接收请求，/health 只说明后端进程存在。
-    result = await ipcClient.invoke('audio:ensure-voice-server') as { success?: boolean; detail?: string; status?: string }
+    result = await ipcClient.invoke('audio:ensure-voice-server') as { success?: boolean; detail?: string; status?: string; code?: string }
   } catch {
-    result = await ipcClient.invoke('audio:check-voice-server-ready') as { success?: boolean; detail?: string; status?: string }
+    result = await ipcClient.invoke('audio:check-voice-server-ready') as { success?: boolean; detail?: string; status?: string; code?: string }
   }
 
   if (!result?.success) {
+    if (result?.code === 'voice_model_missing') {
+      throw createVoiceError('voice_model_missing', result.detail || result.status || '')
+    }
     throw createVoiceError('backend_unavailable', result?.detail || result?.status || '')
   }
 }

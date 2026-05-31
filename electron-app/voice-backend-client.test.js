@@ -127,6 +127,36 @@ test('createVoiceBackendClient 查询并触发单模型初始化接口', async (
   assert.equal(calls[1].init.method, 'POST');
 });
 
+test('createVoiceBackendClient 会把用户选择的模型缓存目录传给后端', async () => {
+  const calls = [];
+  const client = createVoiceBackendClient({
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'idle',
+          detail: '',
+          model_id: 'sensevoice-small',
+          cache_dir: 'D:\\Models\\FunASR',
+        }),
+      };
+    },
+    buildCurrentLlmRequestConfig: () => ({ provider_id: 'deepseek', base_url: 'https://api.deepseek.com/v1', api_key: '', model: 'deepseek-chat', auth_type: 'bearer' }),
+    normalizeLlmRequestConfig: (value) => value,
+  });
+
+  await client.getVoiceModelStatus({ cacheDir: 'D:\\Models\\FunASR' });
+  await client.startVoiceModelDownload({ cacheDir: 'D:\\Models\\FunASR' });
+
+  assert.equal(calls[0].url, 'http://127.0.0.1:8000/model/status?cache_dir=D%3A%5CModels%5CFunASR');
+  assert.equal(calls[1].url, 'http://127.0.0.1:8000/model/download');
+  assert.equal(calls[1].init.method, 'POST');
+  assert.equal(calls[1].init.headers['content-type'], 'application/json');
+  assert.equal(calls[1].init.body, JSON.stringify({ cache_dir: 'D:\\Models\\FunASR' }));
+});
+
 test('createVoiceBackendClient 的语音接口在后端未就绪时返回 backend_not_ready', async () => {
   const client = createVoiceBackendClient({
     fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({ detail: 'not ready' }) }),

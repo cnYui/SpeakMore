@@ -41,6 +41,15 @@ class AsrConfigTest(unittest.TestCase):
 
         self.assertEqual(result, snapshot)
 
+    def test_model_manager_uses_user_selected_cache_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            selected_root = Path(temp_dir) / "CustomFunASR"
+
+            with patch.dict(os.environ, {"TYPELESS_MODEL_CACHE_DIR": str(selected_root)}, clear=False):
+                result = model_manager.get_managed_model_cache_root(SENSEVOICE_SMALL_MODEL_ID)
+
+        self.assertEqual(result, selected_root)
+
     def test_resolve_streaming_model_source_uses_hf_cache_by_default(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             local_app_data = Path(temp_dir) / "LocalAppData"

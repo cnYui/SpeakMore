@@ -23,6 +23,7 @@ from asr import (
 from model_manager import (
     SENSEVOICE_SMALL_MODEL_ID,
     SENSEVOICE_SMALL_REPO_ID,
+    configure_model_cache_dir,
     find_cached_model_snapshot,
     get_managed_model_cache_root,
 )
@@ -35,6 +36,8 @@ from runtime_config import (
 )
 
 load_server_env()
+
+MODEL_MISSING_DETAIL = "还没有下载语音模型，请先下载模型。"
 
 
 def should_enable_reload() -> bool:
@@ -197,6 +200,21 @@ def get_model_cache_dir() -> str:
     return str(get_managed_model_cache_root(SENSEVOICE_SMALL_MODEL_ID))
 
 
+def apply_model_cache_dir(cache_dir: str | None) -> str:
+    return str(configure_model_cache_dir(cache_dir))
+
+
+async def read_model_cache_dir_from_request(request: Request) -> str:
+    try:
+        payload = await request.json()
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    value = payload.get("cache_dir")
+    return value.strip() if isinstance(value, str) else ""
+
+
 def is_sensevoice_cached() -> bool:
     return find_cached_model_snapshot(SENSEVOICE_SMALL_MODEL_ID) is not None
 
@@ -228,15 +246,19 @@ def set_voice_service_state(app: FastAPI, status: str, detail: str = "", started
 def get_voice_service_state(app: FastAPI) -> dict:
     current = getattr(app.state, "voice_service_status", None)
     if not isinstance(current, dict):
-        return create_voice_service_state("idle", "SenseVoiceSmall 模型尚未下载或加载")
+        return create_voice_service_state("idle", MODEL_MISSING_DETAIL)
 
+    current = {
+        **current,
+        "cache_dir": get_model_cache_dir(),
+        "cached": is_sensevoice_cached(),
+        "ready": current.get("status") == "ready",
+    }
     started_at = current.get("started_at")
     if isinstance(started_at, (float, int)):
         current = {
             **current,
             "elapsed_ms": int((time.time() - float(started_at)) * 1000),
-            "cached": is_sensevoice_cached(),
-            "ready": current.get("status") == "ready",
         }
     return current
 
@@ -633,7 +655,7 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        set_voice_service_state(app, "idle", "SenseVoiceSmall 模型尚未下载或加载")
+        set_voice_service_state(app, "idle", MODEL_MISSING_DETAIL)
         if auto_preload_model:
             start_voice_model_task(
                 app,
@@ -671,11 +693,13 @@ def create_app(
         return JSONResponse(status_code=503, content=payload)
 
     @app.get("/model/status")
-    async def model_status():
+    async def model_status(request: Request):
+        apply_model_cache_dir(request.query_params.get("cache_dir"))
         return get_voice_model_status(app)
 
     @app.post("/model/download")
-    async def model_download():
+    async def model_download(request: Request):
+        apply_model_cache_dir(await read_model_cache_dir_from_request(request))
         start_voice_model_task(app, preload_model, exit_scheduler, exit_on_failure=False)
         return get_voice_model_status(app)
 

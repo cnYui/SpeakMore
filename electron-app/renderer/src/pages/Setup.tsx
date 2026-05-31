@@ -3,10 +3,16 @@ import { Box, Button, Chip, LinearProgress, Typography } from '@mui/material'
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload'
 import SettingsIcon from '@mui/icons-material/Settings'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import { pageSx, pageTitleSx } from '../uiTokens'
 import { useI18n, type TranslationKey } from '../i18n'
-import { getVoiceModelStatus, startVoiceModelDownload, type VoiceModelStatus } from '../services/modelSetupStore'
-import { loadSettings, type LocalSettings } from '../services/settingsStore'
+import {
+  chooseModelCacheDirectory,
+  getVoiceModelStatus,
+  startVoiceModelDownload,
+  type VoiceModelStatus,
+} from '../services/modelSetupStore'
+import { loadSettings, saveSettings, type LocalSettings } from '../services/settingsStore'
 
 type SetupProps = {
   onOpenSettings: () => void
@@ -54,12 +60,12 @@ export default function Setup({ onOpenSettings }: SetupProps) {
   ), [settings])
   const currentApiKey = currentProvider ? settings?.llm.apiKeys[currentProvider.id]?.trim() : ''
   const apiConfigured = Boolean(currentApiKey)
+  const selectedModelCacheDir = settings?.modelCacheDir?.trim() || ''
+  const effectiveModelCacheDir = selectedModelCacheDir || modelStatus?.cache_dir || ''
 
   const refresh = async () => {
-    const [nextStatus, nextSettings] = await Promise.all([
-      getVoiceModelStatus(),
-      loadSettings(),
-    ])
+    const nextSettings = await loadSettings()
+    const nextStatus = await getVoiceModelStatus(nextSettings.modelCacheDir)
     setModelStatus(nextStatus)
     setSettings(nextSettings)
   }
@@ -68,10 +74,8 @@ export default function Setup({ onOpenSettings }: SetupProps) {
     let cancelled = false
 
     const refreshIfMounted = async () => {
-      const [nextStatus, nextSettings] = await Promise.all([
-        getVoiceModelStatus(),
-        loadSettings(),
-      ])
+      const nextSettings = await loadSettings()
+      const nextStatus = await getVoiceModelStatus(nextSettings.modelCacheDir)
       if (cancelled) return
       setModelStatus(nextStatus)
       setSettings(nextSettings)
@@ -91,10 +95,18 @@ export default function Setup({ onOpenSettings }: SetupProps) {
   const handleStartDownload = async () => {
     setIsStartingDownload(true)
     try {
-      setModelStatus(await startVoiceModelDownload())
+      setModelStatus(await startVoiceModelDownload(effectiveModelCacheDir))
     } finally {
       setIsStartingDownload(false)
     }
+  }
+
+  const handleChooseModelCacheDir = async () => {
+    const result = await chooseModelCacheDirectory(effectiveModelCacheDir)
+    if (!result.success || result.canceled || !result.path || !settings) return
+    const nextSettings = await saveSettings({ ...settings, modelCacheDir: result.path })
+    setSettings(nextSettings)
+    setModelStatus(await getVoiceModelStatus(nextSettings.modelCacheDir))
   }
 
   const busy = isModelBusy(modelStatus) || isStartingDownload
@@ -123,7 +135,7 @@ export default function Setup({ onOpenSettings }: SetupProps) {
         </Box>
         <Box sx={rowSx}>
           <Typography sx={{ color: 'text.secondary' }}>{t('setup.cacheDir')}</Typography>
-          <Typography sx={{ textAlign: 'right', wordBreak: 'break-all' }}>{modelStatus?.cache_dir || '-'}</Typography>
+          <Typography sx={{ textAlign: 'right', wordBreak: 'break-all' }}>{effectiveModelCacheDir || '-'}</Typography>
         </Box>
         <Box sx={rowSx}>
           <Typography sx={{ color: 'text.secondary' }}>{t('setup.elapsed')}</Typography>
@@ -137,6 +149,14 @@ export default function Setup({ onOpenSettings }: SetupProps) {
         {busy ? <LinearProgress sx={{ mt: 2 }} /> : null}
 
         <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<FolderOpenIcon />}
+            onClick={() => void handleChooseModelCacheDir()}
+            disabled={busy}
+          >
+            {t('setup.chooseCacheDir')}
+          </Button>
           <Button
             variant="contained"
             startIcon={<CloudDownloadIcon />}

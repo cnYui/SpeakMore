@@ -122,6 +122,17 @@ test('Escape 会按 active voice、panel visible、default 三种优先级处理
   assert.deepEqual(third.calls, [['main', 'voice-cancel-requested', undefined]]);
 });
 
+test('Escape 会关闭正在显示的粒子悬浮条错误状态', () => {
+  const { calls, controller } = createControllerHarness();
+
+  controller.handleVoiceState({ status: 'error', visible: true, errorMessage: '未填写 API Key' });
+  calls.length = 0;
+  controller.handleEscapeKeydown();
+
+  assert.deepEqual(calls, [['hide-bar']]);
+  assert.equal(controller.getLastVoiceState(), null);
+});
+
 test('悬浮面板可见时按键状态不会主动显示悬浮条', () => {
   const { calls, controller } = createControllerHarness();
 

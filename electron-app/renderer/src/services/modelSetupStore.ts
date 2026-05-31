@@ -25,6 +25,12 @@ export type VoiceModelStatus = {
   elapsed_ms?: number
 }
 
+export type DirectorySelectionResult = {
+  success: boolean
+  canceled: boolean
+  path: string
+}
+
 const unavailableStatus: VoiceModelStatus = {
   success: false,
   status: 'unavailable',
@@ -52,18 +58,31 @@ function normalizeModelStatus(value: unknown): VoiceModelStatus {
     elapsed_ms: typeof status.elapsed_ms === 'number' ? status.elapsed_ms : 0,
   }
 }
-export async function getVoiceModelStatus(): Promise<VoiceModelStatus> {
+export async function getVoiceModelStatus(cacheDir = ''): Promise<VoiceModelStatus> {
   try {
-    return normalizeModelStatus(await ipcClient.invoke('voice-model:get-status'))
+    return normalizeModelStatus(await ipcClient.invoke('voice-model:get-status', { cacheDir }))
   } catch {
     return unavailableStatus
   }
 }
 
-export async function startVoiceModelDownload(): Promise<VoiceModelStatus> {
+export async function startVoiceModelDownload(cacheDir = ''): Promise<VoiceModelStatus> {
   try {
-    return normalizeModelStatus(await ipcClient.invoke('voice-model:start-download'))
+    return normalizeModelStatus(await ipcClient.invoke('voice-model:start-download', { cacheDir }))
   } catch {
     return unavailableStatus
+  }
+}
+
+export async function chooseModelCacheDirectory(defaultPath = ''): Promise<DirectorySelectionResult> {
+  try {
+    const result = await ipcClient.invoke<Partial<DirectorySelectionResult>>('file:choose-directory', { defaultPath })
+    return {
+      success: Boolean(result?.success),
+      canceled: Boolean(result?.canceled),
+      path: typeof result?.path === 'string' ? result.path : '',
+    }
+  } catch {
+    return { success: false, canceled: true, path: '' }
   }
 }

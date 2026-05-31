@@ -24,6 +24,7 @@ function createFakeRegisters(calls) {
 test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () => {
   const calls = [];
   const clipboard = { name: 'clipboard' };
+  const dialog = { name: 'dialog' };
   const localUser = { name: 'SpeakMore' };
   const emitDictionaryChanged = () => undefined;
   const localCompatState = {
@@ -52,6 +53,7 @@ test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () =
     },
     app: { name: 'app', quit: () => undefined },
     shell: { name: 'shell' },
+    dialog,
     fs: { name: 'fs' },
     spawnProcess: () => undefined,
     logger: { log: () => registered.push('log') },
@@ -130,6 +132,7 @@ test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () =
   assert.equal(calls[3][1].emitDictionaryChanged, emitDictionaryChanged);
   assert.equal(typeof calls[4][1].ensureVoiceServer, 'function');
   assert.equal(typeof calls[5][1].startVoiceModelDownload, 'function');
+  assert.equal(calls[7][1].dialog, dialog);
   assert.equal(calls[8][1].randomUUID(), 'uuid-1');
   assert.equal(calls[9][1].createMainWindow(), 'main-window');
   assert.equal(calls[11][1].localStores, localCompatState.localStores);

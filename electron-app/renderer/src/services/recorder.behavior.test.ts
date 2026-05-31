@@ -49,7 +49,7 @@ function createDeferred<T>(): Deferred<T> {
 
 function createTestEnvironment(options: {
   userMediaPromise?: Promise<MediaStream>
-  readyPromise?: Promise<{ success?: boolean; detail?: string; status?: string }>
+  readyPromise?: Promise<{ success?: boolean; detail?: string; status?: string; code?: string }>
   settingsPromise?: Promise<unknown>
   dictionaryTermsPromise?: Promise<unknown>
   selectedTextResult?: unknown
@@ -594,6 +594,7 @@ test('未填写 DeepSeek API Key 时拦截录音启动且不打开麦克风', as
 
     assert.equal(recorder.getVoiceSession().status, 'error')
     assert.equal(recorder.getVoiceSession().error?.code, 'llm_api_key_missing')
+    assert.equal(recorder.getVoiceSession().error?.message, '还没有填写 DeepSeek API Key，请先到设置页填写后再使用。')
     assert.equal(env.getUserMediaCalls(), 0)
     assert.equal(env.sockets.length, 0)
     assert.equal(env.invokeCalls.some((call) => call.channel === 'audio:ensure-voice-server'), false)
@@ -780,6 +781,34 @@ test('ready 失败时不发送 start_audio，并清理已打开的麦克风', as
     assert.equal(env.getTrackStops(), 1)
     assert.equal(env.sockets[0]?.readyState, 3)
     assert.equal(recorder.getVoiceSession().status, 'error')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('模型缺失时提示先下载模型且不发送 start_audio', async () => {
+  const env = createTestEnvironment({
+    readyPromise: Promise.resolve({
+      success: false,
+      detail: '还没有下载语音模型，请先下载模型。',
+      code: 'voice_model_missing',
+    }),
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('voice-model-missing')
+    await recorder.startRecording('Dictate')
+
+    const sentMessages = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+
+    assert.equal(sentMessages.some((message) => message.type === 'start_audio'), false)
+    assert.equal(recorder.getVoiceSession().status, 'error')
+    assert.equal(recorder.getVoiceSession().error?.code, 'voice_model_missing')
+    assert.equal(recorder.getVoiceSession().error?.message, '还没有下载语音模型，请先下载模型。')
   } finally {
     recorder?.disposeRecorder()
     env.restore()

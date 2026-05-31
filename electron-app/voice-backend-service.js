@@ -2,10 +2,23 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isModelMissingReadyState(result) {
+  const payload = result?.payload;
+  if (!payload || typeof payload !== 'object') return false;
+  const status = typeof payload.status === 'string' ? payload.status : '';
+  const detail = typeof result.detail === 'string' ? result.detail : '';
+  if (status === 'downloading' || status === 'loading') return false;
+  return payload.cached === false && (
+    status === 'idle'
+    || detail.includes('尚未下载')
+  );
+}
+
 function createVoiceBackendService({
   isPackaged = false,
   backendExecutablePath = () => '',
   ffmpegBinDir = () => '',
+  getModelCacheDir = () => '',
   spawnProcess,
   probeReady,
   processEnv = process.env,
@@ -17,12 +30,15 @@ function createVoiceBackendService({
 
   function buildEnv() {
     const ffmpegDir = ffmpegBinDir();
-    return {
+    const env = {
       ...processEnv,
       PATH: [ffmpegDir, processEnv.PATH].filter(Boolean).join(';'),
       HOST: processEnv.HOST || '127.0.0.1',
       PORT: processEnv.PORT || '8000',
     };
+    const modelCacheDir = typeof getModelCacheDir === 'function' ? String(getModelCacheDir() || '').trim() : '';
+    if (modelCacheDir) env.TYPELESS_MODEL_CACHE_DIR = modelCacheDir;
+    return env;
   }
 
   async function start() {
@@ -67,6 +83,14 @@ function createVoiceBackendService({
     while (Date.now() - startedAt <= timeoutMs) {
       latest = await probeReady();
       if (latest?.success) return latest;
+      if (isModelMissingReadyState(latest)) {
+        return {
+          success: false,
+          detail: '还没有下载语音模型，请先下载模型。',
+          code: 'voice_model_missing',
+          payload: latest.payload,
+        };
+      }
       if (lastExit) {
         return {
           success: false,

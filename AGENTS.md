@@ -24,7 +24,7 @@
 - 旧模型管理能力已删除，Electron 不再注册 `model:*` IPC，也不提供模型切换、删除或选择入口；当前只允许单模型初始化页触发 SenseVoiceSmall 下载/加载。
 - 当前正式 ASR 模型只支持 `FunAudioLLM/SenseVoiceSmall`，用户可见层只有“初始化”页的单模型下载/加载入口。
 - `sensevoice-small` 通过 FunASR `SenseVoiceSmall` 接入，不描述为原生在线 streaming；后端通过累计音频伪流式输出维持现有 WebSocket 协议。
-- ASR 运行时优先使用 CUDA，PyTorch 不可用 CUDA 时降级到 CPU；模型扫描顺序固定为 `SENSEVOICE_SMALL_MODEL_DIR` → `%LOCALAPPDATA%\Typeless\models\funasr` → `%USERPROFILE%\.cache\huggingface\hub` → 初始化页点击下载到 `%LOCALAPPDATA%\Typeless\models\funasr`。
+- ASR 运行时优先使用 CUDA，PyTorch 不可用 CUDA 时降级到 CPU；模型扫描顺序固定为 `SENSEVOICE_SMALL_MODEL_DIR` → 用户设置的 `modelCacheDir` / 后端 `TYPELESS_MODEL_CACHE_DIR` → `%LOCALAPPDATA%\Typeless\models\funasr` → `%USERPROFILE%\.cache\huggingface\hub` → 初始化页点击下载到用户设置的 `modelCacheDir`，未设置时下载到 `%LOCALAPPDATA%\Typeless\models\funasr`。
 - `electron-app/main.js` 加载 `electron-app/renderer/dist/index.html`、`floating-bar.html` 和 `floating-panel.html`。
 - `electron-app/main.js` 是 Electron 主进程组合根，主要负责创建服务、依赖接线和生命周期注册；窗口、悬浮状态、IPC、本地数据、后端客户端、音频会话、文本观察和 Right Alt 监听逻辑应放在对应独立模块。
 - `electron-app/main-ipc-registry.js` 负责按上下文注册 IPC，主进程只注入依赖，不在 `main.js` 里直接拼装各通道业务逻辑。
@@ -66,7 +66,7 @@
 - 普通听写和语音翻译启动前不得读取 UIA 或剪贴板选区；只有 `Right Alt + Space` 自由提问需要按 UIA 优先、剪贴板 fallback 次之读取选区作为上下文。
 - 自由提问未来如需回答实时问题，必须在后端增加意图分类和工具路由；不要只靠 prompt 假装具备联网、天气或网页检索能力。
 - 翻译录音启动时，renderer 必须从本地设置读取 `translationTargetLanguage`，并通过 WebSocket `start_audio.parameters.output_language` 传给后端；当前支持 `en` 和 `ja`，语言集合以共享翻译目标语言元数据为准。
-- 录音启动必须先校验当前大模型 provider 的 API Key；未填写时直接拦截并提示，不得打开麦克风、连接 WebSocket 或等待后端 ready。API Key 已配置后，可以并行准备后端 ready、词典、WebSocket 和麦克风；`start_audio` 只能在 `/ready` 成功和所有启动资源准备完成后发送，ready 失败或取消时必须清理已打开的麦克风和 WebSocket。
+- 录音启动必须先校验当前大模型 provider 的 API Key；未填写时直接拦截并提示，不得打开麦克风、连接 WebSocket 或等待后端 ready。API Key 已配置后，可以并行准备后端 ready、词典、WebSocket 和麦克风；模型未下载时必须返回 `voice_model_missing` 并提示先下载模型；`start_audio` 只能在 `/ready` 成功和所有启动资源准备完成后发送，ready 失败或取消时必须清理已打开的麦克风和 WebSocket。
 - 长按 `Right Alt` 的判定阈值为 `350ms`；快捷键提示也通过 `floating-panel` IPC 和独立悬浮面板展示，提示优先级低于录音、转写、完成、取消和错误状态。
 - 悬浮胶囊和悬浮面板不要依赖本机固定坐标，应基于当前显示器 `workArea` 计算并限制在屏幕内。
 - WebSocket 语音流固定输入来自 `16kHz`、单声道、`pcm_s16le` 二进制 chunk，并在 `start_audio.parameters.audio_format` 声明 `{ type: "pcm_s16le", sample_rate: 16000, channels: 1 }`；`/ai/voice_flow` 兼容入口可以接受上传音频，但后端也必须先转成 PCM16 再喂给 SenseVoiceSmall。
@@ -104,6 +104,7 @@
 - 词典页通过主进程 `dictionary:changed` 事件实时刷新自动学习候选和自动词条；页面只展示结果列表，不展示自动学习过程、观察失败原因或用户文本片段。
 - 发给后端大模型 prompt 的词典不应整表注入；后续实现时间衰减时默认每轮最多发送 24 条，可配置范围为 8 到 40 条，硬上限 40 条。手动词条不应天然永久高优先级，排序应由动态 score 决定。
 - 本地设置包含 `translationTargetLanguage`，只允许共享翻译目标语言元数据中的语言代码，由主进程和 renderer 双侧归一化。
+- 本地设置包含 `modelCacheDir`，用于保存用户选择的 SenseVoiceSmall 下载目录；Electron 查询模型状态、触发下载和打包后端启动时都必须把该目录传给后端。该值是本机路径，不得写入仓库或文档示例之外的共享配置。
 - 听写历史保存由 `AppShell` 这类全局常驻层订阅语音会话完成事件，不要放在首页、历史页等可切换页面组件里。
 - 首页累计统计来自独立 `history-stats.json`，不得从最近 200 条 `history.json` 反推；历史列表裁剪不能影响累计听写时长、累计字数、平均速度和节省时间。
 - 后端 `refiner.py` 不直接读取 Electron 本地词典文件；润色所需词条由 Electron 随语音请求参数传入，且只传启用词条。

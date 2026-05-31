@@ -21,12 +21,22 @@ test('normalizeLocalSettings 会回退不支持的翻译目标语言和空设备
     translationTargetLanguage: 'xx',
     selectedAudioDeviceId: '',
     launchAtSystemStartup: 1,
+    modelCacheDir: 123,
   });
 
   assert.equal(settings.preferredLanguage, DEFAULT_LANGUAGE);
   assert.equal(settings.translationTargetLanguage, DEFAULT_TRANSLATION_TARGET_LANGUAGE);
   assert.equal(settings.selectedAudioDeviceId, 'default');
   assert.equal(settings.launchAtSystemStartup, true);
+  assert.equal(settings.modelCacheDir, '');
+});
+
+test('normalizeLocalSettings 会保留用户选择的模型缓存目录', () => {
+  const settings = normalizeLocalSettings({
+    modelCacheDir: '  D:\\Models\\SenseVoice  ',
+  });
+
+  assert.equal(settings.modelCacheDir, 'D:\\Models\\SenseVoice');
 });
 
 test('normalizeLocalSettings 会保留英文界面语言并回退未知界面语言', () => {
@@ -74,6 +84,7 @@ test('createSettingsStore 读取和写入时都会同步 legacy store', () => {
     readJsonFile: () => ({
       translationTargetLanguage: 'ja',
       selectedAudioDeviceId: 'mic-1',
+      modelCacheDir: 'D:\\Models\\FunASR',
       launchAtSystemStartup: true,
       llm: {
         providerId: 'openai',
@@ -94,15 +105,18 @@ test('createSettingsStore 读取和写入时都会同步 legacy store', () => {
   const settings = store.readLocalSettings();
   assert.equal(settings.translationTargetLanguage, 'ja');
   assert.equal(synced.selectedAudioDeviceId, 'mic-1');
+  assert.equal(settings.modelCacheDir, 'D:\\Models\\FunASR');
 
   const next = store.writeLocalSettings({
     translationTargetLanguage: 'en',
     selectedAudioDeviceId: 'default',
+    modelCacheDir: 'E:\\SpeakMoreModels',
     launchAtSystemStartup: false,
     llm: settings.llm,
   });
 
   assert.equal(written.translationTargetLanguage, 'en');
+  assert.equal(written.modelCacheDir, 'E:\\SpeakMoreModels');
   assert.equal(next.translationTargetLanguage, 'en');
   assert.equal(synced.translationTargetLanguage, 'en');
 });

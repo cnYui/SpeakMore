@@ -37,6 +37,10 @@ function normalizeStringMap(value = {}) {
   );
 }
 
+function normalizeOptionalPath(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function normalizeLlmProvider(candidate, fallback) {
   const value = candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate : {};
   const baseUrl = typeof value.baseUrl === 'string' && value.baseUrl.trim()
@@ -104,6 +108,7 @@ function normalizeLocalSettings(value = {}) {
     selectedAudioDeviceId: typeof settings.selectedAudioDeviceId === 'string' && settings.selectedAudioDeviceId
       ? settings.selectedAudioDeviceId
       : 'default',
+    modelCacheDir: normalizeOptionalPath(settings.modelCacheDir),
     llm: normalizeLlmSettings(settings.llm),
   };
 }
@@ -167,6 +172,7 @@ module.exports = {
   createDefaultLlmSettings,
   createDefaultLocalSettings,
   normalizeStringMap,
+  normalizeOptionalPath,
   normalizeLlmProvider,
   normalizeLlmSettings,
   normalizeLlmRequestConfig,

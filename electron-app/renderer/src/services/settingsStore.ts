@@ -71,6 +71,7 @@ export type LocalSettings = {
   translationTargetLanguage: TranslationTargetLanguage
   launchAtSystemStartup: boolean
   selectedAudioDeviceId: string
+  modelCacheDir: string
   llm: LlmSettings
 }
 
@@ -79,6 +80,7 @@ export const defaultSettings: LocalSettings = {
   translationTargetLanguage: DEFAULT_TRANSLATION_TARGET_LANGUAGE,
   launchAtSystemStartup: false,
   selectedAudioDeviceId: 'default',
+  modelCacheDir: '',
   llm: createDefaultLlmSettings(),
 }
 
@@ -129,6 +131,10 @@ function normalizeStringMap(value: unknown): Record<string, string> {
   )
 }
 
+function normalizeOptionalPath(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 export function normalizeLlmSettings(value: unknown): LlmSettings {
   const settings = isRecord(value) ? value : {}
   const providedProviders = Array.isArray(settings.providers) ? settings.providers : []
@@ -158,6 +164,7 @@ function normalizeSettings(settings?: Partial<LocalSettings> | null): LocalSetti
     translationTargetLanguage: normalizeTranslationTargetLanguage(settings?.translationTargetLanguage),
     launchAtSystemStartup: Boolean(settings?.launchAtSystemStartup),
     selectedAudioDeviceId: settings?.selectedAudioDeviceId || 'default',
+    modelCacheDir: normalizeOptionalPath(settings?.modelCacheDir),
     llm: normalizeLlmSettings(settings?.llm),
   }
 }

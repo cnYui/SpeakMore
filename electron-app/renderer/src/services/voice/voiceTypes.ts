@@ -21,6 +21,7 @@ export type VoiceStatus =
 
 export type VoiceErrorCode =
   | 'backend_unavailable'
+  | 'voice_model_missing'
   | 'llm_api_key_missing'
   | 'websocket_timeout'
   | 'websocket_closed'
@@ -84,7 +85,8 @@ export function toVoiceFlowMode(mode: VoiceMode): VoiceFlowMode {
 export function createVoiceError(code: VoiceErrorCode, detail?: string): VoiceError {
   const messageByCode: Record<VoiceErrorCode, string> = {
     backend_unavailable: '语音后端未就绪，首次运行可能正在下载模型，请稍后重试',
-    llm_api_key_missing: '未填写 DeepSeek API Key，请先到设置页填写后再使用语音功能',
+    voice_model_missing: '还没有下载语音模型，请先下载模型。',
+    llm_api_key_missing: '还没有填写 DeepSeek API Key，请先到设置页填写后再使用。',
     websocket_timeout: '连接语音后端超时，请稍后重试',
     websocket_closed: '语音连接已断开，请重试',
     microphone_permission_denied: '无法访问麦克风，请检查系统权限',

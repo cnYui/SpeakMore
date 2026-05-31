@@ -97,6 +97,18 @@ class ServiceReadinessTest(unittest.TestCase):
         self.assertEqual(ready.status_code, 200)
         self.assertEqual(ready.json()["status"], "ready")
 
+    def test_model_status_and_download_accept_user_selected_cache_dir(self):
+        app = main.create_app(preload_model=lambda: None, exit_scheduler=lambda _code: None)
+
+        with TestClient(app) as client:
+            status = client.get("/model/status", params={"cache_dir": "D:\\Models\\FunASR"})
+            started = client.post("/model/download", json={"cache_dir": "E:\\Models\\FunASR"})
+
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["cache_dir"], "D:\\Models\\FunASR")
+        self.assertEqual(started.status_code, 200)
+        self.assertEqual(started.json()["cache_dir"], "E:\\Models\\FunASR")
+
 
 if __name__ == "__main__":
     unittest.main()

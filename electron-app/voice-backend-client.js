@@ -37,8 +37,30 @@ function createVoiceBackendClient({
     return probeVoiceServer(urls.readyUrl, { fetchImpl: checkReadyFetchImpl });
   }
 
-  async function getVoiceModelStatus() {
-    const response = await fetchImpl(urls.modelStatusUrl);
+  function normalizeModelCacheDirOption(options = {}) {
+    return typeof options.cacheDir === 'string' ? options.cacheDir.trim() : '';
+  }
+
+  function withModelCacheDirQuery(url, options = {}) {
+    const cacheDir = normalizeModelCacheDirOption(options);
+    if (!cacheDir) return url;
+    const nextUrl = new URL(url);
+    nextUrl.searchParams.set('cache_dir', cacheDir);
+    return nextUrl.toString();
+  }
+
+  function buildModelDownloadInit(options = {}) {
+    const cacheDir = normalizeModelCacheDirOption(options);
+    if (!cacheDir) return { method: 'POST' };
+    return {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cache_dir: cacheDir }),
+    };
+  }
+
+  async function getVoiceModelStatus(options = {}) {
+    const response = await fetchImpl(withModelCacheDirQuery(urls.modelStatusUrl, options));
     const payload = await readJsonSafely(response);
     if (!response.ok || !payload || typeof payload !== 'object') {
       return {
@@ -55,8 +77,8 @@ function createVoiceBackendClient({
     };
   }
 
-  async function startVoiceModelDownload() {
-    const response = await fetchImpl(urls.modelDownloadUrl, { method: 'POST' });
+  async function startVoiceModelDownload(options = {}) {
+    const response = await fetchImpl(urls.modelDownloadUrl, buildModelDownloadInit(options));
     const payload = await readJsonSafely(response);
     if (!response.ok || !payload || typeof payload !== 'object') {
       return {

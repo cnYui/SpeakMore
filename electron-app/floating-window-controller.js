@@ -82,6 +82,13 @@ function createFloatingWindowController({
       return;
     }
 
+    if (lastVoiceState && (lastVoiceState.visible || isErrorVoiceState(lastVoiceState) || isTerminalVoiceState(lastVoiceState))) {
+      lastVoiceState = null;
+      clearFloatingBarCompletedHideTimer();
+      hideFloatingBar();
+      return;
+    }
+
     sendToMain('voice-cancel-requested');
   }
 

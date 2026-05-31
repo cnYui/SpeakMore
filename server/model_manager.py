@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 
+MODEL_CACHE_DIR_ENV = "TYPELESS_MODEL_CACHE_DIR"
 SENSEVOICE_SMALL_MODEL_ID = "sensevoice-small"
 SENSEVOICE_SMALL_REPO_ID = "FunAudioLLM/SenseVoiceSmall"
 SENSEVOICE_SMALL_REQUIRED_MODEL_FILES = (
@@ -55,8 +56,22 @@ def get_managed_models_root():
     return base_dir / "Typeless" / "models"
 
 
+def normalize_model_cache_dir(cache_dir: str | None) -> str:
+    return str(Path(cache_dir).expanduser()) if isinstance(cache_dir, str) and cache_dir.strip() else ""
+
+
+def configure_model_cache_dir(cache_dir: str | None):
+    normalized = normalize_model_cache_dir(cache_dir)
+    if normalized:
+        os.environ[MODEL_CACHE_DIR_ENV] = normalized
+    return get_managed_model_cache_root()
+
+
 def get_managed_model_cache_root(model_id: str = SENSEVOICE_SMALL_MODEL_ID):
     validate_asr_model_id(model_id)
+    configured_cache_dir = normalize_model_cache_dir(os.environ.get(MODEL_CACHE_DIR_ENV))
+    if configured_cache_dir:
+        return Path(configured_cache_dir)
     return get_managed_models_root() / "funasr"
 
 
