@@ -39,6 +39,7 @@ function createWindowManager({
   getAppIsQuitting = () => false,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
+  processPlatform = process.platform,
 } = {}) {
   if (typeof BrowserWindow !== 'function') {
     throw new Error('BrowserWindow is required');
@@ -67,6 +68,7 @@ function createWindowManager({
   let floatingPanelWindow = null;
   let tray = null;
   let floatingWindowController = null;
+  const shouldRefreshFloatingWindowLayer = processPlatform === 'darwin';
 
   function getCurrentFloatingWorkArea() {
     try {
@@ -102,8 +104,11 @@ function createWindowManager({
     window.show();
   }
 
-  function keepFloatingWindowOnTop(targetWindow, { moveToTop = true } = {}) {
+  function keepFloatingWindowOnTop(targetWindow, { moveToTop = true, forceRefresh = false } = {}) {
     if (!targetWindow || targetWindow.isDestroyed()) return;
+    if (forceRefresh) {
+      targetWindow.setAlwaysOnTop(false);
+    }
     targetWindow.setAlwaysOnTop(true, 'screen-saver', 1);
     targetWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     if (moveToTop && typeof targetWindow.moveTop === 'function') {
@@ -116,7 +121,7 @@ function createWindowManager({
     positionFloatingBar();
     floatingBar.setIgnoreMouseEvents(false);
     showWindowWithoutActivation(floatingBar);
-    keepFloatingWindowOnTop(floatingBar);
+    keepFloatingWindowOnTop(floatingBar, { forceRefresh: shouldRefreshFloatingWindowLayer });
   }
 
   function hideFloatingBar() {
@@ -131,7 +136,7 @@ function createWindowManager({
     positionFloatingPanel();
     floatingPanelWindow.setIgnoreMouseEvents(false);
     showWindowWithoutActivation(floatingPanelWindow);
-    keepFloatingWindowOnTop(floatingPanelWindow);
+    keepFloatingWindowOnTop(floatingPanelWindow, { forceRefresh: shouldRefreshFloatingWindowLayer });
   }
 
   function hideFloatingPanel() {
@@ -148,9 +153,14 @@ function createWindowManager({
     return true;
   }
 
-  function handleFloatingBarSetAlwaysOnTopForWindows() {
-    keepFloatingWindowOnTop(floatingBar);
+  function handleFloatingWindowsBringToFront() {
+    keepFloatingWindowOnTop(floatingBar, { forceRefresh: true });
+    keepFloatingWindowOnTop(floatingPanelWindow, { forceRefresh: true });
     return true;
+  }
+
+  function handleFloatingBarSetAlwaysOnTopForWindows() {
+    return handleFloatingWindowsBringToFront();
   }
 
   function createMainWindow() {
@@ -297,6 +307,7 @@ function createWindowManager({
     handleFloatingPanelEvent,
     handleVoiceState,
     handleFloatingBarUpdatePositions,
+    handleFloatingWindowsBringToFront,
     handleFloatingBarSetAlwaysOnTopForWindows,
     dispose,
     sendToMain,

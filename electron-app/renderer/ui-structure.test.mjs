@@ -324,6 +324,7 @@ test('主进程注册真实 bundle 首屏所需的 IPC shim', async () => {
     'updater:check-for-update',
     'page:open-url',
     'page:floating-bar-update-positions',
+    'page:floating-windows-bring-to-front',
     'page:floating-bar-set-always-on-top-for-windows',
     'audio:opus-compress-by-buffer',
     'audio:clean-opus-audio-file',

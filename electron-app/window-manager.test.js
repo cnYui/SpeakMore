@@ -349,6 +349,7 @@ test('显示悬浮窗口时会重新提升置顶层级但不抢焦点', () => {
     sendToFloatingBar: () => undefined,
     sendToFloatingPanel: () => undefined,
     getAppIsQuitting: () => false,
+    processPlatform: 'win32',
   });
 
   const floatingBar = manager.createFloatingBar();
@@ -374,6 +375,101 @@ test('显示悬浮窗口时会重新提升置顶层级但不抢焦点', () => {
   assert.equal(floatingPanel.moveTopCallCount, 1);
   assert.equal(floatingBar.focused, false);
   assert.equal(floatingPanel.focused, false);
+});
+
+test('macOS 显示悬浮窗口时会刷新 alwaysOnTop 层级但不抢焦点', () => {
+  const BrowserWindow = createFakeBrowserWindowClass();
+  const manager = createWindowManager({
+    app: { quit: () => undefined },
+    BrowserWindow,
+    Tray: createFakeTrayClass(),
+    Menu: { buildFromTemplate: (template) => template },
+    nativeImage: { createFromPath: (filePath) => ({ filePath, resize: () => ({ filePath }) }) },
+    session: { fromPartition: (partition) => ({ partition }) },
+    screen: {
+      getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+      getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+      getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    },
+    path,
+    baseDir: '/repo/SpeakMore/electron-app',
+    preloadPath: () => '/repo/SpeakMore/electron-app/preload.js',
+    iconPath: () => '/repo/SpeakMore/electron-app/assets/tray-placeholder.png',
+    trayIconPath: () => '/repo/SpeakMore/electron-app/assets/tray-placeholder.png',
+    resolveBottomCenterBounds: (_, windowSize) => ({ x: 11, y: 22, width: windowSize.width, height: windowSize.height }),
+    isActiveVoiceState,
+    isErrorVoiceState,
+    isTerminalVoiceState,
+    shouldShowShortcutHint,
+    sendToMain: () => undefined,
+    sendToFloatingBar: () => undefined,
+    sendToFloatingPanel: () => undefined,
+    getAppIsQuitting: () => false,
+    processPlatform: 'darwin',
+  });
+
+  const floatingBar = manager.createFloatingBar();
+  const floatingPanel = manager.createFloatingPanelWindow();
+
+  manager.showFloatingBar();
+  manager.showFloatingPanel();
+
+  assert.deepEqual(floatingBar.alwaysOnTopCalls, [
+    [true, 'screen-saver', 1],
+    [false],
+    [true, 'screen-saver', 1],
+  ]);
+  assert.deepEqual(floatingPanel.alwaysOnTopCalls, [
+    [true, 'screen-saver', 1],
+    [false],
+    [true, 'screen-saver', 1],
+  ]);
+  assert.equal(floatingBar.moveTopCallCount, 1);
+  assert.equal(floatingPanel.moveTopCallCount, 1);
+  assert.equal(floatingBar.focused, false);
+  assert.equal(floatingPanel.focused, false);
+});
+
+test('显式拉前处理器会同时刷新悬浮条和悬浮面板层级', () => {
+  const BrowserWindow = createFakeBrowserWindowClass();
+  const manager = createWindowManager({
+    app: { quit: () => undefined },
+    BrowserWindow,
+    Tray: createFakeTrayClass(),
+    Menu: { buildFromTemplate: (template) => template },
+    nativeImage: { createFromPath: (filePath) => ({ filePath, resize: () => ({ filePath }) }) },
+    session: { fromPartition: (partition) => ({ partition }) },
+    screen: {
+      getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+      getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+      getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    },
+    path,
+    baseDir: '/repo/SpeakMore/electron-app',
+    preloadPath: () => '/repo/SpeakMore/electron-app/preload.js',
+    iconPath: () => '/repo/SpeakMore/electron-app/assets/tray-placeholder.png',
+    trayIconPath: () => '/repo/SpeakMore/electron-app/assets/tray-placeholder.png',
+    resolveBottomCenterBounds: (_, windowSize) => ({ x: 11, y: 22, width: windowSize.width, height: windowSize.height }),
+    isActiveVoiceState,
+    isErrorVoiceState,
+    isTerminalVoiceState,
+    shouldShowShortcutHint,
+    sendToMain: () => undefined,
+    sendToFloatingBar: () => undefined,
+    sendToFloatingPanel: () => undefined,
+    getAppIsQuitting: () => false,
+    processPlatform: 'win32',
+  });
+
+  const floatingBar = manager.createFloatingBar();
+  const floatingPanel = manager.createFloatingPanelWindow();
+
+  assert.equal(manager.handleFloatingWindowsBringToFront(), true);
+
+  assert.deepEqual(floatingBar.alwaysOnTopCalls.slice(-2), [[false], [true, 'screen-saver', 1]]);
+  assert.deepEqual(floatingPanel.alwaysOnTopCalls.slice(-2), [[false], [true, 'screen-saver', 1]]);
+  assert.equal(floatingBar.moveTopCallCount, 1);
+  assert.equal(floatingPanel.moveTopCallCount, 1);
 });
 
 test('handleVoiceState 对终态会显示悬浮条并安排自动隐藏', () => {

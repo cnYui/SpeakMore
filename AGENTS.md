@@ -85,6 +85,7 @@
 - 录音启动必须先校验当前大模型 provider 的 API Key；未填写时直接拦截并提示，不得打开麦克风、连接 WebSocket 或等待后端 ready。API Key 已配置后，可以并行准备后端 ready、词典、WebSocket 和麦克风；模型未下载时必须返回 `voice_model_missing` 并提示先下载模型；`start_audio` 只能在 `/ready` 成功和所有启动资源准备完成后发送，ready 失败或取消时必须清理已打开的麦克风和 WebSocket。
 - 长按 `Right Alt` 的判定阈值为 `350ms`；快捷键提示也通过 `floating-panel` IPC 和独立悬浮面板展示，提示优先级低于录音、转写、完成、取消和错误状态。
 - 悬浮胶囊和悬浮面板不要依赖本机固定坐标，应基于当前显示器 `workArea` 计算并限制在屏幕内。
+- 悬浮胶囊和悬浮面板每次唤醒或显示时都必须重新提升置顶层级；macOS 需要刷新 `alwaysOnTop` 层级状态后再 `moveTop()`，但不能调用 `focus()` 抢走当前输入焦点。
 - 悬浮胶囊外层透明窗口大小应贴合 `floating-bar.html` 中文字加粒子球的可见布局，当前为 `220x224`；不要恢复大面积透明背景，否则会拦截背后应用点击。
 - WebSocket 语音流固定输入来自 `16kHz`、单声道、`pcm_s16le` 二进制 chunk，并在 `start_audio.parameters.audio_format` 声明 `{ type: "pcm_s16le", sample_rate: 16000, channels: 1 }`；`/ai/voice_flow` 兼容入口可以接受上传音频，但后端也必须先转成 PCM16 再喂给 SenseVoiceSmall。
 - WebSocket 协议入口必须防御非法 JSON 和非对象参数；`parameters`、`audio_context` 等输入进入业务逻辑前必须归一化为对象。

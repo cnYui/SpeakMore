@@ -100,6 +100,7 @@ test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () =
     handleFloatingPanelEvent: () => undefined,
     handleVoiceState: () => undefined,
     handleFloatingBarUpdatePositions: () => undefined,
+    handleFloatingWindowsBringToFront: () => undefined,
     handleFloatingBarSetAlwaysOnTopForWindows: () => undefined,
     openExternalUrl: () => undefined,
     getInteractiveCardPayload: () => undefined,
@@ -140,6 +141,7 @@ test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () =
   assert.equal(calls[8][1].macosPlatformCapabilities, macosPlatformCapabilities);
   assert.equal(calls[8][1].platform, 'win32');
   assert.equal(calls[9][1].createMainWindow(), 'main-window');
+  assert.equal(typeof calls[9][1].handleFloatingWindowsBringToFront, 'function');
   assert.equal(calls[10][1].macosPlatformCapabilities, macosPlatformCapabilities);
   assert.equal(calls[10][1].processPlatform, 'win32');
   assert.equal(calls[11][1].localStores, localCompatState.localStores);

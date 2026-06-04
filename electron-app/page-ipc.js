@@ -9,6 +9,7 @@ function registerPageIpcHandlers({
   handleVoiceState = () => undefined,
   handleFloatingBarUpdatePositions = () => true,
   handleFloatingBarSetAlwaysOnTopForWindows = () => true,
+  handleFloatingWindowsBringToFront = handleFloatingBarSetAlwaysOnTopForWindows,
   openExternalUrl,
   shell,
   getInteractiveCardPayload = () => null,
@@ -91,8 +92,11 @@ function registerPageIpcHandlers({
   ipcMain.handle('page:floating-bar-update-positions', (_, payload = []) => (
     handleFloatingBarUpdatePositions(payload)
   ));
+  ipcMain.handle('page:floating-windows-bring-to-front', () => (
+    handleFloatingWindowsBringToFront()
+  ));
   ipcMain.handle('page:floating-bar-set-always-on-top-for-windows', () => (
-    handleFloatingBarSetAlwaysOnTopForWindows()
+    handleFloatingWindowsBringToFront()
   ));
   ipcMain.handle('page:complete-onboarding', () => true);
   ipcMain.handle('page:open-interactive-card', (_, payload = {}) => {

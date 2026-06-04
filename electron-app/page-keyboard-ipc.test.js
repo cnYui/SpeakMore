@@ -74,7 +74,7 @@ test('registerPageIpcHandlers 注册页面和浮窗通道', async () => {
       calls.push(['positions', payload]);
       return true;
     },
-    handleFloatingBarSetAlwaysOnTopForWindows: () => {
+    handleFloatingWindowsBringToFront: () => {
       calls.push('always-on-top');
       return true;
     },
@@ -102,6 +102,7 @@ test('registerPageIpcHandlers 注册页面和浮窗通道', async () => {
   assert.equal(await ipcMain.invoke('page:launch-application', { path: 'D:\\notes.txt' }), true);
   assert.equal(await ipcMain.invoke('page:open-url', { url: 'https://example.com' }), true);
   assert.equal(await ipcMain.invoke('page:floating-bar-update-positions', [{ x: 1 }]), true);
+  assert.equal(await ipcMain.invoke('page:floating-windows-bring-to-front'), true);
   assert.equal(await ipcMain.invoke('page:floating-bar-set-always-on-top-for-windows'), true);
   ipcMain.emit('floating-panel', { visible: true, type: 'shortcut-hint' });
   ipcMain.emit('voice-state', { status: 'recording' });
@@ -114,6 +115,7 @@ test('registerPageIpcHandlers 注册页面和浮窗通道', async () => {
     ['open-path', 'D:\\notes.txt'],
     ['open-url', 'https://example.com'],
     ['positions', [{ x: 1 }]],
+    'always-on-top',
     'always-on-top',
     ['panel', { visible: true, type: 'shortcut-hint' }],
     ['voice', { status: 'recording' }],

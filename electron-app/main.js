@@ -430,6 +430,7 @@ windowManager = createWindowManager({
   sendToFloatingBar,
   sendToFloatingPanel,
   getAppIsQuitting: () => appIsQuitting,
+  processPlatform: process.platform,
 });
 
 const mainIpcRegistry = createMainIpcRegistry({
@@ -453,6 +454,7 @@ const mainIpcRegistry = createMainIpcRegistry({
   getInteractiveCardPayload: () => pendingInteractiveCardPayload,
   getMainWindow,
   getVoiceModelStatus,
+  handleFloatingWindowsBringToFront: () => windowManager.handleFloatingWindowsBringToFront(),
   handleFloatingBarSetAlwaysOnTopForWindows: () => windowManager.handleFloatingBarSetAlwaysOnTopForWindows(),
   handleFloatingBarUpdatePositions: (payload) => windowManager.handleFloatingBarUpdatePositions(payload),
   handleFloatingPanelEvent: (payload) => windowManager.handleFloatingPanelEvent(payload),
