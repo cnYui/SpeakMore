@@ -12,6 +12,7 @@ const {
   screen,
   session,
   dialog,
+  desktopCapturer,
 } = require('electron');
 const os = require('os');
 const crypto = require('crypto');
@@ -33,6 +34,7 @@ const {
   isSameFocusedContext,
   readFocusedInfo,
   readFocusedTextTarget,
+  readVisibleWindows,
   readSelectedTextByClipboard,
   readSelectionSnapshot,
   restoreClipboardSnapshot,
@@ -52,28 +54,41 @@ const { createAppPaths } = require('./app-paths');
 const { createLocalJsonStore } = require('./local-json-store');
 const { createHistoryRepository } = require('./history-repository');
 const { createDictionaryRepository } = require('./dictionary-repository');
+const { createShortcutCommandRepository } = require('./shortcut-command-repository');
+const { createShortcutCommandRegistrar } = require('./shortcut-command-registrar');
+const { createMeetingNoteRepository } = require('./meeting-note-repository');
+const { createVoiceDiagnosticsRepository } = require('./voice-diagnostics-repository');
 const { createTextObserverService } = require('./text-observer-service');
 const { createLocalCompatState } = require('./local-compat-state');
 const { createMainIpcRegistry } = require('./main-ipc-registry');
 const { createMacosPlatformCapabilities } = require('./macos-platform-capabilities');
 const { createAutoLearningDebugLogger } = require('./auto-learning-debug-logger');
 const { createVoiceBackendService } = require('./voice-backend-service');
+const { createMeetingDetectorService } = require('./meeting-detector');
+const meetingDetectionNotificationI18n = require('../shared/meeting-detection-notification-i18n.json');
 
 let quitAfterBackgroundAudioRestore = false;
 let appIsQuitting = false;
 let pendingInteractiveCardPayload = null;
+let latestVoiceState = null;
+let meetingDetectorService = null;
 let sendToMainRef = () => undefined;
 let sendToFloatingBarRef = () => undefined;
+let sendToMeetingSubtitlesRef = () => undefined;
 
 const SETTINGS_FILE_NAME = 'settings.json';
 const HISTORY_FILE_NAME = 'history.json';
 const HISTORY_STATS_FILE_NAME = 'history-stats.json';
 const DICTIONARY_FILE_NAME = 'dictionary.json';
 const DICTIONARY_CANDIDATES_FILE_NAME = 'dictionary-candidates.json';
+const SHORTCUT_COMMANDS_FILE_NAME = 'shortcut-commands.json';
+const MEETING_NOTES_FILE_NAME = 'meeting-notes.json';
+const VOICE_DIAGNOSTICS_FILE_NAME = 'voice-diagnostics.json';
 const SHORTCUT_DEBUG_ENABLED = ['1', 'true', 'yes', 'on'].includes(
   String(process.env.TYPELESS_SHORTCUT_DEBUG || '').toLowerCase(),
 );
 const IS_MACOS = process.platform === 'darwin';
+const START_HIDDEN = process.argv.includes('--hidden');
 
 if (app.isPackaged) {
   app.setName('SpeakMore');
@@ -149,6 +164,10 @@ function getConfiguredModelCacheDir(settings = readLocalSettings()) {
   return typeof settings.modelCacheDir === 'string' ? settings.modelCacheDir.trim() : '';
 }
 
+function getConfiguredTranslationModelCacheDir(settings = readLocalSettings()) {
+  return typeof settings.translationModelCacheDir === 'string' ? settings.translationModelCacheDir.trim() : '';
+}
+
 function getConfiguredAsrDeviceMode(settings = readLocalSettings()) {
   return ['mps', 'cuda', 'cpu'].includes(settings.asrDeviceMode) ? settings.asrDeviceMode : 'default';
 }
@@ -158,12 +177,20 @@ function resolveModelCacheDirOption(options = {}) {
   return requestedCacheDir || getConfiguredModelCacheDir();
 }
 
+function resolveTranslationModelCacheDirOption(options = {}) {
+  const requestedCacheDir = typeof options.cacheDir === 'string' ? options.cacheDir.trim() : '';
+  return requestedCacheDir || getConfiguredTranslationModelCacheDir();
+}
+
 const voiceBackendService = createVoiceBackendService({
   isPackaged: app.isPackaged,
   backendExecutablePath: () => appPaths.backendExecutablePath(),
   ffmpegBinDir: () => path.dirname(appPaths.ffmpegExecutablePath()),
   getModelCacheDir: () => getConfiguredModelCacheDir(),
+  getTranslationModelCacheDir: () => getConfiguredTranslationModelCacheDir(),
   getAsrDeviceMode: () => getConfiguredAsrDeviceMode(),
+  llamaServerPath: () => appPaths.llamaServerPath(),
+  hyMtLlamaServerPath: () => appPaths.hyMtLlamaServerPath(),
   spawnProcess: spawn,
   probeReady: () => voiceBackendClient.checkVoiceServerReady(),
   probeModelStatus: () => voiceBackendClient.getVoiceModelStatus({ cacheDir: getConfiguredModelCacheDir() }),
@@ -173,7 +200,7 @@ const voiceBackendService = createVoiceBackendService({
 });
 
 const audioSessionService = createAudioSessionService({
-  isEnabled: () => localCompatState.localStores['app-settings'].enabledMuteBackgroundAudio !== false,
+  isEnabled: () => readLocalSettings().muteBackgroundAudioDuringRecording !== false,
   getTypelessProcessIds: () => {
     const processIds = new Set([process.pid]);
 
@@ -209,6 +236,31 @@ const dictionaryRepository = createDictionaryRepository({
   dictionaryFileName: DICTIONARY_FILE_NAME,
   candidatesFileName: DICTIONARY_CANDIDATES_FILE_NAME,
   logger: autoLearningLogger,
+});
+
+const shortcutCommandRepository = createShortcutCommandRepository({
+  readJsonFile,
+  writeJsonFile,
+  fileName: SHORTCUT_COMMANDS_FILE_NAME,
+});
+
+const shortcutCommandRegistrar = createShortcutCommandRegistrar({
+  globalShortcut,
+  readShortcutCommands: () => shortcutCommandRepository.readShortcutCommands(),
+  emitTriggered: (command) => sendToMain('shortcut-command:triggered', command),
+  logger: console,
+});
+
+const meetingNoteRepository = createMeetingNoteRepository({
+  readJsonFile,
+  writeJsonFile,
+  fileName: MEETING_NOTES_FILE_NAME,
+});
+
+const voiceDiagnosticsRepository = createVoiceDiagnosticsRepository({
+  readJsonFile,
+  writeJsonFile,
+  fileName: VOICE_DIAGNOSTICS_FILE_NAME,
 });
 
 function readHistoryItems() {
@@ -321,6 +373,14 @@ function getFloatingPanelWindow() {
   return windowManager?.getFloatingPanelWindow() || null;
 }
 
+function getMeetingSubtitlesWindow() {
+  return windowManager?.getMeetingSubtitlesWindow() || null;
+}
+
+function getMeetingDetectionWindow() {
+  return windowManager?.getMeetingDetectionWindow() || null;
+}
+
 function sendToMain(channel, payload) {
   const target = getMainWindow();
   if (target && !target.isDestroyed()) {
@@ -330,6 +390,34 @@ function sendToMain(channel, payload) {
 
 function emitDictionaryChanged(payload = {}) {
   sendToMain('dictionary:changed', {
+    ...payload,
+    changedAt: new Date().toISOString(),
+  });
+}
+
+function emitShortcutCommandsChanged(payload = {}) {
+  sendToMain('shortcut-command:changed', {
+    ...payload,
+    changedAt: new Date().toISOString(),
+  });
+}
+
+function emitMeetingNotesChanged(payload = {}) {
+  sendToMain('meeting-note:changed', {
+    ...payload,
+    changedAt: new Date().toISOString(),
+  });
+}
+
+function emitVoiceDiagnosticsChanged(payload = {}) {
+  sendToMain('voice-diagnostics:changed', {
+    ...payload,
+    changedAt: new Date().toISOString(),
+  });
+}
+
+function emitSettingsChanged(payload = readLocalSettings()) {
+  sendToMain('settings:changed', {
     ...payload,
     changedAt: new Date().toISOString(),
   });
@@ -349,8 +437,16 @@ function sendToFloatingPanel(channel, payload) {
   }
 }
 
+function sendToMeetingSubtitles(channel, payload) {
+  const target = getMeetingSubtitlesWindow();
+  if (target && !target.isDestroyed()) {
+    target.webContents.send(channel, payload);
+  }
+}
+
 sendToMainRef = sendToMain;
 sendToFloatingBarRef = sendToFloatingBar;
+sendToMeetingSubtitlesRef = sendToMeetingSubtitles;
 
 function emitKeyboardState(keys) {
   windowManager?.updateFloatingBarVisibility(keys);
@@ -361,8 +457,8 @@ function handleRightAltEscapeKeydown() {
   return windowManager?.handleEscapeKeydown();
 }
 
-function createMainWindow() {
-  return windowManager?.createMainWindow() || null;
+function createMainWindow(options = {}) {
+  return windowManager?.createMainWindow(options) || null;
 }
 
 function createFloatingBar() {
@@ -379,6 +475,10 @@ function restoreMutedBackgroundSessions() {
 
 function muteBackgroundSessionsForRecording() {
   return audioSessionService.muteBackgroundSessionsForRecording();
+}
+
+function listActiveAudioSessions() {
+  return audioSessionService.listActiveAudioSessions();
 }
 
 async function checkVoiceServerReady() {
@@ -401,12 +501,77 @@ async function startVoiceModelDownload(options = {}) {
   return voiceBackendClient.startVoiceModelDownload({ cacheDir: resolveModelCacheDirOption(options) });
 }
 
+async function getTranslationModelStatus(options = {}) {
+  return voiceBackendClient.getTranslationModelStatus({ cacheDir: resolveTranslationModelCacheDirOption(options) });
+}
+
+async function startTranslationModelDownload(options = {}) {
+  return voiceBackendClient.startTranslationModelDownload({ cacheDir: resolveTranslationModelCacheDirOption(options) });
+}
+
+async function loadTranslationModel(options = {}) {
+  return voiceBackendClient.loadTranslationModel({ cacheDir: resolveTranslationModelCacheDirOption(options) });
+}
+
+async function unloadTranslationModel(options = {}) {
+  return voiceBackendClient.unloadTranslationModel({ cacheDir: resolveTranslationModelCacheDirOption(options) });
+}
+
 async function reloadVoiceServerConfig() {
   return voiceBackendClient.reloadVoiceServerConfig();
 }
 
 async function callVoiceFlowBackend(payload = {}) {
   return voiceBackendClient.callVoiceFlowBackend(payload);
+}
+
+async function callTextRefineBackend(payload = {}) {
+  return voiceBackendClient.callTextRefineBackend(payload);
+}
+
+function isVoiceSessionActiveForMeetingDetection() {
+  return ['connecting', 'recording', 'stopping', 'transcribing'].includes(String(latestVoiceState?.status || ''));
+}
+
+function handleVoiceStateFromRenderer(payload = {}) {
+  latestVoiceState = payload && typeof payload === 'object' ? payload : {};
+  return windowManager.handleVoiceState(payload);
+}
+
+function handleMeetingDetected(payload = {}) {
+  const settings = readLocalSettings();
+  const language = typeof settings.preferredLanguage === 'string' ? settings.preferredLanguage : DEFAULT_LANGUAGE;
+  const labels = meetingDetectionNotificationI18n[language]
+    || meetingDetectionNotificationI18n[DEFAULT_LANGUAGE]
+    || meetingDetectionNotificationI18n['en-US']
+    || {};
+  const notificationPayload = {
+    ...payload,
+    language,
+    labels,
+  };
+  sendToMain('meeting-detector:detected', payload);
+  windowManager.showMeetingDetectionNotification(notificationPayload);
+}
+
+function handleMeetingDetectorStartRecording(payload = {}) {
+  meetingDetectorService?.startRecording(payload);
+  windowManager.hideMeetingDetectionNotification();
+}
+
+function handleMeetingDetectorDismiss(payload = {}) {
+  meetingDetectorService?.dismiss(payload);
+  windowManager.hideMeetingDetectionNotification();
+}
+
+function requestAutoStartMeetingRecording(payload = {}) {
+  createMainWindow();
+  sendToMain('meeting:auto-start-recording', {
+    ...payload,
+    requestId: crypto.randomUUID(),
+    audioSource: 'microphone_system',
+    targetLanguage: 'off',
+  });
 }
 
 windowManager = createWindowManager({
@@ -416,6 +581,7 @@ windowManager = createWindowManager({
   Menu,
   nativeImage,
   session,
+  desktopCapturer,
   screen,
   baseDir: __dirname,
   preloadPath,
@@ -429,14 +595,32 @@ windowManager = createWindowManager({
   sendToMain,
   sendToFloatingBar,
   sendToFloatingPanel,
+  sendToMeetingSubtitles,
   getAppIsQuitting: () => appIsQuitting,
+  isFloatingBarEnabled: () => readLocalSettings().showFloatingBar !== false,
+  shouldHideMainWindowOnClose: () => readLocalSettings().hideMainWindowOnClose !== false,
+  requestAppQuit: () => app.quit(),
   processPlatform: process.platform,
+});
+
+meetingDetectorService = createMeetingDetectorService({
+  readFocusedInfo: readFocusedInfoForPlatform,
+  readVisibleWindows: process.platform === 'win32' ? readVisibleWindows : async () => [],
+  listActiveAudioSessions,
+  readLocalSettings,
+  isVoiceActive: isVoiceSessionActiveForMeetingDetection,
+  onDetected: handleMeetingDetected,
+  onStartRecording: requestAutoStartMeetingRecording,
+  onDismiss: () => undefined,
+  logger: console,
 });
 
 const mainIpcRegistry = createMainIpcRegistry({
   app,
   calculateDirectorySize,
   callVoiceFlowBackend,
+  callTextRefineBackend,
+  buildCurrentLlmRequestConfig,
   checkVoiceServerReady,
   clipboard,
   createClipboardSnapshot,
@@ -447,18 +631,26 @@ const mainIpcRegistry = createMainIpcRegistry({
   dictionaryRepository,
   dialog,
   emitDictionaryChanged,
+  emitMeetingNotesChanged,
+  emitSettingsChanged,
+  emitShortcutCommandsChanged,
+  emitVoiceDiagnosticsChanged,
   ensureVoiceBackendStarted,
   ensureVoiceServer,
   fs,
   getFloatingBar,
+  getMeetingSubtitlesWindow,
   getInteractiveCardPayload: () => pendingInteractiveCardPayload,
   getMainWindow,
   getVoiceModelStatus,
+  getTranslationModelStatus,
   handleFloatingWindowsBringToFront: () => windowManager.handleFloatingWindowsBringToFront(),
   handleFloatingBarSetAlwaysOnTopForWindows: () => windowManager.handleFloatingBarSetAlwaysOnTopForWindows(),
   handleFloatingBarUpdatePositions: (payload) => windowManager.handleFloatingBarUpdatePositions(payload),
   handleFloatingPanelEvent: (payload) => windowManager.handleFloatingPanelEvent(payload),
-  handleVoiceState: (payload) => windowManager.handleVoiceState(payload),
+  handleVoiceState: handleVoiceStateFromRenderer,
+  handleMeetingDetectorStartRecording,
+  handleMeetingDetectorDismiss,
   ipcMain,
   isMuted: () => audioSessionService.isMuted(),
   isSameFocusedContext,
@@ -489,12 +681,22 @@ const mainIpcRegistry = createMainIpcRegistry({
   restoreMutedBackgroundSessions,
   sendToMain,
   sendToFloatingBar,
+  sendToMeetingSubtitles,
+  shortcutCommandRepository,
+  shortcutCommandRegistrar,
   setInteractiveCardPayload: (payload) => {
     pendingInteractiveCardPayload = payload;
   },
+  showMeetingSubtitles: (payload) => windowManager.showMeetingSubtitles(payload),
+  hideMeetingSubtitles: () => windowManager.hideMeetingSubtitles(),
   shell,
   spawnProcess: spawn,
   startVoiceModelDownload,
+  startTranslationModelDownload,
+  loadTranslationModel,
+  unloadTranslationModel,
+  meetingNoteRepository,
+  voiceDiagnosticsRepository,
   textObservationManager,
   upsertHistoryItem,
   writeHistoryItems,
@@ -556,9 +758,11 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   if (app.isPackaged) void voiceBackendService.startAndPreloadCachedModel();
   createTray();
-  createMainWindow();
+  createMainWindow({ show: !START_HIDDEN });
   createFloatingBar();
+  meetingDetectorService?.start();
   startRightAltListener();
+  shortcutCommandRegistrar.registerAll();
 });
 
 app.on('window-all-closed', (event) => event.preventDefault());
@@ -578,6 +782,8 @@ app.on('before-quit', (event) => {
 app.on('will-quit', () => {
   voiceBackendService.stop();
   windowManager?.dispose();
+  meetingDetectorService?.stop();
+  shortcutCommandRegistrar.dispose();
   rightAltListenerService.dispose();
   stopRightAltListener();
   globalShortcut.unregisterAll();

@@ -5,7 +5,7 @@
  */
 export const LONG_PRESS_MS = 350
 
-type KeyboardLike = {
+export type KeyboardLike = {
   keyName?: string
   isKeydown?: boolean
 }

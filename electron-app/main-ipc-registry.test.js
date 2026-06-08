@@ -10,6 +10,10 @@ function createFakeRegisters(calls) {
     'registerDictionaryIpcHandlers',
     'registerAudioIpcHandlers',
     'registerVoiceModelIpcHandlers',
+    'registerTranslationModelIpcHandlers',
+    'registerShortcutCommandIpcHandlers',
+    'registerMeetingNoteIpcHandlers',
+    'registerVoiceDiagnosticsIpcHandlers',
     'registerFocusedContextIpcHandlers',
     'registerFileIpcHandlers',
     'registerKeyboardIpcHandlers',
@@ -27,6 +31,7 @@ test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () =
   const dialog = { name: 'dialog' };
   const localUser = { name: 'SpeakMore' };
   const emitDictionaryChanged = () => undefined;
+  const emitSettingsChanged = () => undefined;
   const macosPlatformCapabilities = { name: 'macosPlatformCapabilities' };
   const localCompatState = {
     localStores: { 'app-settings': { enabledMuteBackgroundAudio: true } },
@@ -77,12 +82,19 @@ test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () =
     reloadVoiceServerConfig: () => undefined,
     dictionaryRepository: { name: 'dictionaryRepository' },
     emitDictionaryChanged,
+    emitSettingsChanged,
+    buildCurrentLlmRequestConfig: () => ({ provider_id: 'deepseek' }),
     callVoiceFlowBackend: () => undefined,
+    callTextRefineBackend: () => undefined,
     checkVoiceServerReady: () => undefined,
     ensureVoiceBackendStarted: () => undefined,
     ensureVoiceServer: () => undefined,
     getVoiceModelStatus: () => undefined,
     startVoiceModelDownload: () => undefined,
+    getTranslationModelStatus: () => undefined,
+    startTranslationModelDownload: () => undefined,
+    loadTranslationModel: () => undefined,
+    unloadTranslationModel: () => undefined,
     muteBackgroundSessionsForRecording: () => undefined,
     restoreMutedBackgroundSessions: () => undefined,
     isMuted: () => false,
@@ -114,7 +126,7 @@ test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () =
   registry.registerIpcHandlers();
   registry.registerIpcHandlers();
 
-  assert.equal(calls.length, 12);
+  assert.equal(calls.length, 16);
   assert.deepEqual(calls.map(([name]) => name), [
     'registerClipboardUserIpcHandlers',
     'registerHistoryIpcHandlers',
@@ -122,6 +134,10 @@ test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () =
     'registerDictionaryIpcHandlers',
     'registerAudioIpcHandlers',
     'registerVoiceModelIpcHandlers',
+    'registerTranslationModelIpcHandlers',
+    'registerShortcutCommandIpcHandlers',
+    'registerMeetingNoteIpcHandlers',
+    'registerVoiceDiagnosticsIpcHandlers',
     'registerFocusedContextIpcHandlers',
     'registerFileIpcHandlers',
     'registerKeyboardIpcHandlers',
@@ -133,17 +149,22 @@ test('createMainIpcRegistry 只注册一次并按固定顺序分发依赖', () =
   assert.equal(calls[0][1].clipboard, clipboard);
   assert.equal(calls[0][1].getLocalUser(), localUser);
   assert.equal(calls[1][1].getDeviceId(), 'device-1');
+  assert.equal(typeof calls[1][1].buildCurrentLlmRequestConfig, 'function');
+  assert.equal(typeof calls[1][1].callVoiceFlowBackend, 'function');
+  assert.equal(typeof calls[1][1].callTextRefineBackend, 'function');
+  assert.equal(calls[2][1].emitSettingsChanged, emitSettingsChanged);
   assert.equal(calls[3][1].emitDictionaryChanged, emitDictionaryChanged);
   assert.equal(typeof calls[4][1].ensureVoiceServer, 'function');
   assert.equal(typeof calls[5][1].startVoiceModelDownload, 'function');
-  assert.equal(calls[7][1].dialog, dialog);
-  assert.equal(calls[8][1].randomUUID(), 'uuid-1');
-  assert.equal(calls[8][1].macosPlatformCapabilities, macosPlatformCapabilities);
-  assert.equal(calls[8][1].platform, 'win32');
-  assert.equal(calls[9][1].createMainWindow(), 'main-window');
-  assert.equal(typeof calls[9][1].handleFloatingWindowsBringToFront, 'function');
-  assert.equal(calls[10][1].macosPlatformCapabilities, macosPlatformCapabilities);
-  assert.equal(calls[10][1].processPlatform, 'win32');
-  assert.equal(calls[11][1].localStores, localCompatState.localStores);
-  assert.equal('getSystemInfo' in calls[11][1], false);
+  assert.equal(typeof calls[6][1].loadTranslationModel, 'function');
+  assert.equal(calls[11][1].dialog, dialog);
+  assert.equal(calls[12][1].randomUUID(), 'uuid-1');
+  assert.equal(calls[12][1].macosPlatformCapabilities, macosPlatformCapabilities);
+  assert.equal(calls[12][1].platform, 'win32');
+  assert.equal(calls[13][1].createMainWindow(), 'main-window');
+  assert.equal(typeof calls[13][1].handleFloatingWindowsBringToFront, 'function');
+  assert.equal(calls[14][1].macosPlatformCapabilities, macosPlatformCapabilities);
+  assert.equal(calls[14][1].processPlatform, 'win32');
+  assert.equal(calls[15][1].localStores, localCompatState.localStores);
+  assert.equal('getSystemInfo' in calls[15][1], false);
 });

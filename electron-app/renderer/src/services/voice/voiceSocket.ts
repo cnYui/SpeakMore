@@ -15,8 +15,11 @@ export type VoiceSocketHandlers = {
   isCancelledSession: () => boolean
   isTerminalSession: () => boolean
   shouldFailOnClose: () => boolean
-  onRawText: (text: string) => void
-  onFinalText: (text: string) => void
+  onRawText: (text: string, payload?: Record<string, unknown>) => void
+  onMeetingTranslationPending: (payload?: Record<string, unknown>) => void
+  onMeetingTranslation: (text: string, payload?: Record<string, unknown>) => void
+  onMeetingTranslationError: (detail: string) => void
+  onFinalText: (text: string, payload?: Record<string, unknown>) => void
   onError: (error: VoiceError) => void
   onInterrupt: (detail: string) => void
 }
@@ -77,7 +80,22 @@ export function handleVoiceSocketMessage(event: MessageEvent, handlers: VoiceSoc
     if (handlers.isTerminalSession() && (isVoiceFinalMessageType(messageType) || isVoiceErrorMessageType(messageType))) return
 
     if (messageType === 'transcription') {
-      handlers.onRawText(readString(payload, 'text'))
+      handlers.onRawText(readString(payload, 'text'), payload)
+      return
+    }
+
+    if (messageType === 'meeting_translation_pending') {
+      handlers.onMeetingTranslationPending(payload)
+      return
+    }
+
+    if (messageType === 'meeting_translation') {
+      handlers.onMeetingTranslation(readString(payload, 'text'), payload)
+      return
+    }
+
+    if (messageType === 'meeting_translation_error') {
+      handlers.onMeetingTranslationError(readString(payload, 'detail') || readString(payload, 'message'))
       return
     }
 
@@ -99,7 +117,7 @@ export function handleVoiceSocketMessage(event: MessageEvent, handlers: VoiceSoc
         handlers.onError(createVoiceError('audio_empty'))
         return
       }
-      handlers.onFinalText(refinedText || fallbackRawText)
+      handlers.onFinalText(refinedText || fallbackRawText, payload)
       return
     }
 

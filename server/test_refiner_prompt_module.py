@@ -5,7 +5,7 @@ from refiner_prompts import SYSTEM_PROMPTS, VOICE_INPUT_NORMALIZATION_PROMPT
 
 class TestRefinerPromptModule(unittest.TestCase):
     def test_exports_static_prompts(self):
-        self.assertEqual(set(SYSTEM_PROMPTS), {"transcript", "ask_anything", "translation"})
+        self.assertEqual(set(SYSTEM_PROMPTS), {"transcript", "ask_anything", "translation", "custom_command", "meeting_notes"})
         self.assertTrue(
             VOICE_INPUT_NORMALIZATION_PROMPT.startswith("公共语音输入规范化与轻量条理化规则：")
         )

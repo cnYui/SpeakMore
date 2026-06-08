@@ -4,6 +4,7 @@
  * 需要确认听写、语音翻译、自由提问和选区上下文规则时看这里。
  */
 import type { ShortcutIntent } from '../shortcutGuard'
+import type { ShortcutCommand } from '../shortcutCommandStore'
 import {
   getFocusedInfoSnapshot,
   getFocusedSelectionSnapshot,
@@ -11,8 +12,9 @@ import {
   type FocusedSelectionSnapshot,
 } from './focusedContext'
 import type { VoiceMode } from './voiceTypes'
+import type { MeetingAudioSource, MeetingTranslationTarget } from '../meetingNotesStore'
 
-export type VoiceTaskDelivery = 'paste' | 'floating-panel'
+export type VoiceTaskDelivery = 'paste' | 'floating-panel' | 'none'
 
 // 语音任务是快捷键意图解析后的稳定协议，后续录音链路只消费这份结果。
 export type VoiceTask = {
@@ -22,6 +24,18 @@ export type VoiceTask = {
   confidence: FocusedSelectionSnapshot['confidence']
   focusInfo: FocusedInfo | null
   delivery: VoiceTaskDelivery
+  customCommand?: {
+    id: string
+    name: string
+    prompt: string
+  }
+  meetingOptions?: {
+    audioSource: MeetingAudioSource
+    targetLanguage: MeetingTranslationTarget
+    showOriginal: boolean
+    showTranslation: boolean
+    module?: 'new_note' | 'live_translation'
+  }
 }
 
 type SelectionSnapshotReader = () => Promise<FocusedSelectionSnapshot>
@@ -39,6 +53,7 @@ function createTask(
   mode: VoiceMode,
   snapshot: FocusedSelectionSnapshot,
   delivery: VoiceTaskDelivery,
+  customCommand?: VoiceTask['customCommand'],
 ): VoiceTask {
   return {
     mode,
@@ -47,6 +62,7 @@ function createTask(
     confidence: snapshot.confidence,
     focusInfo: snapshot.focusInfo,
     delivery,
+    ...(customCommand ? { customCommand } : {}),
   }
 }
 
@@ -144,4 +160,38 @@ export async function resolveVoiceTask(
     ...summarizeSelectedText(task.selectedText),
   })
   return task
+}
+
+export async function resolveShortcutCommandVoiceTask(
+  command: ShortcutCommand,
+  readFocusedInfoSnapshot: FocusedInfoReader = getFocusedInfoSnapshot,
+): Promise<VoiceTask> {
+  if (command.action === 'ask') {
+    return createTask('Ask', NO_SELECTION_SNAPSHOT, 'floating-panel')
+  }
+
+  if (command.action === 'custom-command') {
+    const focusInfo = command.delivery === 'paste' ? await readFocusedInfoSnapshot() : null
+    return createTask('CustomCommand', {
+      ...NO_SELECTION_SNAPSHOT,
+      focusInfo,
+    }, command.delivery, {
+      id: command.id,
+      name: command.name,
+      prompt: command.prompt,
+    })
+  }
+
+  const focusInfo = await readFocusedInfoSnapshot()
+  return createTask('Dictate', {
+    ...NO_SELECTION_SNAPSHOT,
+    focusInfo,
+  }, 'paste')
+}
+
+export function createMeetingNotesVoiceTask(options?: VoiceTask['meetingOptions']): VoiceTask {
+  return {
+    ...createTask('MeetingNotes', NO_SELECTION_SNAPSHOT, 'none'),
+    ...(options ? { meetingOptions: options } : {}),
+  }
 }

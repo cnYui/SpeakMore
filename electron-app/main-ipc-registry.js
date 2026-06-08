@@ -10,6 +10,10 @@ const { registerPageIpcHandlers } = require('./page-ipc');
 const { registerPermissionIpcHandlers } = require('./permission-ipc');
 const { registerCompatIpcHandlers } = require('./compat-ipc');
 const { registerVoiceModelIpcHandlers } = require('./voice-model-ipc');
+const { registerTranslationModelIpcHandlers } = require('./translation-model-ipc');
+const { registerShortcutCommandIpcHandlers } = require('./shortcut-command-ipc');
+const { registerMeetingNoteIpcHandlers } = require('./meeting-note-ipc');
+const { registerVoiceDiagnosticsIpcHandlers } = require('./voice-diagnostics-ipc');
 
 const defaultRegisters = {
   registerAudioIpcHandlers,
@@ -23,12 +27,18 @@ const defaultRegisters = {
   registerPageIpcHandlers,
   registerPermissionIpcHandlers,
   registerSettingsIpcHandlers,
+  registerShortcutCommandIpcHandlers,
+  registerTranslationModelIpcHandlers,
   registerVoiceModelIpcHandlers,
+  registerMeetingNoteIpcHandlers,
+  registerVoiceDiagnosticsIpcHandlers,
 };
 
 function createMainIpcRegistry({
   app,
+  buildCurrentLlmRequestConfig,
   calculateDirectorySize,
+  callTextRefineBackend,
   callVoiceFlowBackend,
   checkVoiceServerReady,
   clipboard,
@@ -40,18 +50,26 @@ function createMainIpcRegistry({
   dictionaryRepository,
   dialog,
   emitDictionaryChanged = () => undefined,
+  emitMeetingNotesChanged = () => undefined,
+  emitSettingsChanged = () => undefined,
+  emitShortcutCommandsChanged = () => undefined,
+  emitVoiceDiagnosticsChanged = () => undefined,
   ensureVoiceBackendStarted,
   ensureVoiceServer,
   fs,
   getFloatingBar,
+  getMeetingSubtitlesWindow,
   getInteractiveCardPayload,
   getMainWindow,
   getVoiceModelStatus,
+  getTranslationModelStatus,
   handleFloatingWindowsBringToFront,
   handleFloatingBarSetAlwaysOnTopForWindows,
   handleFloatingBarUpdatePositions,
   handleFloatingPanelEvent,
   handleVoiceState,
+  handleMeetingDetectorStartRecording,
+  handleMeetingDetectorDismiss,
   ipcMain,
   isMuted,
   isSameFocusedContext,
@@ -82,11 +100,21 @@ function createMainIpcRegistry({
   restoreMutedBackgroundSessions,
   sendToMain,
   sendToFloatingBar,
+  sendToMeetingSubtitles,
   setInteractiveCardPayload,
+  showMeetingSubtitles,
+  hideMeetingSubtitles,
   shell,
   spawnProcess,
   startVoiceModelDownload,
+  startTranslationModelDownload,
+  loadTranslationModel,
+  unloadTranslationModel,
   systemPreferences,
+  shortcutCommandRepository,
+  shortcutCommandRegistrar,
+  meetingNoteRepository,
+  voiceDiagnosticsRepository,
   textObservationManager,
   upsertHistoryItem,
   writeHistoryItems,
@@ -111,6 +139,12 @@ function createMainIpcRegistry({
     registers.registerHistoryIpcHandlers({
       ipcMain,
       getDeviceId: () => crypto.createHash('sha256').update(os.hostname()).digest('hex'),
+      buildCurrentLlmRequestConfig,
+      callTextRefineBackend,
+      callVoiceFlowBackend,
+      fs,
+      localDataDir,
+      readLocalSettings,
       readHistoryItems,
       writeHistoryItems,
       readHistoryStats,
@@ -123,6 +157,7 @@ function createMainIpcRegistry({
       readLocalSettings,
       writeLocalSettings,
       reloadVoiceServerConfig,
+      emitSettingsChanged,
     });
     registers.registerDictionaryIpcHandlers({
       ipcMain,
@@ -143,6 +178,30 @@ function createMainIpcRegistry({
       ensureVoiceBackendStarted,
       getVoiceModelStatus,
       startVoiceModelDownload,
+    });
+    registers.registerTranslationModelIpcHandlers({
+      ipcMain,
+      ensureVoiceBackendStarted,
+      getTranslationModelStatus,
+      startTranslationModelDownload,
+      loadTranslationModel,
+      unloadTranslationModel,
+    });
+    registers.registerShortcutCommandIpcHandlers({
+      ipcMain,
+      shortcutCommandRepository,
+      shortcutCommandRegistrar,
+      emitShortcutCommandsChanged,
+    });
+    registers.registerMeetingNoteIpcHandlers({
+      ipcMain,
+      meetingNoteRepository,
+      emitMeetingNotesChanged,
+    });
+    registers.registerVoiceDiagnosticsIpcHandlers({
+      ipcMain,
+      voiceDiagnosticsRepository,
+      emitVoiceDiagnosticsChanged,
     });
     registers.registerFocusedContextIpcHandlers({
       ipcMain,
@@ -184,7 +243,9 @@ function createMainIpcRegistry({
       createFloatingBar,
       getMainWindow,
       getFloatingBar,
+      getMeetingSubtitlesWindow,
       sendToMain,
+      sendToMeetingSubtitles,
       handleFloatingPanelEvent,
       handleVoiceState,
       handleFloatingBarUpdatePositions,
@@ -194,6 +255,10 @@ function createMainIpcRegistry({
       shell,
       getInteractiveCardPayload,
       setInteractiveCardPayload,
+      showMeetingSubtitles,
+      hideMeetingSubtitles,
+      handleMeetingDetectorStartRecording,
+      handleMeetingDetectorDismiss,
     });
     registers.registerPermissionIpcHandlers({
       ipcMain,

@@ -1,0 +1,135 @@
+{
+  "en-US": {
+    "title": "Meeting detected",
+    "start": "Start recording",
+    "open": "and open SpeakMore",
+    "close": "Close",
+    "meetingFallback": "Meeting"
+  },
+  "zh-CN": {
+    "title": "检测到会议",
+    "start": "开始录制",
+    "open": "并打开 SpeakMore",
+    "close": "关闭",
+    "meetingFallback": "会议"
+  },
+  "zh-TW": {
+    "title": "偵測到會議",
+    "start": "開始錄製",
+    "open": "並開啟 SpeakMore",
+    "close": "關閉",
+    "meetingFallback": "會議"
+  },
+  "ja-JP": {
+    "title": "会議を検出",
+    "start": "録音を開始",
+    "open": "SpeakMore を開く",
+    "close": "閉じる",
+    "meetingFallback": "会議"
+  },
+  "ko-KR": {
+    "title": "회의 감지됨",
+    "start": "녹음 시작",
+    "open": "SpeakMore 열기",
+    "close": "닫기",
+    "meetingFallback": "회의"
+  },
+  "es-ES": {
+    "title": "Reunión detectada",
+    "start": "Iniciar grabación",
+    "open": "y abrir SpeakMore",
+    "close": "Cerrar",
+    "meetingFallback": "Reunión"
+  },
+  "pt-BR": {
+    "title": "Reunião detectada",
+    "start": "Iniciar gravação",
+    "open": "e abrir SpeakMore",
+    "close": "Fechar",
+    "meetingFallback": "Reunião"
+  },
+  "fr-FR": {
+    "title": "Réunion détectée",
+    "start": "Démarrer l'enregistrement",
+    "open": "et ouvrir SpeakMore",
+    "close": "Fermer",
+    "meetingFallback": "Réunion"
+  },
+  "de-DE": {
+    "title": "Meeting erkannt",
+    "start": "Aufnahme starten",
+    "open": "und SpeakMore öffnen",
+    "close": "Schließen",
+    "meetingFallback": "Meeting"
+  },
+  "it-IT": {
+    "title": "Riunione rilevata",
+    "start": "Avvia registrazione",
+    "open": "e apri SpeakMore",
+    "close": "Chiudi",
+    "meetingFallback": "Riunione"
+  },
+  "ru-RU": {
+    "title": "Встреча обнаружена",
+    "start": "Начать запись",
+    "open": "и открыть SpeakMore",
+    "close": "Закрыть",
+    "meetingFallback": "Встреча"
+  },
+  "ar-SA": {
+    "title": "تم اكتشاف اجتماع",
+    "start": "بدء التسجيل",
+    "open": "وفتح SpeakMore",
+    "close": "إغلاق",
+    "meetingFallback": "اجتماع"
+  },
+  "he-IL": {
+    "title": "זוהתה פגישה",
+    "start": "התחל הקלטה",
+    "open": "ופתח את SpeakMore",
+    "close": "סגור",
+    "meetingFallback": "פגישה"
+  },
+  "hi-IN": {
+    "title": "मीटिंग मिली",
+    "start": "रिकॉर्डिंग शुरू करें",
+    "open": "और SpeakMore खोलें",
+    "close": "बंद करें",
+    "meetingFallback": "मीटिंग"
+  },
+  "id-ID": {
+    "title": "Rapat terdeteksi",
+    "start": "Mulai rekam",
+    "open": "dan buka SpeakMore",
+    "close": "Tutup",
+    "meetingFallback": "Rapat"
+  },
+  "ms-MY": {
+    "title": "Mesyuarat dikesan",
+    "start": "Mula rakam",
+    "open": "dan buka SpeakMore",
+    "close": "Tutup",
+    "meetingFallback": "Mesyuarat"
+  },
+  "nl-NL": {
+    "title": "Vergadering gedetecteerd",
+    "start": "Opname starten",
+    "open": "en SpeakMore openen",
+    "close": "Sluiten",
+    "meetingFallback": "Vergadering"
+  },
+  "pl-PL": {
+    "title": "Wykryto spotkanie",
+    "start": "Rozpocznij nagrywanie",
+    "open": "i otwórz SpeakMore",
+    "close": "Zamknij",
+    "meetingFallback": "Spotkanie"
+  },
+  "th-TH": {
+    "title": "ตรวจพบการประชุม",
+    "start": "เริ่มบันทึก",
+    "open": "และเปิด SpeakMore",
+    "close": "ปิด",
+    "meetingFallback": "การประชุม"
+  }
+}

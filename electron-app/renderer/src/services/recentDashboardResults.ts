@@ -9,7 +9,11 @@ export const RECENT_DASHBOARD_RESULT_LIMIT = 3
 
 export type RecentDashboardResult = {
   id: string
+  createdAt: string
   text: string
+  status: VoiceHistoryItem['status']
+  errorMessage?: string
+  retryable?: boolean
 }
 
 function finalResultText(item: Pick<VoiceHistoryItem, 'rawText' | 'refinedText'>): string {
@@ -17,16 +21,32 @@ function finalResultText(item: Pick<VoiceHistoryItem, 'rawText' | 'refinedText'>
 }
 
 function toRecentDashboardResult(item: VoiceHistoryItem): RecentDashboardResult | null {
-  if (item.status !== 'completed') return null
   if (item.mode === 'Ask') return null
+  if (item.mode === 'MeetingNotes') return null
 
-  const text = finalResultText(item)
-  return text ? { id: item.id, text } : null
+  const text = item.status === 'error'
+    ? (item.errorMessage || item.errorCode || finalResultText(item)).trim()
+    : finalResultText(item)
+  return text ? {
+    id: item.id,
+    createdAt: item.createdAt,
+    text,
+    status: item.status,
+    errorMessage: item.errorMessage,
+    retryable: item.retryable,
+  } : null
 }
 
 function normalizeRecentDashboardResult(result: RecentDashboardResult): RecentDashboardResult | null {
   const text = result.text.trim()
-  return text ? { id: result.id, text } : null
+  return text ? {
+    id: result.id,
+    createdAt: result.createdAt || new Date().toISOString(),
+    text,
+    status: result.status || 'completed',
+    errorMessage: result.errorMessage,
+    retryable: result.retryable,
+  } : null
 }
 
 export function selectRecentDashboardResults(

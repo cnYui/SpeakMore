@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpeakMore</title>
+  <style>
+    * { box-sizing: border-box; }
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      font-family: "Inter", "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      user-select: none;
+    }
+
+    .shell {
+      width: calc(100% - 14px);
+      min-height: calc(100% - 12px);
+      margin: 6px 7px;
+      display: flex;
+      align-items: center;
+      gap: clamp(7px, 2vw, 12px);
+      padding: clamp(8px, 2.5vw, 13px) clamp(8px, 2.6vw, 12px) clamp(8px, 2.5vw, 13px) clamp(7px, 2vw, 9px);
+      color: #f8fafc;
+      background: #181818;
+      border-radius: clamp(14px, 3.2vw, 17px);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+    }
+
+    .accent {
+      flex: 0 0 clamp(4px, 1vw, 5px);
+      height: clamp(38px, 11vw, 48px);
+      border-radius: 999px;
+      background: #43d676;
+    }
+
+    .icon {
+      flex: 0 0 auto;
+      width: clamp(34px, 9vw, 42px);
+      height: clamp(34px, 9vw, 42px);
+      border-radius: clamp(8px, 2vw, 10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f8fafc;
+    }
+
+    .bars {
+      display: flex;
+      align-items: center;
+      gap: clamp(2px, 0.7vw, 3px);
+      height: clamp(20px, 5.6vw, 25px);
+    }
+
+    .bars span {
+      display: block;
+      width: clamp(2px, 0.7vw, 3px);
+      border-radius: 999px;
+      background: #181818;
+    }
+
+    .bars span:nth-child(1) { height: 12px; }
+    .bars span:nth-child(2) { height: 22px; }
+    .bars span:nth-child(3) { height: 16px; }
+    .bars span:nth-child(4) { height: 28px; }
+    .bars span:nth-child(5) { height: 18px; }
+
+    .copy {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .title {
+      margin: 0 0 4px;
+      font-size: clamp(15px, 3.5vw, 17px);
+      line-height: 1.1;
+      font-weight: 700;
+      letter-spacing: 0;
+      color: #f5f5f5;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .app {
+      margin: 0;
+      font-size: clamp(11px, 2.7vw, 13px);
+      line-height: 1.2;
+      color: #9b9b9b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .start {
+      flex: 0 1 clamp(112px, 32%, 150px);
+      border: 0;
+      border-radius: clamp(10px, 2.5vw, 12px);
+      min-width: 0;
+      min-height: clamp(44px, 12vw, 52px);
+      padding: clamp(7px, 2vw, 9px) clamp(9px, 2.5vw, 12px);
+      color: #f7f7f7;
+      background: #3b3b3d;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+    }
+
+    .start strong {
+      display: block;
+      font-size: clamp(12px, 3vw, 15px);
+      line-height: 1.08;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .start span {
+      display: block;
+      margin-top: 3px;
+      font-size: clamp(10px, 2.5vw, 12px);
+      line-height: 1.1;
+      color: #b9b9b9;
+      overflow-wrap: anywhere;
+    }
+
+    .start:hover { background: #4a4a4d; }
+
+    .close {
+      flex: 0 0 clamp(20px, 5vw, 24px);
+      align-self: start;
+      width: clamp(20px, 5vw, 24px);
+      height: clamp(20px, 5vw, 24px);
+      border: 0;
+      padding: 0;
+      margin-top: -5px;
+      color: #9b9b9b;
+      background: transparent;
+      cursor: pointer;
+      font-size: clamp(22px, 5.6vw, 26px);
+      line-height: 1;
+    }
+
+    .close:hover { color: #f3f4f6; }
+
+    html[dir="rtl"] .start {
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell" id="card">
+    <div class="accent"></div>
+    <div class="icon" aria-hidden="true">
+      <div class="bars">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="copy">
+      <p class="title" id="title"></p>
+      <p class="app" id="app-name">SpeakMore</p>
+    </div>
+    <button class="start" id="start-button" type="button">
+      <strong id="start-label"></strong>
+      <span id="open-label"></span>
+    </button>
+    <button class="close" id="close-button" type="button" aria-label="">&times;</button>
+  </div>
+
+  <script>
+    let currentPayload = {};
+
+    function readLabels(payload) {
+      return payload && typeof payload.labels === 'object' && payload.labels ? payload.labels : {};
+    }
+
+    function setText(id, value) {
+      const target = document.getElementById(id);
+      if (target) target.textContent = String(value || '');
+    }
+
+    function updateDirection(language) {
+      const lang = String(language || '').trim();
+      document.documentElement.lang = lang || 'zh-CN';
+      document.documentElement.dir = /^(ar|he)(-|$)/i.test(lang) ? 'rtl' : 'ltr';
+    }
+
+    function update(payload) {
+      currentPayload = payload || {};
+      const labels = readLabels(currentPayload);
+      const appName = String(currentPayload.appName || currentPayload.appIdentifier || labels.meetingFallback || '').trim();
+      updateDirection(currentPayload.language);
+      setText('title', labels.title);
+      setText('app-name', appName || labels.meetingFallback);
+      setText('start-label', labels.start);
+      setText('open-label', labels.open);
+      document.getElementById('close-button').setAttribute('aria-label', String(labels.close || ''));
+      document.body.style.display = currentPayload.visible === false ? 'none' : 'block';
+    }
+
+    async function startRecording() {
+      if (window.ipcRenderer && typeof window.ipcRenderer.invoke === 'function') {
+        await window.ipcRenderer.invoke('meeting-detector:start-recording', currentPayload);
+      }
+    }
+
+    async function dismiss() {
+      if (window.ipcRenderer && typeof window.ipcRenderer.invoke === 'function') {
+        await window.ipcRenderer.invoke('meeting-detector:dismiss', currentPayload);
+      }
+    }
+
+    document.getElementById('start-button').addEventListener('click', () => {
+      void startRecording();
+    });
+    document.getElementById('close-button').addEventListener('click', () => {
+      void dismiss();
+    });
+
+    if (window.ipcRenderer) {
+      window.ipcRenderer.on('meeting-detector:detected', (_event, payload) => update(payload || {}));
+    }
+  </script>
+</body>
+</html>

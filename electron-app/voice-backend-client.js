@@ -41,6 +41,10 @@ function createVoiceBackendClient({
     return typeof options.cacheDir === 'string' ? options.cacheDir.trim() : '';
   }
 
+  function normalizeTranslationModelCacheDirOption(options = {}) {
+    return typeof options.cacheDir === 'string' ? options.cacheDir.trim() : '';
+  }
+
   function withModelCacheDirQuery(url, options = {}) {
     const cacheDir = normalizeModelCacheDirOption(options);
     if (!cacheDir) return url;
@@ -49,8 +53,26 @@ function createVoiceBackendClient({
     return nextUrl.toString();
   }
 
+  function withTranslationModelCacheDirQuery(url, options = {}) {
+    const cacheDir = normalizeTranslationModelCacheDirOption(options);
+    if (!cacheDir) return url;
+    const nextUrl = new URL(url);
+    nextUrl.searchParams.set('cache_dir', cacheDir);
+    return nextUrl.toString();
+  }
+
   function buildModelDownloadInit(options = {}) {
     const cacheDir = normalizeModelCacheDirOption(options);
+    if (!cacheDir) return { method: 'POST' };
+    return {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cache_dir: cacheDir }),
+    };
+  }
+
+  function buildTranslationModelJsonInit(options = {}) {
+    const cacheDir = normalizeTranslationModelCacheDirOption(options);
     if (!cacheDir) return { method: 'POST' };
     return {
       method: 'POST',
@@ -118,6 +140,77 @@ function createVoiceBackendClient({
     };
   }
 
+  async function getTranslationModelStatus(options = {}) {
+    const url = withTranslationModelCacheDirQuery(urls.translationModelStatusUrl, options);
+    let response = null;
+    let payload = null;
+    try {
+      response = await fetchImpl(url);
+      payload = await readJsonSafely(response);
+    } catch {
+      return {
+        success: false,
+        status: 'unavailable',
+        detail: resolveVoiceServerProbeDetail(url, 0, null),
+        payload: null,
+      };
+    }
+    if (!response.ok || !payload || typeof payload !== 'object') {
+      return {
+        success: false,
+        status: 'unavailable',
+        detail: resolveVoiceServerProbeDetail(url, response.status, payload),
+        payload,
+      };
+    }
+    return {
+      success: true,
+      ...payload,
+      payload,
+    };
+  }
+
+  async function callTranslationModelAction(url, options = {}) {
+    let response = null;
+    let payload = null;
+    try {
+      response = await fetchImpl(url, buildTranslationModelJsonInit(options));
+      payload = await readJsonSafely(response);
+    } catch {
+      return {
+        success: false,
+        status: 'unavailable',
+        detail: resolveVoiceServerProbeDetail(url, 0, null),
+        payload: null,
+      };
+    }
+    if (!response.ok || !payload || typeof payload !== 'object') {
+      return {
+        success: false,
+        status: 'unavailable',
+        detail: resolveVoiceServerProbeDetail(url, response.status, payload),
+        payload,
+      };
+    }
+    return {
+      success: true,
+      ...payload,
+      payload,
+    };
+  }
+
+  async function startTranslationModelDownload(options = {}) {
+    return callTranslationModelAction(urls.translationModelDownloadUrl, options);
+  }
+
+  async function loadTranslationModel(options = {}) {
+    return callTranslationModelAction(urls.translationModelLoadUrl, options);
+  }
+
+  async function unloadTranslationModel(options = {}) {
+    return callTranslationModelAction(urls.translationModelUnloadUrl, options);
+  }
+
   async function callVoiceFlowBackend(payload = {}) {
     const readyState = await checkVoiceServerReady();
     if (!readyState.success) {
@@ -169,13 +262,76 @@ function createVoiceBackendClient({
     };
   }
 
+  async function callTextRefineBackend(payload = {}) {
+    let response = null;
+    let result = null;
+    try {
+      response = await fetchImpl(urls.textRefineUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          text: String(payload.text || payload.rawText || payload.raw_text || ''),
+          mode: normalizeVoiceMode(payload.mode),
+          audio_context: parseJsonObject(payload.audioContext || payload.audio_context),
+          parameters: buildVoiceFlowParameters(payload, formOptions),
+        }),
+      });
+      result = await readJsonSafely(response);
+    } catch (error) {
+      return {
+        success: false,
+        aborted: false,
+        debug: result,
+        detail: String(error?.message || error || 'text refine request failed'),
+        code: 'text_refine_unavailable',
+        paywall: null,
+        error: String(error?.message || error || 'text refine request failed'),
+      };
+    }
+
+    if (!response.ok || !result || typeof result !== 'object' || result?.status === 'ERROR') {
+      const detail = result?.data?.detail || result?.data?.refine_text || resolveVoiceServerProbeDetail(urls.textRefineUrl, response.status, result);
+      return {
+        success: false,
+        aborted: false,
+        debug: result,
+        detail,
+        code: result?.data?.code || 'text_refine_failed',
+        paywall: result?.data?.important_notification || null,
+        web_metadata: result?.data?.web_metadata ?? null,
+        external_action: result?.data?.external_action ?? null,
+        error: result?.data?.refine_text || detail,
+      };
+    }
+
+    const resultData = result.data || {};
+
+    return {
+      success: true,
+      aborted: false,
+      debug: result,
+      data: resultData,
+      detail: '',
+      code: '',
+      paywall: null,
+      web_metadata: resultData.web_metadata ?? null,
+      external_action: resultData.external_action ?? null,
+      ...resultData,
+    };
+  }
+
   return {
     urls,
     checkVoiceServerReady,
     getVoiceModelStatus,
     startVoiceModelDownload,
+    getTranslationModelStatus,
+    startTranslationModelDownload,
+    loadTranslationModel,
+    unloadTranslationModel,
     reloadVoiceServerConfig,
     callVoiceFlowBackend,
+    callTextRefineBackend,
   };
 }
 

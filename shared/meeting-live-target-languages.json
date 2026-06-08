@@ -1,0 +1,51 @@
+[
+  {
+    "id": "en",
+    "label": "English",
+    "displayName": "English",
+    "promptName": "English",
+    "aliases": ["英文", "英语"]
+  },
+  {
+    "id": "zh",
+    "label": "中文",
+    "displayName": "中文",
+    "promptName": "Simplified Chinese",
+    "aliases": ["zh", "Chinese", "汉语", "普通话"]
+  },
+  {
+    "id": "ja",
+    "label": "Japanese",
+    "displayName": "Japanese",
+    "promptName": "Japanese",
+    "aliases": ["jp", "日语", "日文"]
+  },
+  {
+    "id": "ko",
+    "label": "한국어",
+    "displayName": "한국어",
+    "promptName": "Korean",
+    "aliases": ["Korean", "韩语", "韓語"]
+  },
+  {
+    "id": "es",
+    "label": "Español",
+    "displayName": "Español",
+    "promptName": "Spanish",
+    "aliases": ["Spanish", "西班牙语", "西班牙語"]
+  },
+  {
+    "id": "fr",
+    "label": "Français",
+    "displayName": "Français",
+    "promptName": "French",
+    "aliases": ["French", "法语", "法語"]
+  },
+  {
+    "id": "de",
+    "label": "Deutsch",
+    "displayName": "Deutsch",
+    "promptName": "German",
+    "aliases": ["German", "德语", "德語"]
+  }
+]

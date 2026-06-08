@@ -33,7 +33,38 @@ const pcm16AudioFormat = {
 function withPcm16AudioFormat(parameters: Record<string, unknown>) {
   return {
     ...parameters,
+    translation_engine_preference: 'auto',
+    local_translation_model_enabled: true,
+    meeting_realtime_asr_preference: 'auto',
+    meeting_realtime_asr_model_enabled: true,
     audio_format: pcm16AudioFormat,
+  }
+}
+
+function createSettingsWithEmptyApiKey(overrides: Record<string, unknown> = {}) {
+  return {
+    selectedAudioDeviceId: 'default',
+    translationTargetLanguage: 'en',
+    translationEnginePreference: 'auto',
+    localTranslationModelEnabled: true,
+    meetingRealtimeAsrPreference: 'auto',
+    meetingRealtimeAsrModelEnabled: true,
+    translationModelCacheDir: '',
+    launchAtSystemStartup: false,
+    llm: {
+      providerId: 'deepseek',
+      apiKeys: { deepseek: '' },
+      models: { deepseek: testLlmConfig.model },
+      providers: [{
+        id: 'deepseek',
+        label: 'DeepSeek',
+        baseUrl: testLlmConfig.base_url,
+        defaultModel: testLlmConfig.model,
+        allowBaseUrlEdit: false,
+        authType: 'bearer',
+      }],
+    },
+    ...overrides,
   }
 }
 
@@ -59,6 +90,7 @@ function createTestEnvironment(options: {
   pasteShouldFail?: boolean
   pasteResult?: unknown
   translationTargetLanguage?: string
+  translationModelStatus?: unknown
   audioContextSampleRate?: number
 } = {}) {
   const originalWindow = globalThis.window
@@ -292,6 +324,13 @@ function createTestEnvironment(options: {
         const defaultSettings = {
           selectedAudioDeviceId: 'default',
           translationTargetLanguage: options.translationTargetLanguage ?? 'en',
+          translationEnginePreference: 'auto',
+          localTranslationModelEnabled: true,
+          meetingRealtimeAsrPreference: 'auto',
+          meetingRealtimeAsrModelEnabled: true,
+          translationModelCacheDir: '',
+          meetingLiveAudioSource: 'microphone',
+          meetingLiveTargetLanguage: 'off',
           showFloatingBar: true,
           launchAtSystemStartup: false,
           llm: {
@@ -309,6 +348,15 @@ function createTestEnvironment(options: {
           },
         }
         return (options.settingsPromise ?? Promise.resolve(defaultSettings)) as never
+      }
+      if (channel === 'translation-model:get-status') {
+        return (options.translationModelStatus ?? {
+          success: true,
+          status: 'idle',
+          detail: '',
+          ready: false,
+          cached: false,
+        }) as never
       }
       if (channel === 'dictionary:prompt-terms') {
         return (options.dictionaryTermsPromise ?? Promise.resolve([])) as never
@@ -544,6 +592,9 @@ test('cancelRecording 在 recording 态不会发送 end_audio，也不会自动�
     assert.equal(sentMessages.some((message) => message.type === 'end_audio'), false)
     assert.equal(env.invokeCalls.some((call) => call.channel === 'keyboard:type-transcript'), false)
     assert.equal(env.getRestoreCalls(), 1)
+    const diagnosticSave = env.invokeCalls.find((call) => call.channel === 'voice-diagnostics:save')
+    assert.ok(diagnosticSave)
+    assert.equal((diagnosticSave.payload as { status?: string }).status, 'cancelled')
   } finally {
     recorder?.disposeRecorder()
     env.restore()
@@ -675,6 +726,211 @@ test('SenseVoiceSmall 模型启动时通过 WebSocket 发送 PCM16 音频块', a
   }
 })
 
+test('setRecordingPaused 会暂停和恢复 PCM16 音频发送', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('pause-pcm16')
+    await recorder.startRecording('Dictate')
+    env.emitAudioProcess(Float32Array.from([0.5, -0.5]))
+    const sentBeforePause = env.sentPayloads.filter((payload) => payload instanceof ArrayBuffer).length
+
+    recorder.setRecordingPaused(true)
+    env.emitAudioProcess(Float32Array.from([0.5, -0.5]))
+    const sentWhilePaused = env.sentPayloads.filter((payload) => payload instanceof ArrayBuffer).length
+
+    recorder.setRecordingPaused(false)
+    env.emitAudioProcess(Float32Array.from([0.5, -0.5]))
+    const sentAfterResume = env.sentPayloads.filter((payload) => payload instanceof ArrayBuffer).length
+
+    assert.equal(sentBeforePause, 1)
+    assert.equal(sentWhilePaused, 1)
+    assert.equal(sentAfterResume, 2)
+    assert.equal(recorder.getVoiceSession().paused, false)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation 会保存原文和译文成对实时段落', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-segments')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '你好',
+        text: 'Hello',
+        target_language: 'en',
+        chunk_index: 1,
+        partial: true,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.sourceText, '你好')
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, 'Hello')
+    assert.equal(session.meetingLiveSegments?.[0]?.targetLanguage, 'en')
+    assert.equal(session.meetingLiveSegments?.[0]?.status, 'translated')
+    assert.equal(session.meetingLiveSegments?.[0]?.normalizedSourceText, '你好')
+    assert.equal(session.translationText, 'Hello')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_notes start and config messages include realtime commit and minutes profile', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-notes-internal-params')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: false,
+    })
+
+    const messages = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+    const startAudioMessage = messages.find((message) => message.type === 'start_audio')
+
+    assert.deepEqual(startAudioMessage.parameters, withPcm16AudioFormat({
+      llm: testLlmConfig,
+      meeting_audio_source: 'microphone',
+      meeting_translation_target_language: 'en',
+      show_original: true,
+      show_translation: false,
+      meeting_module: 'new_note',
+      meeting_realtime_commit_policy: 'sentence_or_phrase_group',
+      meeting_realtime_profile: 'frontier_live_note',
+      meeting_notes_quality_profile: 'frontier_minutes',
+      meeting_notes_pipeline: 'extractive_then_synthesize',
+      meeting_capture_profile: 'live_note',
+      meeting_scenario_coverage: 'meeting,class,interview,customer_call,project_sync,training,retrospective,brainstorm,task_plan,field_notes',
+      meeting_output_depth: 'comprehensive_minutes',
+    }))
+
+    recorder.updateMeetingNotesRecordingOptions({
+      audioSource: 'microphone',
+      targetLanguage: 'ja',
+      showOriginal: false,
+      showTranslation: true,
+      module: 'new_note',
+    })
+
+    const configMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .findLast((message) => message.type === 'set_mode_config')
+
+    assert.deepEqual(configMessage, {
+      type: 'set_mode_config',
+      mode: 'meeting_notes',
+      parameters: {
+        meeting_audio_source: 'microphone',
+        meeting_translation_target_language: 'ja',
+        show_original: false,
+        show_translation: true,
+        meeting_module: 'new_note',
+        meeting_realtime_commit_policy: 'sentence_or_phrase_group',
+        meeting_realtime_profile: 'frontier_live_note',
+        meeting_notes_quality_profile: 'frontier_minutes',
+        meeting_notes_pipeline: 'extractive_then_synthesize',
+        meeting_capture_profile: 'live_note',
+        meeting_scenario_coverage: 'meeting,class,interview,customer_call,project_sync,training,retrospective,brainstorm,task_plan,field_notes',
+        meeting_output_depth: 'comprehensive_minutes',
+      },
+    })
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_notes live translation messages use live translation profile', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-notes-live-module-params')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+      module: 'live_translation',
+    })
+
+    const startAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'start_audio')
+
+    assert.equal(startAudioMessage.parameters.meeting_module, 'live_translation')
+    assert.equal(startAudioMessage.parameters.meeting_realtime_profile, 'frontier_simulst')
+    assert.equal(startAudioMessage.parameters.meeting_capture_profile, 'live_translation')
+    assert.equal(startAudioMessage.parameters.meeting_output_depth, 'bilingual_realtime_plus_final_minutes')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('stopRecording 会把音频质量摘要随 end_audio 发送给后端', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('audio-quality-summary')
+    await recorder.startRecording('Dictate')
+    env.emitAudioProcess(Float32Array.from([0.01, -0.01, 0.012, -0.012]))
+
+    recorder.stopRecording()
+
+    const endAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'end_audio')
+
+    assert.ok(endAudioMessage)
+    assert.equal(endAudioMessage.audio_id, 'audio-1')
+    assert.equal(endAudioMessage.parameters.audio_quality.low_volume_ratio, 1)
+    assert.equal(endAudioMessage.parameters.audio_quality.speech_frame_ratio, 0)
+    assert.ok(endAudioMessage.parameters.audio_quality.hints.includes('low_volume'))
+    assert.ok(endAudioMessage.parameters.audio_quality.hints.includes('mostly_silence'))
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
 test('录音达到 50 秒时通过 voice-state 提示即将自动结束', async () => {
   const env = createTestEnvironment()
   let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
@@ -721,6 +977,36 @@ test('录音达到 60 秒时自动停止并发送 end_audio 进入转写', async
     assert.equal(messages.some((message) => message.type === 'end_audio' && message.audio_id === 'audio-1'), true)
     assert.equal(recorder.getVoiceSession().status, 'transcribing')
     assert.equal(env.getTrackStops() > 0, true)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('会议笔记录音不会因为普通听写 60 秒上限自动结束', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-no-recording-limit-stop')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.runTimeoutByDelay(50000)
+    env.runTimeoutByDelay(60000)
+
+    const messages = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+
+    assert.equal(messages.some((message) => message.type === 'end_audio' && message.audio_id === 'audio-1'), false)
+    assert.equal(recorder.getVoiceSession().status, 'recording')
   } finally {
     recorder?.disposeRecorder()
     env.restore()
@@ -883,11 +1169,11 @@ test('ready 失败时不发送 start_audio，并清理已打开的麦克风', as
   }
 })
 
-test('模型缺失时提示先下载模型且不发送 start_audio', async () => {
+test('模型缺失时提示到设置页下载模型且不发送 start_audio', async () => {
   const env = createTestEnvironment({
     readyPromise: Promise.resolve({
       success: false,
-      detail: '还没有下载语音模型，请先下载模型。',
+      detail: '还没有下载语音模型，请到设置页下载模型。',
       code: 'voice_model_missing',
     }),
   })
@@ -904,7 +1190,7 @@ test('模型缺失时提示先下载模型且不发送 start_audio', async () =>
     assert.equal(sentMessages.some((message) => message.type === 'start_audio'), false)
     assert.equal(recorder.getVoiceSession().status, 'error')
     assert.equal(recorder.getVoiceSession().error?.code, 'voice_model_missing')
-    assert.equal(recorder.getVoiceSession().error?.message, '还没有下载语音模型，请先下载模型。')
+    assert.equal(recorder.getVoiceSession().error?.message, '还没有下载语音模型，请到设置页下载模型。')
   } finally {
     recorder?.disposeRecorder()
     env.restore()
@@ -1594,6 +1880,805 @@ test('transcription_error 会映射为本地 asr_failed 错误', async () => {
     assert.equal(recorder.getVoiceSession().status, 'error')
     assert.equal(recorder.getVoiceSession().error?.code, 'asr_failed')
     assert.equal(recorder.getVoiceSession().error?.detail, 'boom')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('录音失败时会保留本轮 WAV 重试音频', async () => {
+  const env = createTestEnvironment()
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('retry-audio-on-error')
+    await recorder.startRecording('Dictate')
+    env.emitAudioProcess(Float32Array.from([0, 0.5, -0.5]))
+    recorder.stopRecording()
+
+    const socket = env.sockets[env.sockets.length - 1]
+    socket.emitJson({
+      K: 'transcription_error',
+      V: {
+        audio_id: 'audio-1',
+        code: 'transcription_failed',
+        detail: 'boom',
+      },
+    })
+    await Promise.resolve()
+
+    assert.equal(recorder.getVoiceSession().status, 'error')
+    assert.match(recorder.getVoiceSession().retryAudioWavBase64 || '', /^UklGR/)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('录音成功完成后会丢弃临时重试音频', async () => {
+  const env = createTestEnvironment()
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('discard-retry-audio-on-success')
+    await recorder.startRecording('Dictate')
+    env.emitAudioProcess(Float32Array.from([0, 0.5, -0.5]))
+    recorder.stopRecording()
+
+    const socket = env.sockets[env.sockets.length - 1]
+    socket.emitJson({
+      K: 'refine_completed',
+      V: {
+        audio_id: 'audio-1',
+        refined_text: 'hello refined',
+        refine_text: 'hello refined',
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.equal(recorder.getVoiceSession().status, 'completed')
+    assert.equal(recorder.getVoiceSession().retryAudioWavBase64, '')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_notes transcription keeps stable text and only replaces partial tail', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-transcript-stable-partial')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'off',
+      showOriginal: true,
+      showTranslation: false,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'transcription',
+      V: {
+        audio_id: 'audio-1',
+        text: 'We need confirm',
+        stable_text: 'We need',
+        partial_text: 'confirm',
+        stable: false,
+        is_partial: true,
+        revision_id: '1:partial:1',
+        utterance_id: '1',
+        asr_engine: 'sensevoice_endpoint',
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'transcription',
+      V: {
+        audio_id: 'audio-1',
+        text: 'We need confirm budget',
+        stable_text: 'We need',
+        partial_text: 'confirm budget',
+        stable: false,
+        is_partial: true,
+        revision_id: '1:partial:2',
+        utterance_id: '1',
+        asr_engine: 'sensevoice_endpoint',
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'transcription',
+      V: {
+        audio_id: 'audio-1',
+        text: 'We',
+        stable_text: 'We',
+        partial_text: '',
+        stable: true,
+        is_partial: false,
+        revision_id: '1:stable:3',
+        utterance_id: '1',
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.stableTranscriptText, 'We need')
+    assert.equal(session.partialTranscriptText, '')
+    assert.equal(session.rawText, 'We need')
+    assert.equal(session.transcriptRevisionId, '1:stable:3')
+    assert.equal(session.transcriptUtteranceId, '1')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation preview and commit keep one sentence row with phase metadata', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-preview-commit-phase')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'zh',
+      showOriginal: true,
+      showTranslation: true,
+      module: 'live_translation',
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation_pending',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'Your time is limited',
+        target_language: 'zh',
+        chunk_index: 1,
+        sentence_index: 1,
+        sentence_id: 'audio-1:sentence:1',
+        phase: 'preview',
+        source_stable: false,
+        provisional: true,
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'Your time is limited',
+        text: 'preview translation',
+        target_language: 'zh',
+        chunk_index: 1,
+        sentence_index: 1,
+        sentence_id: 'audio-1:sentence:1',
+        phase: 'preview',
+        source_stable: false,
+        provisional: true,
+        translation_engine: 'local_hy_mt',
+        translation_latency_ms: 320,
+        local_model_status: 'ready',
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'Your time is limited.',
+        text: 'committed translation',
+        target_language: 'zh',
+        chunk_index: 1,
+        sentence_index: 1,
+        sentence_id: 'audio-1:sentence:1',
+        phase: 'commit',
+        source_stable: true,
+        committed: true,
+        stable: true,
+        translation_engine: 'llm',
+        translation_latency_ms: 880,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.sourceText, 'Your time is limited.')
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, 'committed translation')
+    assert.equal(session.meetingLiveSegments?.[0]?.phase, 'commit')
+    assert.equal(session.meetingLiveSegments?.[0]?.sourceStable, true)
+    assert.equal(session.meetingLiveSegments?.[0]?.translationEngine, 'llm')
+    assert.equal(session.meetingLiveSegments?.[0]?.translationLatencyMs, 880)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation_pending 会先创建翻译中的实时段落', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-pending')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation_pending',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '你好',
+        chunk_index: 1,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.sourceText, '你好')
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, '')
+    assert.equal(session.meetingLiveSegments?.[0]?.status, 'pending')
+    assert.equal(session.translationText, '')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation 会按 chunk_index 原地更新 pending 段落', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-pending-update')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation_pending',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '你好',
+        chunk_index: 1,
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '你好',
+        text: 'Hello',
+        target_language: 'en',
+        chunk_index: 1,
+        partial: true,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.status, 'translated')
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, 'Hello')
+    assert.equal(session.translationText, 'Hello')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation 会优先按 sentence_index 原地更新实时句子', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-sentence-index')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation_pending',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '今天开会。',
+        chunk_index: 99,
+        sentence_index: 1,
+        committed: true,
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '今天开会。',
+        text: 'We have a meeting today.',
+        target_language: 'en',
+        chunk_index: 99,
+        sentence_index: 1,
+        partial: true,
+        committed: true,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.chunkIndex, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.sentenceIndex, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, 'We have a meeting today.')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation 会优先按 sentence_id 原地更新 pending 段落', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-sentence-id')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation_pending',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'Your time is limited.',
+        source_fingerprint: 'yourtimeislimited',
+        target_language: 'en',
+        chunk_index: 1,
+        sentence_index: 1,
+        sentence_id: 'audio-1:sentence:1',
+        committed: true,
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'Your time is limited.',
+        source_fingerprint: 'yourtimeislimited',
+        text: '你的时间有限。',
+        target_language: 'zh',
+        chunk_index: 1,
+        sentence_index: 1,
+        sentence_id: 'audio-1:sentence:1',
+        partial: true,
+        committed: true,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.sentenceId, 'audio-1:sentence:1')
+    assert.equal(session.meetingLiveSegments?.[0]?.targetLanguage, 'zh')
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, '你的时间有限。')
+    assert.equal(session.translationText, '你的时间有限。')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation 相同原文不会追加重复实时行', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-duplicate-source')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '今天开会。',
+        text: 'We have a meeting today.',
+        target_language: 'en',
+        chunk_index: 1,
+        partial: true,
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '今天开会。',
+        text: 'Today we are having a meeting.',
+        target_language: 'en',
+        chunk_index: 2,
+        partial: true,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.chunkIndex, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, 'Today we are having a meeting.')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation 会清理实时原文和译文里的 emoji', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-strip-emoji')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '你好🙂。',
+        text: 'Hello 🙂',
+        target_language: 'en',
+        chunk_index: 1,
+        partial: true,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.sourceText, '你好。')
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, 'Hello')
+    assert.equal(session.translationText, 'Hello')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation preview does not overwrite committed translation', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-preview-does-not-overwrite-stable')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'zh',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'Your time is limited.',
+        text: '你的时间有限。',
+        target_language: 'zh',
+        chunk_index: 1,
+        sentence_index: 1,
+        sentence_id: 'audio-1:sentence:1',
+        committed: true,
+        stable: true,
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'Your time',
+        text: '你的时间',
+        target_language: 'zh',
+        chunk_index: 1,
+        sentence_index: 1,
+        sentence_id: 'audio-1:sentence:1',
+        committed: false,
+        stable: false,
+        provisional: true,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, '你的时间有限。')
+    assert.equal(session.meetingLiveSegments?.[0]?.stable, true)
+    assert.equal(session.meetingLiveSegments?.[0]?.isPreview, false)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation_pending keeps existing preview translation', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-pending-keeps-preview')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'zh',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'Your time',
+        text: '你的时间',
+        target_language: 'zh',
+        chunk_index: 1,
+        sentence_index: 1,
+        sentence_id: 'audio-1:sentence:1',
+        committed: false,
+        stable: false,
+        provisional: true,
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation_pending',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'Your time is limited.',
+        target_language: 'zh',
+        chunk_index: 1,
+        sentence_index: 1,
+        sentence_id: 'audio-1:sentence:1',
+        committed: true,
+        stable: true,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.sourceText, 'Your time is limited.')
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, '你的时间')
+    assert.equal(session.meetingLiveSegments?.[0]?.isPreview, true)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_translation replaces_chunk_index 不会追加重复行', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-replace-chunk')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation_pending',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '你好',
+        chunk_index: 1,
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation_pending',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '你好你叫什么名字',
+        chunk_index: 1,
+        replaces_chunk_index: 1,
+      },
+    })
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: '你好你叫什么名字',
+        text: 'Hello, what is your name?',
+        target_language: 'en',
+        chunk_index: 1,
+        replaces_chunk_index: 1,
+        partial: true,
+      },
+    })
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.meetingLiveSegments?.length, 1)
+    assert.equal(session.meetingLiveSegments?.[0]?.sourceText, '你好你叫什么名字')
+    assert.equal(session.meetingLiveSegments?.[0]?.translationText, 'Hello, what is your name?')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('meeting_notes 完成后使用最终 payload 翻译并清空实时片段', async () => {
+  const env = createTestEnvironment({
+    audioContextSampleRate: 16000,
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('meeting-live-final-overrides')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+    })
+
+    env.sockets[0]?.emitJson({
+      K: 'meeting_translation',
+      V: {
+        audio_id: 'audio-1',
+        source_text: 'noise',
+        text: 'noisy realtime',
+        target_language: 'en',
+        chunk_index: 1,
+        partial: true,
+      },
+    })
+    recorder.stopRecording()
+    env.sockets[0]?.emitJson({
+      K: 'audio_processing_completed',
+      V: {
+        audio_id: 'audio-1',
+        refined_text: 'final meeting notes',
+        refine_text: 'final meeting notes',
+        user_prompt: 'final transcript',
+        translation_text: 'clean final translation',
+        meeting_structured: {
+          version: 1,
+          scenario: 'project_sync',
+          scenarios: ['project_sync'],
+          contentLevel: 'short',
+          summary: 'final meeting notes',
+          topics: [],
+          decisions: [],
+          actionItems: [{ id: 'action-1', text: 'Alice sends report', source: 'action' }],
+          scheduleItems: [],
+          risks: [],
+          questions: [],
+          followUps: [],
+          transcriptSegments: [{ index: 1, text: 'final transcript' }],
+          source: 'recording',
+        },
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const session = recorder.getVoiceSession()
+    assert.equal(session.status, 'completed')
+    assert.equal(session.refinedText, 'final meeting notes')
+    assert.equal(session.translationText, 'clean final translation')
+    assert.equal(session.meetingStructuredResult?.scenario, 'project_sync')
+    assert.equal(session.meetingStructuredResult?.actionItems[0]?.text, 'Alice sends report')
+    assert.equal(session.meetingLiveSegments?.length, 0)
+    const diagnosticSave = env.invokeCalls.find((call) => call.channel === 'voice-diagnostics:save')
+    assert.ok(diagnosticSave)
+    const diagnosticText = JSON.stringify(diagnosticSave.payload)
+    assert.equal((diagnosticSave.payload as { status?: string }).status, 'completed')
+    assert.equal(diagnosticText.includes('final meeting notes'), false)
+    assert.equal(diagnosticText.includes('final transcript'), false)
+    assert.equal(diagnosticText.includes('clean final translation'), false)
+    assert.match(diagnosticText, /first_translation/)
+    assert.match(diagnosticText, /end_audio_sent/)
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('local translation model ready lets Translate start without an LLM API Key', async () => {
+  const env = createTestEnvironment({
+    settingsPromise: Promise.resolve(createSettingsWithEmptyApiKey()),
+    translationModelStatus: {
+      success: true,
+      status: 'ready',
+      ready: true,
+      cached: true,
+      detail: '',
+    },
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('local-translation-without-api-key')
+    await recorder.startRecording('Translate')
+
+    const startAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'start_audio')
+
+    assert.equal(recorder.getVoiceSession().status, 'recording')
+    assert.equal(env.getUserMediaCalls() > 0, true)
+    assert.equal(startAudioMessage.mode, 'translation')
+    assert.equal(startAudioMessage.parameters.output_language, 'en')
+  } finally {
+    recorder?.disposeRecorder()
+    env.restore()
+  }
+})
+
+test('local translation model ready lets meeting live translation start without an LLM API Key', async () => {
+  const env = createTestEnvironment({
+    settingsPromise: Promise.resolve(createSettingsWithEmptyApiKey()),
+    translationModelStatus: {
+      success: true,
+      status: 'ready',
+      ready: true,
+      cached: true,
+      detail: '',
+    },
+  })
+  let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
+
+  try {
+    recorder = await loadRecorderModule('local-meeting-live-translation-without-api-key')
+    await recorder.toggleMeetingNotesRecording({
+      audioSource: 'microphone',
+      targetLanguage: 'en',
+      showOriginal: true,
+      showTranslation: true,
+      module: 'live_translation',
+    })
+
+    const startAudioMessage = env.sentPayloads
+      .filter((payload): payload is string => typeof payload === 'string')
+      .map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'start_audio')
+
+    assert.equal(recorder.getVoiceSession().status, 'recording')
+    assert.equal(env.getUserMediaCalls() > 0, true)
+    assert.equal(startAudioMessage.mode, 'meeting_notes')
+    assert.equal(startAudioMessage.parameters.meeting_module, 'live_translation')
+    assert.equal(startAudioMessage.parameters.meeting_translation_target_language, 'en')
   } finally {
     recorder?.disposeRecorder()
     env.restore()

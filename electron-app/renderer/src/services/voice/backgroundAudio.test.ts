@@ -11,7 +11,7 @@ type WindowWithIpc = typeof globalThis & {
   }
 }
 
-function installIpcStub(options: { muteResult?: unknown; muteReject?: boolean } = {}) {
+function installIpcStub(options: { muteResult?: unknown; muteReject?: boolean; settings?: unknown } = {}) {
   const originalWindow = globalThis.window
   const windowLike = globalThis as WindowWithIpc
   const invokeCalls: string[] = []
@@ -19,6 +19,9 @@ function installIpcStub(options: { muteResult?: unknown; muteReject?: boolean } 
   windowLike.ipcRenderer = {
     invoke: async (channel: string) => {
       invokeCalls.push(channel)
+      if (channel === 'settings:get') {
+        return (options.settings ?? {}) as never
+      }
       if (channel === 'audio:mute-background-sessions') {
         if (options.muteReject) throw new Error('mute failed')
         return (options.muteResult ?? { success: true }) as never
@@ -58,6 +61,7 @@ test('静音成功后只恢复一次后台音频', async () => {
     await restoreBackgroundAudio()
 
     assert.deepEqual(env.invokeCalls, [
+      'settings:get',
       'audio:mute-background-sessions',
       'audio:restore-background-sessions',
     ])
@@ -73,7 +77,7 @@ test('静音失败时不恢复后台音频', async () => {
     await muteBackgroundAudio()
     await restoreBackgroundAudio()
 
-    assert.deepEqual(env.invokeCalls, ['audio:mute-background-sessions'])
+    assert.deepEqual(env.invokeCalls, ['settings:get', 'audio:mute-background-sessions'])
   } finally {
     env.restore()
   }
@@ -86,7 +90,7 @@ test('静音 IPC 抛错时不恢复后台音频', async () => {
     await muteBackgroundAudio()
     await restoreBackgroundAudio()
 
-    assert.deepEqual(env.invokeCalls, ['audio:mute-background-sessions'])
+    assert.deepEqual(env.invokeCalls, ['settings:get', 'audio:mute-background-sessions'])
   } finally {
     env.restore()
   }
@@ -100,7 +104,20 @@ test('重置恢复状态后不会恢复上一轮后台音频', async () => {
     resetBackgroundAudioRestoreState()
     await restoreBackgroundAudio()
 
-    assert.deepEqual(env.invokeCalls, ['audio:mute-background-sessions'])
+    assert.deepEqual(env.invokeCalls, ['settings:get', 'audio:mute-background-sessions'])
+  } finally {
+    env.restore()
+  }
+})
+
+test('关闭语音输入时静音后不会调用后台音频静音 IPC', async () => {
+  const env = installIpcStub({ settings: { muteBackgroundAudioDuringRecording: false } })
+
+  try {
+    await muteBackgroundAudio()
+    await restoreBackgroundAudio()
+
+    assert.deepEqual(env.invokeCalls, ['settings:get'])
   } finally {
     env.restore()
   }

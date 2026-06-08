@@ -20,6 +20,11 @@ function createDefaultLocalStores({
       selectedMicrophoneDevice: null,
       preferredLanguage: defaultLanguage,
       translationTargetLanguage: defaultTranslationTargetLanguage,
+      translationEnginePreference: 'auto',
+      localTranslationModelEnabled: true,
+      meetingRealtimeAsrPreference: 'auto',
+      meetingRealtimeAsrModelEnabled: true,
+      translationModelCacheDir: '',
       selectedLanguages: [],
       autoSelectLanguages: false,
       launchAtSystemStartup: false,
@@ -27,6 +32,8 @@ function createDefaultLocalStores({
       enableShowAppInDock: true,
       historyDurationSeconds: -1,
       enabledMuteBackgroundAudio: true,
+      showFloatingBar: true,
+      hideMainWindowOnClose: true,
       enabledOpusCompression: false,
     },
     'app-storage': {},
@@ -80,7 +87,16 @@ function createLocalCompatState({
 
   function syncLocalSettingsToLegacyStore(settings) {
     localStores['app-settings'].launchAtSystemStartup = settings.launchAtSystemStartup;
+    localStores['app-settings'].enableInteractionSoundEffects = settings.interactionSoundsEnabled !== false;
+    localStores['app-settings'].enabledMuteBackgroundAudio = settings.muteBackgroundAudioDuringRecording !== false;
+    localStores['app-settings'].showFloatingBar = settings.showFloatingBar !== false;
+    localStores['app-settings'].hideMainWindowOnClose = settings.hideMainWindowOnClose !== false;
     localStores['app-settings'].translationTargetLanguage = settings.translationTargetLanguage;
+    localStores['app-settings'].translationEnginePreference = settings.translationEnginePreference;
+    localStores['app-settings'].localTranslationModelEnabled = settings.localTranslationModelEnabled !== false;
+    localStores['app-settings'].meetingRealtimeAsrPreference = settings.meetingRealtimeAsrPreference || 'auto';
+    localStores['app-settings'].meetingRealtimeAsrModelEnabled = settings.meetingRealtimeAsrModelEnabled !== false;
+    localStores['app-settings'].translationModelCacheDir = settings.translationModelCacheDir || '';
     localStores['app-settings'].selectedMicrophoneDevice = settings.selectedAudioDeviceId === 'default'
       ? null
       : settings.selectedAudioDeviceId;

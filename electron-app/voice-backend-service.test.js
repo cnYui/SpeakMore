@@ -60,6 +60,31 @@ test('start 在打包态启动后端 exe 时注入用户选择的模型缓存目
   assert.equal(calls[0].options.env.TYPELESS_MODEL_CACHE_DIR, 'D:\\Models\\FunASR');
 });
 
+test('start injects local translation model cache and llama runtime in packaged mode', async () => {
+  const child = createChild();
+  const calls = [];
+  const service = createVoiceBackendService({
+    isPackaged: true,
+    backendExecutablePath: () => 'C:\\app\\resources\\backend\\speakmore-backend.exe',
+    ffmpegBinDir: () => 'C:\\app\\resources\\ffmpeg\\bin',
+    getTranslationModelCacheDir: () => 'D:\\Models\\HyMT',
+    llamaServerPath: () => 'C:\\app\\resources\\llama\\llama-server.exe',
+    hyMtLlamaServerPath: () => 'C:\\app\\resources\\llama-stq\\llama-server.exe',
+    spawnProcess: (command, args, options) => {
+      calls.push({ command, args, options });
+      return child;
+    },
+    probeReady: async () => ({ success: false, detail: 'starting' }),
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  await service.start();
+
+  assert.equal(calls[0].options.env.SPEAKMORE_TRANSLATION_MODEL_CACHE_DIR, 'D:\\Models\\HyMT');
+  assert.equal(calls[0].options.env.SPEAKMORE_BUNDLED_LLAMA_SERVER_PATH, 'C:\\app\\resources\\llama\\llama-server.exe');
+  assert.equal(calls[0].options.env.SPEAKMORE_BUNDLED_HYMT_LLAMA_SERVER_PATH, 'C:\\app\\resources\\llama-stq\\llama-server.exe');
+});
+
 test('start 在打包态按 ASR 设备模式注入 FUNASR_DEVICE', async () => {
   for (const [mode, expected] of [['mps', 'mps'], ['cuda', 'cuda:0'], ['cpu', 'cpu']]) {
     const child = createChild();

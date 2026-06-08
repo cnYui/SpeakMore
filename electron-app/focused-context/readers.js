@@ -11,6 +11,7 @@ const {
   FOCUSED_WINDOW_SCRIPT,
   FOCUSED_WINDOW_TREE_SCRIPT,
   UIA_SELECTION_SCRIPT,
+  VISIBLE_WINDOWS_SCRIPT,
   WIN32_CARET_TARGET_SCRIPT,
 } = require('./scripts');
 const { powershellJsonCommand } = require('./powershell');
@@ -73,6 +74,17 @@ async function readFocusedInfo({
     });
   } catch {
     return createEmptyFocusedInfo();
+  }
+}
+
+async function readVisibleWindows({
+  readWindows = powershellJsonCommand(VISIBLE_WINDOWS_SCRIPT),
+} = {}) {
+  try {
+    const result = await readWindows();
+    return Array.isArray(result) ? result : (result ? [result] : []);
+  } catch {
+    return [];
   }
 }
 
@@ -233,6 +245,7 @@ async function readSelectionSnapshot({
 
 module.exports = {
   readFocusedInfo,
+  readVisibleWindows,
   readFocusedTextTarget,
   readSelectedTextByUia,
   readSelectionSnapshot,

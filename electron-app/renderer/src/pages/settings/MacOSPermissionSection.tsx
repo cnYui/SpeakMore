@@ -9,6 +9,7 @@ import {
   openMacOSAccessibilitySettings,
   type MacOSAccessibilityStatus,
 } from '../../services/macosPermissions'
+import { bodyTextSx, helperTextSx, sectionTitleSx } from '../../uiTokens'
 
 const rowSx = {
   display: 'flex',
@@ -19,7 +20,7 @@ const rowSx = {
   borderBottom: '1px solid rgba(119,119,119,0.08)',
 }
 
-const sectionTitle = { fontSize: 16, fontWeight: 500, mt: 3, mb: 1 }
+const sectionTitle = { ...sectionTitleSx, mt: 3, mb: 1 }
 
 export default function MacOSPermissionSection() {
   const { t } = useI18n()
@@ -69,8 +70,8 @@ export default function MacOSPermissionSection() {
       <Typography sx={sectionTitle}>{t('settings.macosPermissions')}</Typography>
       <Box sx={rowSx}>
         <Box>
-          <Typography>{t('settings.macosAccessibility')}</Typography>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
+          <Typography sx={bodyTextSx}>{t('settings.macosAccessibility')}</Typography>
+          <Typography sx={{ ...helperTextSx, color: 'text.secondary', mt: 0.5 }}>
             {trusted
               ? t('settings.macosAccessibility.readyHint')
               : t('settings.macosAccessibility.missingHint')}

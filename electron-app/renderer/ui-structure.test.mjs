@@ -7,6 +7,7 @@ import { runInNewContext } from 'node:vm';
 const require = createRequire(import.meta.url);
 const readProjectFile = (relativePath) =>
   readFile(new URL(relativePath, import.meta.url), 'utf8');
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const readProjectFiles = async (relativePaths) => {
   const contents = await Promise.all(
     relativePaths.map(async (relativePath) => {
@@ -38,6 +39,16 @@ const readMainProcessSurface = () => readProjectFiles([
   '../permission-ipc.js',
   '../right-alt-relay.js',
   '../right-alt-listener-service.js',
+  '../shortcut-command-store.js',
+  '../shortcut-command-repository.js',
+  '../shortcut-command-registrar.js',
+  '../shortcut-command-ipc.js',
+  '../meeting-note-store.js',
+  '../meeting-note-repository.js',
+  '../meeting-note-ipc.js',
+  '../voice-diagnostics-repository.js',
+  '../voice-diagnostics-ipc.js',
+  '../meeting-detector.js',
   '../settings-ipc.js',
   '../settings-store.js',
   '../text-observer-service.js',
@@ -45,6 +56,7 @@ const readMainProcessSurface = () => readProjectFiles([
   '../voice-backend-urls.js',
   '../voice-backend-client.js',
   '../voice-model-ipc.js',
+  '../translation-model-ipc.js',
   '../voice-config-client.js',
   '../voice-flow-form-data.js',
   '../window-manager.js',
@@ -87,7 +99,8 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   assert.match(main, /resolveFloatingBarBounds/);
   assert.doesNotMatch(main, /defaultFloatingBarX\s*=\s*660/);
   assert.doesNotMatch(main, /defaultFloatingBarY\s*=\s*739/);
-  assert.match(main, /payload\?\.positions/);
+  assert.match(main, /function\s+handleFloatingBarUpdatePositions\(payload\s*=\s*\[\]\)/);
+  assert.match(main, /floatingBar\.setIgnoreMouseEvents\(true,\s*\{\s*forward:\s*true\s*\}\)/);
   assert.match(floatingBar, /src=["']\.\/lib\/three\.min\.js["']/);
   assert.match(floatingBar, /id=["']particle-sphere-container["']/);
   assert.match(floatingBar, /id=["']particle-canvas["']/);
@@ -319,6 +332,9 @@ test('主进程注册真实 bundle 首屏所需的 IPC shim', async () => {
     'db:history-get',
     'db:history-latest',
     'db:history-list',
+    'db:history-delete',
+    'db:history-save-audio',
+    'db:history-retry',
     'i18n:reset-to-system-language',
     'permission:request',
     'updater:check-for-update',
@@ -337,6 +353,17 @@ test('主进程注册真实 bundle 首屏所需的 IPC shim', async () => {
     'test:generate-test-records',
     'test:clear-test-records',
     'clipboard:write-text',
+    'shortcut-command:list',
+    'shortcut-command:upsert',
+    'shortcut-command:delete',
+    'shortcut-command:registration-status',
+    'meeting-note:list',
+    'meeting-note:get',
+    'meeting-note:upsert',
+    'meeting-note:delete',
+    'voice-diagnostics:list',
+    'voice-diagnostics:save',
+    'voice-diagnostics:clear',
     'focused-context:get-last-focused-info',
     'focused-context:get-selected-text',
     'page:restart-typeless-bar',
@@ -352,12 +379,16 @@ test('主进程注册真实 bundle 首屏所需的 IPC shim', async () => {
   }
 });
 
-test('旧模型管理能力已删除，只保留单模型初始化入口', async () => {
+test('旧模型管理能力已删除，语音模型初始化并入设置页', async () => {
   const main = await readMainProcessSurface();
   const navigation = await readProjectFile('src/navigation.ts');
   const sidebar = await readProjectFile('src/components/Sidebar.tsx');
   const appShell = await readProjectFile('src/components/AppShell.tsx');
-  const setupPage = await readProjectFile('src/pages/Setup.tsx');
+  const settingsPage = await readProjectFile('src/pages/Settings.tsx');
+  const voiceModelSection = await readProjectFile('src/pages/settings/VoiceModelSettingsSection.tsx');
+  const translationModelSection = await readProjectFile('src/pages/settings/TranslationModelSettingsSection.tsx');
+  const translationModelStore = await readProjectFile('src/services/translationModelStore.ts');
+  const i18n = await readProjectFile('src/i18n.tsx');
 
   await assert.rejects(
     () => readProjectFile('src/pages/Models.tsx'),
@@ -375,6 +406,10 @@ test('旧模型管理能力已删除，只保留单模型初始化入口', async
     () => readProjectFile('src/services/modelStore.ts'),
     /ENOENT/,
   );
+  await assert.rejects(
+    () => readProjectFile('src/pages/Setup.tsx'),
+    /ENOENT/,
+  );
 
   assert.doesNotMatch(navigation, /'models'/);
   assert.doesNotMatch(sidebar, /MemoryIcon|StorageIcon|HubIcon/);
@@ -383,9 +418,32 @@ test('旧模型管理能力已删除，只保留单模型初始化入口', async
   assert.doesNotMatch(main, /modelsUrl:/);
   assert.doesNotMatch(main, /callModelBackend/);
   assert.doesNotMatch(main, /snapshot_download/);
-  assert.match(navigation, /'setup'/);
-  assert.match(appShell, /<Setup/);
-  assert.match(setupPage, /voice-model:get-status|voice-model:start-download|getVoiceModelStatus|startVoiceModelDownload/);
+  assert.doesNotMatch(navigation, /'setup'|nav\.setup/);
+  assert.doesNotMatch(appShell, /<Setup|pages\/Setup/);
+  assert.match(appShell, /useState<Page>\(['"]home['"]\)/);
+  assert.match(settingsPage, /VoiceModelSettingsSection/);
+  assert.match(settingsPage, /TranslationModelSettingsSection/);
+  assert.match(voiceModelSection, /getVoiceModelStatus/);
+  assert.match(voiceModelSection, /startVoiceModelDownload/);
+  assert.match(voiceModelSection, /chooseModelCacheDirectory/);
+  assert.match(translationModelSection, /getTranslationModelStatus/);
+  assert.match(translationModelSection, /startTranslationModelDownload/);
+  assert.match(translationModelSection, /loadTranslationModel/);
+  assert.match(translationModelSection, /chooseModelCacheDirectory/);
+  assert.match(translationModelSection, /Hy-MT2/);
+  assert.match(translationModelSection, /downloadInterruptedDetail/);
+  assert.match(translationModelSection, /translation_model_download_failed/);
+  assert.doesNotMatch(translationModelSection, /runtimeMode|runtimeProfile|fallbackReason/);
+  assert.doesNotMatch(translationModelSection, /AngelSlim|Hy-MT1\.5/);
+  assert.doesNotMatch(translationModelSection, /unloadTranslationModel/);
+  assert.doesNotMatch(translationModelSection, /translationEnginePreference|localTranslationModelEnabled/);
+  assert.match(i18n, /settings\.translationModel\.downloadInterruptedDetail/);
+  assert.match(i18n, /settings\.translationModel\.downloadFailedDetail/);
+  assert.doesNotMatch(i18n, /settings\.translationModel\.(runtimeMode|runtimeProfile|fallbackReason|readyDetail)/);
+  assert.match(translationModelStore, /translation-model:get-status/);
+  assert.match(translationModelStore, /translation-model:start-download/);
+  assert.match(translationModelStore, /translation-model:load/);
+  assert.match(translationModelStore, /translation-model:unload/);
 });
 
 test('项目根启动脚本指向本地 Electron 壳而不是逆向资料目录', async () => {
@@ -398,38 +456,125 @@ test('项目根启动脚本指向本地 Electron 壳而不是逆向资料目录'
   assert.doesNotMatch(startElectronDev, /app-extracted|reverse/i);
 });
 
-test('本地壳默认使用简体中文并允许英文界面语言', async () => {
+test('本地壳默认使用简体中文并从共享元数据接受截图界面语言', async () => {
   const main = await readMainProcessSurface();
+  const interfaceLanguages = JSON.parse(await readProjectFile('../../shared/interface-languages.json'));
 
   assert.match(main, /DEFAULT_LANGUAGE\s*=\s*['"]zh-CN['"]/);
   assert.match(main, /preferredLanguage:\s*DEFAULT_LANGUAGE/);
+  assert.match(main, /interface-languages\.json/);
   assert.match(main, /SUPPORTED_INTERFACE_LANGUAGES/);
-  assert.match(main, /en-US/);
+  assert.match(main, /INTERFACE_LANGUAGES\.map\(\(language\)\s*=>\s*language\.id\)/);
+  assert.deepEqual(
+    interfaceLanguages.map((language) => language.id),
+    [
+      'en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'es-ES', 'pt-BR',
+      'fr-FR', 'de-DE', 'it-IT', 'ru-RU', 'ar-SA', 'he-IL', 'hi-IN',
+      'id-ID', 'ms-MY', 'nl-NL', 'pl-PL', 'th-TH',
+    ],
+  );
   assert.doesNotMatch(main, /preferredLanguage:\s*['"]en['"]/);
   assert.doesNotMatch(main, /language\s*\|\|\s*['"]en['"]/);
 });
 
-test('主窗口页面和侧边栏通过轻量 i18n 切换中英文', async () => {
+test('主窗口页面和侧边栏通过轻量 i18n 切换多语言', async () => {
   const i18n = await readProjectFile('src/i18n.tsx');
+  const interfaceLanguages = JSON.parse(await readProjectFile('../../shared/interface-languages.json'));
   const appShell = await readProjectFile('src/components/AppShell.tsx');
   const sidebar = await readProjectFile('src/components/Sidebar.tsx');
+  const dashboardPage = await readProjectFile('src/pages/Dashboard.tsx');
+  const shortcutsPage = await readProjectFile('src/pages/Shortcuts.tsx');
+  const shortcutSettingsSection = await readProjectFile('src/pages/settings/ShortcutSettingsSection.tsx');
+  const shortcutBindingDialog = await readProjectFile('src/components/ShortcutBindingDialog.tsx');
+  const voiceShortcutHook = await readProjectFile('src/components/useVoiceShortcutDisplay.ts');
+  const globalShortcutBridge = await readProjectFile('src/components/useGlobalShortcutBridge.ts');
   const pages = await readProjectFiles([
-    'src/pages/Setup.tsx',
     'src/pages/Dashboard.tsx',
-    'src/pages/History.tsx',
+    'src/pages/dashboard/HistoryResultsPanel.tsx',
     'src/pages/Dictionary.tsx',
+    'src/pages/Shortcuts.tsx',
+    'src/pages/MeetingNotes.tsx',
     'src/pages/Settings.tsx',
   ]);
 
   assert.match(i18n, /zh-CN/);
   assert.match(i18n, /en-US/);
+  for (const language of interfaceLanguages) {
+    assert.match(i18n, new RegExp(`['"]${escapeRegExp(language.id)}['"]`));
+    assert.match(i18n, new RegExp(escapeRegExp(language.labelKey)));
+  }
+  assert.match(i18n, /baseTranslations/);
+  assert.match(i18n, /withBase/);
   assert.match(i18n, /export\s+function\s+I18nProvider/);
   assert.match(i18n, /export\s+function\s+useI18n/);
-  assert.match(i18n, /Setup/);
+  assert.doesNotMatch(i18n, /nav\.setup|setup\./);
   assert.match(i18n, /Dashboard/);
   assert.match(i18n, /History/);
   assert.match(i18n, /Dictionary/);
+  assert.match(i18n, /Shortcuts/);
+  assert.match(i18n, /Meeting Notes/);
   assert.match(i18n, /Settings/);
+  assert.match(i18n, /settings\.voiceModel\.title/);
+  assert.match(i18n, /Voice model/);
+  assert.match(i18n, /互联网黑话/);
+  assert.match(i18n, /Internet Jargon/);
+  assert.doesNotMatch(i18n, /互联网黑化/);
+  assert.match(i18n, /英文翻译快捷指令/);
+  assert.match(i18n, /绑定翻译快捷键/);
+  assert.doesNotMatch(i18n, /内置语音翻译/);
+  assert.match(i18n, /English Translation Command/);
+  assert.doesNotMatch(i18n, /shortcuts\.command\.translate_to_english\.name['"]:\s*['"]翻译成英文['"]/);
+  assert.match(shortcutsPage, /AutoFixHighIcon/);
+  assert.match(shortcutsPage, /BubbleChartIcon/);
+  assert.match(shortcutsPage, /TagIcon/);
+  assert.match(shortcutsPage, /translate_to_english:\s*['"]English Translation Command['"]/);
+  assert.match(shortcutsPage, /translate_to_english:\s*\[['"]Translate to English['"]\]/);
+  assert.doesNotMatch(shortcutsPage, /professional_polish:\s*<KeyboardIcon/);
+  assert.doesNotMatch(shortcutsPage, /abstract_mode:\s*<KeyboardIcon/);
+  assert.doesNotMatch(shortcutsPage, /internet_dark:\s*<KeyboardIcon/);
+  assert.match(shortcutsPage, /ShortcutBindingDialog/);
+  assert.match(shortcutBindingDialog, /export\s+function\s+ShortcutBindingDialog/);
+  assert.match(shortcutBindingDialog, /export\s+function\s+ShortcutDisplayButtons/);
+  assert.match(shortcutBindingDialog, /export\s+function\s+shortcutFromKeyboardEvent/);
+  assert.match(shortcutBindingDialog, /recordShortcutTitle/);
+  assert.match(shortcutBindingDialog, /recordShortcutPlaceholder/);
+  assert.match(shortcutBindingDialog, /AltRight[\s\S]*Right Alt/);
+  assert.match(voiceShortcutHook, /listShortcutCommands/);
+  assert.match(voiceShortcutHook, /subscribeShortcutCommandChanges/);
+  assert.match(voiceShortcutHook, /export\s+function\s+useVoiceShortcutDisplay/);
+  assert.match(voiceShortcutHook, /smartAssistantDisplay:\s*`\$\{voiceShortcutDisplay\} x 2`/);
+  assert.match(voiceShortcutHook, /TRANSLATE_TO_ENGLISH_COMMAND_ID\s*=\s*['"]translate_to_english['"]/);
+  assert.match(voiceShortcutHook, /translateCommand\s*=\s*findCommand/);
+  assert.match(voiceShortcutHook, /translateShortcutDisplay:\s*shortcutDisplay\(translateCommand,\s*['"]Tab['"]\)/);
+  assert.doesNotMatch(voiceShortcutHook, /fixedTranslateShortcutDisplay|Right Alt \+ Right Shift|Option \+ Shift/);
+  assert.doesNotMatch(dashboardPage, /shortcutLabels|getShortcutLabelSet/);
+  assert.match(dashboardPage, /useVoiceShortcutDisplay/);
+  assert.match(dashboardPage, /ShortcutDisplayButtons/);
+  assert.match(dashboardPage, /ShortcutBindingDialog/);
+  assert.match(dashboardPage, /dashboard\.shortcut\.hold/);
+  assert.match(dashboardPage, /dashboard\.shortcut\.doubleTap/);
+  assert.doesNotMatch(shortcutSettingsSection, /shortcutLabels|getShortcutLabelSet/);
+  assert.match(shortcutSettingsSection, /useVoiceShortcutDisplay/);
+  assert.match(shortcutSettingsSection, /ShortcutDisplayButtons/);
+  assert.match(shortcutSettingsSection, /ShortcutBindingDialog/);
+  assert.match(shortcutSettingsSection, /settings\.shortcut\.voicePrefix/);
+  assert.match(shortcutSettingsSection, /settings\.shortcut\.smartPrefix/);
+  assert.match(shortcutSettingsSection, /settings\.shortcut\.translateSuffix/);
+  assert.match(shortcutSettingsSection, /openTranslateShortcutBinding/);
+  assert.match(shortcutSettingsSection, /settings\.shortcut\.bindTranslate/);
+  assert.match(shortcutsPage, /const\s+canRecordShortcut\s*=\s*command\.id\s*===\s*['"]voice_input['"]\s*\|\|\s*!command\.shortcut\?\.fixed/);
+  assert.match(shortcutsPage, /const\s+canEditCommand\s*=\s*command\.kind\s*===\s*['"]custom['"]/);
+  assert.match(shortcutsPage, /voiceInputEnabled/);
+  assert.match(shortcutsPage, /command\.id\s*===\s*['"]smart_assistant['"]\s*&&\s*!voiceInputEnabled/);
+  assert.match(globalShortcutBridge, /RIGHT_ALT_DOUBLE_TAP_MS\s*=\s*280/);
+  assert.match(globalShortcutBridge, /pendingDictateTimerRef/);
+  assert.match(globalShortcutBridge, /isVoiceInputHandledByRightAlt/);
+  assert.match(globalShortcutBridge, /command\.id\s*===\s*['"]voice_input['"][\s\S]*triggerShortcutIntent\(['"]DictateShortcut['"]\)/);
+  assert.match(globalShortcutBridge, /command\.id\s*===\s*['"]smart_assistant['"][\s\S]*triggerShortcutIntent\(['"]AskShortcut['"]\)/);
+  assert.match(globalShortcutBridge, /isSmartAssistantAvailable/);
+  assert.match(globalShortcutBridge, /isCommandEnabled\(['"]voice_input['"]\)\s*&&\s*isCommandEnabled\(['"]smart_assistant['"]\)/);
+  assert.match(globalShortcutBridge, /isSmartAssistantAvailable\(\)[\s\S]*toggleRecordingByShortcut\(['"]AskShortcut['"]\)/);
+  assert.match(globalShortcutBridge, /isCommandEnabled\(['"]voice_input['"]\)[\s\S]*toggleRecordingByShortcut\(['"]DictateShortcut['"]\)/);
   assert.match(appShell, /I18nProvider/);
   assert.match(appShell, /loadSettings/);
   assert.match(appShell, /setLanguage/);
@@ -596,7 +741,7 @@ test('WebSocket 录音入口会等待主进程确保语音后端 ready', async (
   assert.match(voiceServer, /VOICE_SERVER_HTTP_BASE_URL/);
   assert.match(voiceServer, /VOICE_SERVER_WS_URL/);
   assert.doesNotMatch(recorderSurface, /ws:\/\/localhost:8000\/ws\/rt_voice_flow/);
-  assert.match(recordingStartup, /const\s+readyPromise\s*=\s*ensureVoiceServerReady\(\)/);
+  assert.match(recordingStartup, /const\s+readyPromise\s*=\s*(?:measurePromise\([^)]*ensureVoiceServerReady\(\)\)|ensureVoiceServerReady\(\))/);
   assert.match(recordingStartup, /Promise\.all\(\[[\s\S]*readyPromise[\s\S]*\]\)/);
 });
 
@@ -613,6 +758,7 @@ test('renderer 不再保留旧文字请求链路', async () => {
 
 test('Electron 只通过打包后端服务管理语音后端进程', async () => {
   const main = await readMainProcessSurface();
+  const packagingConfig = await readProjectFile('../../packaging/electron-builder.yml');
 
   assert.doesNotMatch(main, /voiceServerProcess/);
   assert.doesNotMatch(main, /voiceServerStartPromise/);
@@ -621,6 +767,10 @@ test('Electron 只通过打包后端服务管理语音后端进程', async () =>
   assert.doesNotMatch(main, /stopVoiceServer\(\)/);
   assert.match(main, /createVoiceBackendService/);
   assert.match(main, /backendExecutablePath:\s*\(\)\s*=>\s*appPaths\.backendExecutablePath\(\)/);
+  assert.match(main, /llamaServerPath:\s*\(\)\s*=>\s*appPaths\.llamaServerPath\(\)/);
+  assert.match(main, /hyMtLlamaServerPath:\s*\(\)\s*=>\s*appPaths\.hyMtLlamaServerPath\(\)/);
+  assert.match(packagingConfig, /from:\s*release-artifacts\/llama[\s\S]*to:\s*llama/);
+  assert.match(packagingConfig, /from:\s*release-artifacts\/llama-stq[\s\S]*to:\s*llama-stq/);
   assert.match(main, /voiceBackendService\.stop\(\)/);
 });
 
@@ -693,21 +843,32 @@ test('Dashboard 最近结果只展示最终结果，不再展示实时语音状�
   const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
   const i18n = await readProjectFile('src/i18n.tsx');
 
-  assert.match(dashboard, /subscribeVoiceSession/);
-  assert.match(dashboard, /status\s*===\s*['"]completed['"]/);
-  assert.match(dashboard, /voiceSession\.mode\s*!==\s*['"]Ask['"]/);
-  assert.match(dashboard, /refinedText\s*\|\|\s*rawText/);
+  const historyPanel = await readProjectFile('src/pages/dashboard/HistoryResultsPanel.tsx');
+  const recentResults = await readProjectFile('src/services/recentDashboardResults.ts');
   assert.match(dashboard, /listVoiceHistory/);
   assert.match(dashboard, /selectRecentDashboardResults/);
-  assert.match(dashboard, /prependRecentDashboardResult/);
-  assert.match(dashboard, /recentResults\.map/);
-  assert.match(dashboard, /t\(['"]dashboard\.recentResults['"]\)/);
+  assert.match(dashboard, /HistoryResultsPanel/);
+  assert.match(dashboard, /deleteVoiceHistory/);
+  assert.match(dashboard, /retryVoiceHistory/);
+  assert.match(recentResults, /item\.status\s*===\s*['"]error['"]/);
+  assert.match(recentResults, /item\.mode\s*===\s*['"]Ask['"]/);
+  assert.match(recentResults, /item\.mode\s*===\s*['"]MeetingNotes['"]/);
+  assert.match(historyPanel, /t\(['"]dashboard\.recentResults['"]\)/);
   assert.match(i18n, /['"]dashboard\.recentResults['"]:\s*['"]最近结果['"]/);
-  assert.match(dashboard, /ContentCopyIcon/);
-  assert.match(dashboard, /IconButton/);
+  assert.match(historyPanel, /Dialog/);
+  assert.match(historyPanel, /TextField/);
+  assert.match(historyPanel, /SearchIcon/);
+  assert.match(historyPanel, /RefreshIcon/);
+  assert.match(historyPanel, /ContentCopyIcon/);
+  assert.match(historyPanel, /DeleteIcon/);
+  assert.match(historyPanel, /MoreVertIcon/);
+  assert.match(historyPanel, /dashboard\.history\.viewMore/);
+  assert.match(historyPanel, /dashboard\.history\.searchPlaceholder/);
+  assert.match(historyPanel, /dashboard\.history\.retry/);
   assert.match(dashboard, /clipboard:write-text/);
-  assert.match(dashboard, /t\(['"]dashboard\.copyRecentResult['"]\)/);
-  assert.match(i18n, /['"]dashboard\.copyRecentResult['"]:\s*['"]复制最近结果['"]/);
+  assert.doesNotMatch(historyPanel, /Flag|OutlinedFlag|Feedback/);
+  assert.match(i18n, /['"]dashboard\.history\.viewMore['"]:\s*['"]查看更多['"]/);
+  assert.match(i18n, /['"]dashboard\.history\.retry['"]:\s*['"]重试['"]/);
   assert.doesNotMatch(dashboard, /getVoiceStatusLabel/);
   assert.doesNotMatch(dashboard, /voiceStatusLabel/);
   assert.doesNotMatch(dashboard, /voiceSession\.rawText\s*\|\|\s*['"]-['"]/);
@@ -886,7 +1047,8 @@ test('P0 Dashboard 移除鼠标录音入口，只保留键盘触发', async () =
 
 test('P1 历史页面与历史 store 统一走主进程 JSON 数据源', async () => {
   const historyStore = await readProjectFile('src/services/historyStore.ts');
-  const historyPage = await readProjectFile('src/pages/History.tsx');
+  const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
+  const historyPanel = await readProjectFile('src/pages/dashboard/HistoryResultsPanel.tsx');
   const main = await readMainProcessSurface();
 
   assert.match(main, /HISTORY_FILE_NAME\s*=\s*['"]history\.json['"]/);
@@ -896,14 +1058,23 @@ test('P1 历史页面与历史 store 统一走主进程 JSON 数据源', async (
   assert.match(historyStore, /db:history-list/);
   assert.match(historyStore, /db:history-upsert/);
   assert.match(historyStore, /db:history-clear/);
+  assert.match(historyStore, /db:history-delete/);
+  assert.match(historyStore, /db:history-save-audio/);
+  assert.match(historyStore, /db:history-retry/);
   assert.match(historyStore, /db:history-stats/);
   assert.match(historyStore, /saveVoiceHistory/);
   assert.match(historyStore, /clearVoiceHistory/);
+  assert.match(historyStore, /deleteVoiceHistory/);
+  assert.match(historyStore, /retryVoiceHistory/);
+  assert.match(historyStore, /saveVoiceHistoryRetryAudio/);
   assert.match(historyStore, /loadVoiceStats/);
   assert.doesNotMatch(historyStore, /localStorage/);
-  assert.match(historyPage, /listVoiceHistory/);
-  assert.match(historyPage, /clearVoiceHistory/);
-  assert.match(historyPage, /clipboard:write-text/);
+  assert.match(main, /ipcMain\.handle\(['"]db:history-save-audio['"]/);
+  assert.match(main, /ipcMain\.handle\(['"]db:history-retry['"]/);
+  assert.match(dashboard, /listVoiceHistory/);
+  assert.match(dashboard, /deleteVoiceHistory/);
+  assert.match(dashboard, /retryVoiceHistory/);
+  assert.match(historyPanel, /onCopy/);
 });
 
 test('P1 词典数据统一走主进程 JSON 数据源', async () => {
@@ -972,14 +1143,20 @@ test('P1 词典页面接入导航和主进程 IPC', async () => {
   assert.match(dictionaryPage, /t\(['"]dictionary\.manualAdded['"]\)/);
   assert.match(dictionaryPage, /t\(['"]dictionary\.candidate['"]\)/);
   assert.match(dictionaryPage, /t\(['"]dictionary\.enabled['"]\)/);
-  assert.match(dictionaryPage, /t\(['"]dictionary\.saveEntry['"]\)/);
-  assert.match(dictionaryPage, /t\(['"]dictionary\.correctHelper['"]\)/);
+  assert.match(dictionaryPage, /function\s+DictionaryAddDialog/);
+  assert.match(dictionaryPage, /searchOpen/);
+  assert.match(dictionaryPage, /addOpen/);
+  assert.match(dictionaryPage, /dictionary\.addNewEntry/);
+  assert.match(dictionaryPage, /dictionary\.addPlaceholder/);
+  assert.match(dictionaryPage, /dictionary\.searchAria/);
+  assert.match(dictionaryPage, /dictionary\.emptyAutoTitle/);
+  assert.match(dictionaryPage, /filter\s*===\s*['"]manual['"]/);
   assert.match(i18n, /['"]dictionary\.autoAdded['"]:\s*['"]自动添加['"]/);
   assert.match(i18n, /['"]dictionary\.manualAdded['"]:\s*['"]手动添加['"]/);
   assert.match(i18n, /['"]dictionary\.candidate['"]:\s*['"]候选['"]/);
-  assert.match(i18n, /['"]dictionary\.enabled['"]:\s*['"]启用['"]/);
-  assert.match(i18n, /['"]dictionary\.saveEntry['"]:\s*['"]保存词条['"]/);
-  assert.match(i18n, /['"]dictionary\.correctHelper['"]:\s*['"]填写正确写法后可保存['"]/);
+  assert.match(i18n, /['"]dictionary\.enabled['"]:/);
+  assert.match(i18n, /['"]dictionary\.addNewEntry['"]:/);
+  assert.match(i18n, /['"]dictionary\.searchPlaceholder['"]:/);
   assert.doesNotMatch(dictionaryPage, />新增词条</);
   assert.match(dictionaryStore, /dictionary:list/);
   assert.match(dictionaryStore, /dictionary:create/);
@@ -995,17 +1172,19 @@ test('P1 词典页面接入导航和主进程 IPC', async () => {
   assert.doesNotMatch(dictionaryStore, /localStorage/);
 });
 
-test('P1 旧模型管理能力已删除，只保留单模型初始化入口', async () => {
+test('P1 旧模型管理能力已删除，语音模型初始化并入设置页', async () => {
   const main = await readMainProcessSurface();
   const navigation = await readProjectFile('src/navigation.ts');
   const sidebar = await readProjectFile('src/components/Sidebar.tsx');
   const appShell = await readProjectFile('src/components/AppShell.tsx');
-  const setupPage = await readProjectFile('src/pages/Setup.tsx');
+  const settingsPage = await readProjectFile('src/pages/Settings.tsx');
+  const voiceModelSection = await readProjectFile('src/pages/settings/VoiceModelSettingsSection.tsx');
 
   await assert.rejects(() => readProjectFile('src/pages/Models.tsx'), /ENOENT/);
   await assert.rejects(() => readProjectFile('src/pages/models/useModelsPageState.ts'), /ENOENT/);
   await assert.rejects(() => readProjectFile('src/pages/models/ModelCard.tsx'), /ENOENT/);
   await assert.rejects(() => readProjectFile('src/services/modelStore.ts'), /ENOENT/);
+  await assert.rejects(() => readProjectFile('src/pages/Setup.tsx'), /ENOENT/);
 
   assert.doesNotMatch(navigation, /'models'/);
   assert.doesNotMatch(sidebar, /MemoryIcon|StorageIcon|HubIcon/);
@@ -1014,23 +1193,27 @@ test('P1 旧模型管理能力已删除，只保留单模型初始化入口', as
   assert.doesNotMatch(main, /modelsUrl:/);
   assert.doesNotMatch(main, /callModelBackend/);
   assert.doesNotMatch(main, /snapshot_download/);
-  assert.match(navigation, /'setup'/);
-  assert.match(appShell, /<Setup/);
-  assert.match(setupPage, /voice-model:get-status|voice-model:start-download|getVoiceModelStatus|startVoiceModelDownload/);
+  assert.doesNotMatch(navigation, /'setup'|nav\.setup/);
+  assert.doesNotMatch(appShell, /<Setup|pages\/Setup/);
+  assert.match(appShell, /useState<Page>\(['"]home['"]\)/);
+  assert.match(settingsPage, /VoiceModelSettingsSection/);
+  assert.match(voiceModelSection, /getVoiceModelStatus/);
+  assert.match(voiceModelSection, /startVoiceModelDownload/);
+  assert.match(voiceModelSection, /chooseModelCacheDirectory/);
 });
 
-test('初始化页只在模型未下载且空闲时允许选择模型保存路径', async () => {
-  const setupPage = await readProjectFile('src/pages/Setup.tsx');
+test('设置页语音模型只在模型未下载且空闲时允许选择模型保存路径', async () => {
+  const voiceModelSection = await readProjectFile('src/pages/settings/VoiceModelSettingsSection.tsx');
 
-  assert.match(setupPage, /const\s+isDownloaded\s*=\s*Boolean\(modelStatus\?\.cached\)/);
-  assert.match(setupPage, /const\s+isReady\s*=\s*Boolean\(modelStatus\?\.ready\s*\|\|\s*modelStatus\?\.status\s*===\s*['"]ready['"]\)/);
-  assert.match(setupPage, /const\s+canChooseCacheDir\s*=\s*!isDownloaded\s*&&\s*!isReady\s*&&\s*!busy/);
-  assert.match(setupPage, /\{canChooseCacheDir\s*\?\s*\(\s*<Button[\s\S]*setup\.chooseCacheDir[\s\S]*<\/Button>\s*\)\s*:\s*null\}/);
+  assert.match(voiceModelSection, /const\s+isDownloaded\s*=\s*Boolean\(modelStatus\?\.cached\)/);
+  assert.match(voiceModelSection, /const\s+isReady\s*=\s*Boolean\(modelStatus\?\.ready\s*\|\|\s*modelStatus\?\.status\s*===\s*['"]ready['"]\)/);
+  assert.match(voiceModelSection, /const\s+canChooseCacheDir\s*=\s*!isDownloaded\s*&&\s*!isReady\s*&&\s*!busy/);
+  assert.match(voiceModelSection, /\{canChooseCacheDir\s*\?\s*\(\s*<Button[\s\S]*settings\.voiceModel\.chooseCacheDir[\s\S]*<\/Button>\s*\)\s*:\s*null\}/);
 });
 
-test('初始化页下载模型时显示真实百分比进度', async () => {
+test('设置页语音模型下载时显示真实百分比进度', async () => {
   const setupStore = await readProjectFile('src/services/modelSetupStore.ts');
-  const setupPage = await readProjectFile('src/pages/Setup.tsx');
+  const voiceModelSection = await readProjectFile('src/pages/settings/VoiceModelSettingsSection.tsx');
   const i18n = await readProjectFile('src/i18n.tsx');
 
   assert.match(setupStore, /downloaded_bytes\?:\s*number/);
@@ -1039,17 +1222,17 @@ test('初始化页下载模型时显示真实百分比进度', async () => {
   assert.match(setupStore, /downloaded_files\?:\s*number/);
   assert.match(setupStore, /total_files\?:\s*number/);
   assert.match(setupStore, /file_progress_percent\?:\s*number\s*\|\s*null/);
-  assert.doesNotMatch(setupPage, /setup\.elapsed/);
-  assert.doesNotMatch(setupPage, /formatElapsed/);
+  assert.doesNotMatch(voiceModelSection, /setup\.elapsed/);
+  assert.doesNotMatch(voiceModelSection, /formatElapsed/);
   assert.doesNotMatch(i18n, /setup\.elapsed/);
-  assert.match(setupPage, /variant=\{hasDownloadProgress\s*\?\s*['"]determinate['"]\s*:\s*['"]indeterminate['"]\}/);
-  assert.match(setupPage, /value=\{hasDownloadProgress\s*\?\s*downloadProgressPercent\s*:\s*undefined\}/);
-  assert.match(setupPage, /formatBytes\(modelStatus\?\.downloaded_bytes\)/);
-  assert.match(setupPage, /formatBytes\(modelStatus\?\.total_bytes\)/);
-  assert.match(setupPage, /hasFileProgress/);
-  assert.match(setupPage, /setup\.modelFilesProgress/);
-  assert.match(setupPage, /setup\.modelFilesProgressHint/);
-  assert.match(i18n, /setup\.modelFilesProgressHint/);
+  assert.match(voiceModelSection, /variant=\{hasDownloadProgress\s*\?\s*['"]determinate['"]\s*:\s*['"]indeterminate['"]\}/);
+  assert.match(voiceModelSection, /value=\{hasDownloadProgress\s*\?\s*downloadProgressPercent\s*:\s*undefined\}/);
+  assert.match(voiceModelSection, /formatBytes\(modelStatus\?\.downloaded_bytes\)/);
+  assert.match(voiceModelSection, /formatBytes\(modelStatus\?\.total_bytes\)/);
+  assert.match(voiceModelSection, /hasFileProgress/);
+  assert.match(voiceModelSection, /settings\.voiceModel\.modelFilesProgress/);
+  assert.match(voiceModelSection, /settings\.voiceModel\.modelFilesProgressHint/);
+  assert.match(i18n, /settings\.voiceModel\.modelFilesProgressHint/);
 });
 
 test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () => {
@@ -1057,21 +1240,35 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   const settingsPage = await readProjectFile('src/pages/Settings.tsx');
   const settingsState = await readProjectFile('src/pages/settings/useSettingsPageState.ts');
   const audioSection = await readProjectFile('src/pages/settings/AudioSettingsSection.tsx');
+  const applicationBehaviorSection = await readProjectFile('src/pages/settings/ApplicationBehaviorSettingsSection.tsx');
   const asrRuntimeSection = await readProjectFile('src/pages/settings/AsrRuntimeSettingsSection.tsx');
+  const voiceModelSection = await readProjectFile('src/pages/settings/VoiceModelSettingsSection.tsx');
+  const translationModelSection = await readProjectFile('src/pages/settings/TranslationModelSettingsSection.tsx');
+  const translationModelStore = await readProjectFile('src/services/translationModelStore.ts');
+  const voiceDiagnosticsSection = await readProjectFile('src/pages/settings/VoiceDiagnosticsSettingsSection.tsx');
+  const voiceDiagnosticsStore = await readProjectFile('src/services/voiceDiagnosticsStore.ts');
   const languageSection = await readProjectFile('src/pages/settings/LanguageSettingsSection.tsx');
   const llmSection = await readProjectFile('src/pages/settings/LlmSettingsSection.tsx');
   const shortcutSection = await readProjectFile('src/pages/settings/ShortcutSettingsSection.tsx');
+  const i18n = await readProjectFile('src/i18n.tsx');
   const settingsSurface = [
     settingsPage,
     settingsState,
     audioSection,
+    applicationBehaviorSection,
     asrRuntimeSection,
+    voiceModelSection,
+    translationModelSection,
+    voiceDiagnosticsSection,
     languageSection,
     llmSection,
     shortcutSection,
   ].join('\n');
   const main = await readMainProcessSurface();
   const translationLanguages = JSON.parse(await readProjectFile('../../shared/translation-target-languages.json'));
+  const interfaceLanguages = JSON.parse(await readProjectFile('../../shared/interface-languages.json'));
+  const meetingLiveLanguages = JSON.parse(await readProjectFile('../../shared/meeting-live-target-languages.json'));
+  const meetingNoteLanguages = JSON.parse(await readProjectFile('../../shared/meeting-note-target-languages.json'));
   const llmProviders = JSON.parse(await readProjectFile('../../shared/llm-providers.json'));
 
   assert.match(main, /SETTINGS_FILE_NAME\s*=\s*['"]settings\.json['"]/);
@@ -1085,14 +1282,42 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   assert.match(settingsStore, /getTranslationTargetLanguage/);
   assert.match(settingsStore, /settings:get/);
   assert.match(settingsStore, /settings:update/);
+  assert.match(settingsStore, /subscribeSettingsChanges/);
+  assert.match(settingsStore, /permission:update-auto-launch/);
   assert.doesNotMatch(settingsStore, /localStorage/);
   assert.doesNotMatch(settingsStore, /deepseekApiKey/);
   assert.match(settingsStore, /DEFAULT_LLM_PROVIDERS/);
   assert.match(settingsStore, /getCurrentLlmConfig/);
-  assert.deepEqual(translationLanguages.map((language) => language.id), ['en', 'ja']);
+  assert.deepEqual(
+    translationLanguages.map((language) => language.id),
+    [
+      'zh-CN', 'zh-TW', 'en', 'ja', 'ko', 'es', 'pt', 'pt-BR', 'fr', 'de',
+      'it', 'ru', 'uk', 'ar', 'he', 'fa', 'hi', 'bn', 'ur', 'th',
+      'vi', 'id', 'ms', 'fil', 'my', 'km', 'lo', 'nl', 'pl', 'tr',
+      'el', 'cs', 'ro', 'hu', 'sv', 'da', 'no', 'fi', 'sw',
+    ],
+  );
+  assert.equal(translationLanguages.some((language) => language.id === 'yue'), false);
+  assert.deepEqual(meetingLiveLanguages.map((language) => language.id), ['en', 'zh', 'ja', 'ko', 'es', 'fr', 'de']);
+  assert.deepEqual(meetingNoteLanguages.map((language) => language.id), ['en', 'zh', 'ja', 'ko', 'es', 'fr', 'de', 'ru', 'pt']);
   assert.match(settingsStore, /TRANSLATION_TARGET_LANGUAGES/);
+  assert.match(settingsStore, /MEETING_LIVE_TARGET_LANGUAGES/);
+  assert.match(settingsStore, /MEETING_NOTE_TARGET_LANGUAGES/);
   assert.match(settingsStore, /DEFAULT_TRANSLATION_TARGET_LANGUAGE/);
   assert.match(main, /translation-target-languages\.json/);
+  assert.match(main, /meeting-live-target-languages\.json/);
+  assert.match(main, /interface-languages\.json/);
+  assert.match(settingsStore, /interface-languages\.json/);
+  assert.match(settingsStore, /INTERFACE_LANGUAGES/);
+  assert.deepEqual(
+    interfaceLanguages.map((language) => language.id),
+    [
+      'en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'es-ES', 'pt-BR',
+      'fr-FR', 'de-DE', 'it-IT', 'ru-RU', 'ar-SA', 'he-IL', 'hi-IN',
+      'id-ID', 'ms-MY', 'nl-NL', 'pl-PL', 'th-TH',
+    ],
+  );
+  assert.equal(interfaceLanguages.every((language) => language.labelKey === `settings.interfaceLanguage.${language.id}`), true);
   assert.match(settingsStore, /llm-providers\.json/);
   assert.match(main, /llm-providers\.json/);
   assert.match(main, /DEFAULT_LLM_PROVIDERS/);
@@ -1101,13 +1326,67 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   assert.match(settingsPage, /useSettingsPageState/);
   assert.match(settingsPage, /ShortcutSettingsSection/);
   assert.match(settingsPage, /AudioSettingsSection/);
+  assert.match(settingsPage, /VoiceModelSettingsSection/);
+  assert.match(settingsPage, /TranslationModelSettingsSection/);
+  assert.match(settingsPage, /ApplicationBehaviorSettingsSection/);
+  assert.match(settingsPage, /VoiceDiagnosticsSettingsSection/);
   assert.match(settingsPage, /AsrRuntimeSettingsSection/);
   assert.match(settingsPage, /LanguageSettingsSection/);
   assert.match(settingsPage, /LlmSettingsSection/);
-  assert.doesNotMatch(settingsState, /permission:update-auto-launch/);
+  assert.match(settingsState, /updateAutoLaunchPreference/);
   assert.match(settingsState, /navigator\.mediaDevices\.enumerateDevices/);
+  assert.match(settingsState, /devicechange/);
   assert.match(settingsState, /reloadLlmBackendConfig/);
   assert.match(audioSection, /selectedAudioDeviceId/);
+  assert.match(audioSection, /getAudioStreamForDevice/);
+  assert.match(audioSection, /startAudioLevelMonitoring/);
+  assert.match(audioSection, /interactionSoundsEnabled/);
+  assert.match(audioSection, /muteBackgroundAudioDuringRecording/);
+  assert.match(audioSection, /showActiveMicrophoneHint/);
+  assert.match(audioSection, /remindOnNewAudioDevice/);
+  assert.match(settingsPage, /<AudioSettingsSection[\s\S]*<VoiceModelSettingsSection[\s\S]*<TranslationModelSettingsSection[\s\S]*<AsrRuntimeSettingsSection/);
+  assert.match(voiceModelSection, /settings\.modelCacheDir/);
+  assert.match(voiceModelSection, /getVoiceModelStatus/);
+  assert.match(voiceModelSection, /startVoiceModelDownload/);
+  assert.match(voiceModelSection, /chooseModelCacheDirectory/);
+  assert.match(voiceModelSection, /settings\.voiceModel\.title/);
+  assert.match(voiceModelSection, /settings\.voiceModel\.modelFilesProgress/);
+  assert.match(settingsStore, /translationModelCacheDir:\s*string/);
+  assert.match(settingsStore, /translationEnginePreference/);
+  assert.match(settingsStore, /localTranslationModelEnabled/);
+  assert.match(translationModelSection, /getTranslationModelStatus/);
+  assert.match(translationModelSection, /startTranslationModelDownload/);
+  assert.match(translationModelSection, /loadTranslationModel/);
+  assert.match(translationModelSection, /chooseModelCacheDirectory/);
+  assert.match(translationModelSection, /settings\.translationModel\.title/);
+  assert.match(translationModelSection, /settings\.translationModel\.cacheDir/);
+  assert.match(translationModelSection, /settings\.translationModel\.modelReady/);
+  assert.match(translationModelSection, /settings\.translationModel\.modelLoadFailedDetail/);
+  assert.match(translationModelSection, /settings\.translationModel\.runtimeStartFailedDetail/);
+  assert.match(translationModelSection, /settings\.translationModel\.modelFilesProgress/);
+  assert.doesNotMatch(translationModelSection, /settings\.translationModel\.(runtimeMode|runtimeProfile|fallbackReason|readyDetail)/);
+  assert.doesNotMatch(translationModelSection, /AngelSlim|Hy-MT1\.5/);
+  assert.match(i18n, /settings\.translationModel\.modelLoadFailedDetail/);
+  assert.match(i18n, /settings\.translationModel\.runtimeStartFailedDetail/);
+  assert.match(i18n, /Hy-MT2/);
+  assert.doesNotMatch(translationModelSection, /unloadTranslationModel/);
+  assert.doesNotMatch(translationModelSection, /translationEnginePreference|localTranslationModelEnabled/);
+  assert.match(translationModelStore, /translation-model:get-status/);
+  assert.match(translationModelStore, /translation-model:start-download/);
+  assert.match(translationModelStore, /translation-model:load/);
+  assert.match(translationModelStore, /translation-model:unload/);
+  assert.match(applicationBehaviorSection, /launchAtSystemStartup/);
+  assert.match(applicationBehaviorSection, /meetingDetectionEnabled/);
+  assert.match(applicationBehaviorSection, /showFloatingBar/);
+  assert.match(applicationBehaviorSection, /hideMainWindowOnClose/);
+  assert.match(voiceDiagnosticsStore, /voice-diagnostics:list/);
+  assert.match(voiceDiagnosticsStore, /voice-diagnostics:save/);
+  assert.match(voiceDiagnosticsStore, /voice-diagnostics:clear/);
+  assert.match(voiceDiagnosticsStore, /voice-diagnostics:changed/);
+  assert.match(voiceDiagnosticsSection, /listVoiceDiagnostics/);
+  assert.match(voiceDiagnosticsSection, /clearVoiceDiagnostics/);
+  assert.match(voiceDiagnosticsSection, /settings\.voiceDiagnostics\.privacyHint/);
+  assert.match(settingsSurface, /settings\.voiceDiagnostics\.title/);
   assert.match(asrRuntimeSection, /ipcClient\.platform/);
   assert.match(asrRuntimeSection, /asrDeviceMode/);
   assert.match(asrRuntimeSection, /platform === 'win32'/);
@@ -1116,19 +1395,22 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   assert.match(asrRuntimeSection, /settings\.asrRuntime\.title/);
   assert.match(asrRuntimeSection, /fallback_reason/);
   assert.doesNotMatch(audioSection, /settings\.other/);
-  assert.doesNotMatch(audioSection, /settings\.autoLaunch/);
-  assert.doesNotMatch(audioSection, /launchAtSystemStartup/);
   assert.match(languageSection, /preferredLanguage/);
   assert.match(languageSection, /translationTargetLanguage/);
-  assert.match(languageSection, /MenuItem value="zh-CN"/);
-  assert.match(languageSection, /MenuItem value="en-US"/);
+  assert.match(languageSection, /INTERFACE_LANGUAGES\.map/);
+  assert.match(languageSection, /language\.labelKey/);
+  assert.match(languageSection, /TranslationKey/);
+  assert.doesNotMatch(languageSection, /MenuItem value="zh-CN"/);
+  assert.doesNotMatch(languageSection, /MenuItem value="en-US"/);
   assert.match(languageSection, /TRANSLATION_TARGET_LANGUAGES\.map/);
-  assert.match(languageSection, /settings\.translationTarget\.\$\{language\.id\}/);
+  assert.match(languageSection, /language\.displayName\s*\|\|\s*language\.label/);
+  assert.match(languageSection, /language\.secondaryLabel\s*\|\|\s*language\.label/);
+  assert.match(languageSection, /settings\.translationTargetSelectHint/);
   assert.match(languageSection, /settings\.translationTargetLanguage/);
   assert.doesNotMatch(settingsSurface, /MenuItem value="en">英文 \(en\)<\/MenuItem>/);
-  assert.doesNotMatch(settingsSurface, /显示悬浮条/);
-  assert.doesNotMatch(settingsSurface, /enableSoundEffects/);
-  assert.doesNotMatch(settingsSurface, /声音效果/);
+  assert.match(settingsSurface, /settings\.audio\.interactionSounds/);
+  assert.match(settingsSurface, /settings\.appBehavior\.meetingDetection/);
+  assert.match(settingsSurface, /settings\.appBehavior\.floatingBar/);
   assert.doesNotMatch(settingsSurface, /版本 0\.1（本地版）/);
   assert.doesNotMatch(settingsSurface, /检查更新/);
   assert.doesNotMatch(settingsSurface, /disabled>/);
@@ -1148,11 +1430,12 @@ test('P1 设置页与设置 store 统一走主进程 JSON 数据源', async () =
   assert.match(llmSection, /settings\.apiKeyPlaceholder/);
 });
 
-test('P1 设置页不再暴露悬浮条开关，界面语言由本地设置加载', async () => {
+test('P1 设置页通过本地设置暴露悬浮条开关，界面语言由本地设置加载', async () => {
   const appShell = await readProjectFile('src/components/AppShell.tsx');
   const settingsSurface = await readProjectFiles([
     'src/pages/Settings.tsx',
     'src/pages/settings/AudioSettingsSection.tsx',
+    'src/pages/settings/ApplicationBehaviorSettingsSection.tsx',
     'src/pages/settings/AsrRuntimeSettingsSection.tsx',
     'src/pages/settings/LanguageSettingsSection.tsx',
     'src/pages/settings/LlmSettingsSection.tsx',
@@ -1162,16 +1445,122 @@ test('P1 设置页不再暴露悬浮条开关，界面语言由本地设置加�
   const main = await readMainProcessSurface();
 
   assert.doesNotMatch(main, /ipcMain\.handle\(['"]page:set-floating-bar-enabled['"]/);
-  assert.doesNotMatch(main, /showFloatingBar: true/);
+  assert.match(main, /showFloatingBar/);
   assert.doesNotMatch(settingsSurface, /page:set-floating-bar-enabled/);
-  assert.doesNotMatch(settingsSurface, /显示悬浮条/);
+  assert.match(settingsSurface, /showFloatingBar/);
   assert.match(languageSection, /Select/);
-  assert.match(languageSection, /settings\.zhCn/);
-  assert.match(languageSection, /settings\.enUs/);
+  assert.match(languageSection, /INTERFACE_LANGUAGES\.map/);
+  assert.match(languageSection, /language\.labelKey/);
+  assert.doesNotMatch(languageSection, /settings\.zhCn/);
+  assert.doesNotMatch(languageSection, /settings\.enUs/);
   assert.match(languageSection, /TRANSLATION_TARGET_LANGUAGES/);
   assert.doesNotMatch(appShell, /page:set-floating-bar-enabled/);
   assert.match(appShell, /loadSettings/);
+  assert.match(appShell, /subscribeSettingsChanges/);
   assert.match(appShell, /setLanguage\(settings\.preferredLanguage\)/);
+});
+
+test('会议检测提醒会打开会议笔记并默认使用麦克风加系统音频录制', async () => {
+  const main = await readMainProcessSurface();
+  const appShell = await readProjectFile('src/components/AppShell.tsx');
+  const meetingNotes = await readProjectFile('src/pages/MeetingNotes.tsx');
+  const notification = await readProjectFile('public/meeting-detection.html');
+  const notificationI18n = JSON.parse(await readProjectFile('../../shared/meeting-detection-notification-i18n.json'));
+  const interfaceLanguages = JSON.parse(await readProjectFile('../../shared/interface-languages.json'));
+
+  assert.match(main, /createMeetingDetectorService/);
+  assert.match(main, /meetingDetectorService\?\.start\(\)/);
+  assert.match(main, /meeting-detector:start-recording/);
+  assert.match(main, /meeting:auto-start-recording/);
+  assert.match(main, /readVisibleWindows/);
+  assert.match(main, /listActiveAudioSessions/);
+  assert.match(main, /showMeetingDetectionNotification/);
+  assert.match(main, /meetingDetectionEnabled/);
+
+  assert.match(appShell, /meeting:auto-start-recording/);
+  assert.match(appShell, /setPage\(['"]meetingNotes['"]\)/);
+  assert.match(appShell, /autoStartRequest=\{meetingAutoStartRequest\}/);
+
+  assert.match(meetingNotes, /MeetingAutoStartRequest/);
+  assert.match(meetingNotes, /autoStartRequest/);
+  assert.match(meetingNotes, /audioSource:\s*autoStartRequest\?\.audioSource\s*\|\|\s*['"]microphone_system['"]/);
+  assert.match(meetingNotes, /targetLanguage:\s*autoStartRequest\?\.targetLanguage\s*\|\|\s*['"]off['"]/);
+  assert.match(meetingNotes, /deleteMeetingNote\(saved\.id\)/);
+
+  assert.deepEqual(Object.keys(notificationI18n), interfaceLanguages.map((language) => language.id));
+  assert.match(main, /meeting-detection-notification-i18n\.json/);
+  assert.match(main, /preferredLanguage/);
+  assert.match(main, /labels/);
+  assert.match(notification, /readLabels/);
+  assert.match(notification, /labels\.title/);
+  assert.match(notification, /labels\.start/);
+  assert.match(notification, /labels\.open/);
+  assert.match(notification, /labels\.close/);
+  assert.match(notification, /clamp\(/);
+  assert.match(notification, /display:\s*flex/);
+  assert.match(notification, /flex:\s*0 0 clamp\(4px, 1vw, 5px\)/);
+  assert.match(notification, /0 12px 28px rgba\(0, 0, 0, 0\.22\)/);
+  assert.doesNotMatch(notification, /minmax\(112px,\s*32%,\s*150px\)/);
+  assert.doesNotMatch(notification, /\.accent\s*\{[\s\S]*?width:\s*100%/);
+  assert.doesNotMatch(notification, /Meeting Detected/);
+  assert.doesNotMatch(notification, /Start Recording/);
+  assert.doesNotMatch(notification, /&amp; open SpeakMore/);
+  assert.match(notification, /meeting-detector:start-recording/);
+  assert.match(notification, /meeting-detector:dismiss/);
+});
+
+test('会议笔记实时翻译先进入设置页并使用专属实时页', async () => {
+  const meetingNotes = await readProjectFile('src/pages/MeetingNotes.tsx');
+  const settingsStore = await readProjectFile('src/services/settingsStore.ts');
+  const voiceSocket = await readProjectFile('src/services/voice/voiceSocket.ts');
+  const recorder = await readProjectFile('src/services/recorder.ts');
+  const i18n = await readProjectFile('src/i18n.tsx');
+
+  assert.match(settingsStore, /meetingLiveAudioSource/);
+  assert.match(settingsStore, /meetingLiveTargetLanguage/);
+  assert.match(settingsStore, /meetingLiveAudioSource:\s*['"]microphone['"]/);
+  assert.match(settingsStore, /meetingLiveTargetLanguage:\s*['"]off['"]/);
+
+  assert.match(meetingNotes, /type\s+MeetingView\s*=\s*['"]list['"][\s\S]*['"]liveSetup['"]/);
+  assert.match(meetingNotes, /onClick=\{openLiveSetup\}/);
+  assert.match(meetingNotes, /const\s+renderLiveSetupView\s*=/);
+  assert.match(meetingNotes, /meeting\.liveSetupTitle/);
+  assert.match(meetingNotes, /meetingLiveAudioSource/);
+  assert.match(meetingNotes, /meetingLiveTargetLanguage/);
+  assert.match(meetingNotes, /MEETING_NOTE_TARGET_LANGUAGES/);
+  assert.match(meetingNotes, /languages=\{MEETING_NOTE_TARGET_LANGUAGES\}/);
+  assert.match(meetingNotes, /languages=\{MEETING_LIVE_TARGET_LANGUAGES\}/);
+  assert.match(meetingNotes, /handleNoteRecordingTargetLanguageChange/);
+  assert.match(meetingNotes, /startLiveTranslationFlow/);
+  assert.match(meetingNotes, /startRecordingFlow\(['"]live['"]/);
+
+  assert.match(meetingNotes, /const\s+renderLiveRecordingView\s*=/);
+  assert.match(meetingNotes, /renderLiveSettingsSheet/);
+  assert.match(meetingNotes, /renderNoteTranscriptionPanel/);
+  assert.match(meetingNotes, /showTranscriptPanel/);
+  assert.match(meetingNotes, /setLiveSettingsOpen\(true\)/);
+  assert.match(meetingNotes, /meetingLiveSegments/);
+  assert.match(meetingNotes, /sourceText/);
+  assert.match(meetingNotes, /translationText/);
+  assert.match(meetingNotes, /meeting\.realtime/);
+  assert.match(meetingNotes, /meeting\.startSpeaking/);
+  assert.match(meetingNotes, /LiveToolbarButton/);
+  assert.match(meetingNotes, /updateMeetingNotesRecordingOptions/);
+  assert.match(meetingNotes, /inputLevel/);
+  assert.match(meetingNotes, /Waveform[\s\S]*level/);
+  assert.match(meetingNotes, /size=\{?["']hero["']\}?/);
+  assert.match(meetingNotes, /size=\{?["']inline["']\}?/);
+  assert.match(meetingNotes, /meeting-subtitles:show/);
+
+  assert.match(voiceSocket, /meeting_translation/);
+  assert.match(voiceSocket, /meeting_translation_error/);
+  assert.match(recorder, /handleMeetingTranslation/);
+  assert.match(recorder, /meetingLiveSegments/);
+  assert.match(recorder, /source_text/);
+  assert.match(recorder, /set_mode_config/);
+  assert.match(i18n, /meeting\.showAiTranslation/);
+  assert.match(i18n, /meeting\.systemAudioToast/);
+  assert.match(i18n, /meeting\.liveSettingsHint/);
 });
 
 test('P1 首页四项统计来自真实历史统计，不再展示硬编码指标', async () => {
@@ -1239,6 +1628,8 @@ test('P1 听写历史保存由全局常驻组件负责，不依赖首页挂载',
   assert.match(appShell, /useVoiceHistoryPersistence/);
   assert.match(historyPersistence, /subscribeVoiceSession/);
   assert.match(historyPersistence, /saveVoiceHistory/);
+  assert.match(historyPersistence, /saveVoiceHistoryRetryAudio/);
+  assert.match(historyPersistence, /retryAudioWavBase64/);
   assert.match(historyPersistence, /savedAudioIds/);
   assert.match(historyPersistence, /voiceSession\.status\s*!==\s*['"]completed['"][\s\S]*voiceSession\.status\s*!==\s*['"]error['"]/);
   assert.match(historyPersistence, /id:\s*audioId/);
@@ -1292,22 +1683,24 @@ test('首页壳层和用户可见文案符合 SpeakMore 中文化要求', async 
   const sidebar = await readProjectFile('src/components/Sidebar.tsx');
   const appShell = await readProjectFile('src/components/AppShell.tsx');
   const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
+  const historyPanel = await readProjectFile('src/pages/dashboard/HistoryResultsPanel.tsx');
   const floatingBar = await readProjectFile('public/floating-bar.html');
   const i18n = await readProjectFile('src/i18n.tsx');
   const main = await readMainProcessSurface();
 
   assert.match(navigation, /labelKey:\s*['"]nav\.home['"]/);
-  assert.match(navigation, /labelKey:\s*['"]nav\.history['"]/);
   assert.match(navigation, /labelKey:\s*['"]nav\.settings['"]/);
   assert.match(i18n, /['"]nav\.home['"]:\s*['"]首页['"]/);
-  assert.match(i18n, /['"]nav\.history['"]:\s*['"]历史记录['"]/);
   assert.match(i18n, /['"]nav\.settings['"]:\s*['"]设置['"]/);
+  assert.doesNotMatch(navigation, /['"]history['"]|nav\.history/);
+  assert.doesNotMatch(appShell, /pages\/History|<History/);
+  assert.doesNotMatch(i18n, /nav\.history/);
   assert.match(sidebar, /SpeakMore/);
   assert.doesNotMatch(sidebar, /bgcolor:\s*['"]#000['"]/);
   assert.doesNotMatch(sidebar, /Voice dictation/);
   assert.doesNotMatch(appShell, /Typeless Local/);
   assert.match(dashboard, /t\(['"]dashboard\.title['"]\)/);
-  assert.match(dashboard, /t\(['"]dashboard\.recentResults['"]\)/);
+  assert.match(historyPanel, /t\(['"]dashboard\.recentResults['"]\)/);
   assert.match(i18n, /['"]dashboard\.title['"]:\s*['"]首页['"]/);
   assert.match(i18n, /['"]dashboard\.recentResults['"]:\s*['"]最近结果['"]/);
   assert.match(floatingBar, /正在听写/);
@@ -1320,33 +1713,73 @@ test('首页壳层和用户可见文案符合 SpeakMore 中文化要求', async 
 test('主页面一级标题复用设置页的左上基准和字号', async () => {
   const uiTokens = await readProjectFile('src/uiTokens.ts');
   const pageFiles = [
-    'src/pages/Setup.tsx',
     'src/pages/Dashboard.tsx',
-    'src/pages/History.tsx',
     'src/pages/Dictionary.tsx',
+    'src/pages/Shortcuts.tsx',
+    'src/pages/MeetingNotes.tsx',
     'src/pages/Settings.tsx',
   ];
 
   assert.match(uiTokens, /export\s+const\s+pageSx\s*=\s*\{/);
   assert.match(uiTokens, /p:\s*3/);
   assert.doesNotMatch(uiTokens, /mx:\s*['"]auto['"]/);
+  assert.match(uiTokens, /export\s+const\s+adaptivePageSx\s*=\s*\{/);
+  assert.match(uiTokens, /maxWidth:\s*['"]none['"]/);
+  assert.match(uiTokens, /export\s+const\s+adaptiveAutoGridSx\s*=\s*\{/);
+  assert.match(uiTokens, /repeat\(auto-fit,\s*minmax\(min\(420px,\s*100%\),\s*1fr\)\)/);
   assert.match(uiTokens, /export\s+const\s+pageTitleSx\s*=\s*\{/);
   assert.match(uiTokens, /fontSize:\s*24/);
   assert.match(uiTokens, /fontWeight:\s*500/);
+  assert.match(uiTokens, /export\s+const\s+pageDescriptionSx\s*=\s*\{/);
+  assert.match(uiTokens, /fontSize:\s*14/);
+  assert.match(uiTokens, /export\s+const\s+sectionTitleSx\s*=\s*\{/);
+  assert.match(uiTokens, /fontSize:\s*16/);
+  assert.match(uiTokens, /export\s+const\s+itemTitleSx\s*=\s*\{/);
+  assert.match(uiTokens, /fontSize:\s*15/);
+  assert.match(uiTokens, /export\s+const\s+helperTextSx\s*=\s*\{/);
+  assert.match(uiTokens, /fontSize:\s*13/);
+  assert.match(uiTokens, /export\s+const\s+captionTextSx\s*=\s*\{/);
+  assert.match(uiTokens, /fontSize:\s*12/);
 
   for (const pageFile of pageFiles) {
     const page = await readProjectFile(pageFile);
-    assert.match(page, /pageSx/);
+    assert.match(page, /adaptivePageSx/);
     assert.match(page, /pageTitleSx/);
     assert.doesNotMatch(page, /mx:\s*['"]auto['"]/);
   }
+
+  const adaptiveMainPages = [
+    'src/pages/Dashboard.tsx',
+    'src/pages/Dictionary.tsx',
+    'src/pages/Shortcuts.tsx',
+    'src/pages/Settings.tsx',
+  ];
+  for (const pageFile of adaptiveMainPages) {
+    const page = await readProjectFile(pageFile);
+    assert.doesNotMatch(page, /maxWidth:\s*(680|920|980)/);
+  }
+
+  const dashboard = await readProjectFile('src/pages/Dashboard.tsx');
+  const settings = await readProjectFile('src/pages/Settings.tsx');
+  assert.doesNotMatch(dashboard, /gridTemplateColumns:\s*['"]1fr 1fr['"]/);
+  assert.doesNotMatch(settings, /adaptiveAutoGridSx/);
+  assert.match(settings, /const\s+settingsContentSx\s*=\s*\{/);
+  assert.match(settings, /maxWidth:\s*1080/);
+  assert.match(settings, /flexDirection:\s*['"]column['"]/);
+
+  const meetingNotes = await readProjectFile('src/pages/MeetingNotes.tsx');
+  assert.doesNotMatch(meetingNotes, /fontSize:\s*(30|38|42|58)/);
+  assert.match(meetingNotes, /<Typography\s+sx=\{pageTitleSx\}>\s*\{t\(['"]meeting\.title['"]\)\}/);
+  assert.match(meetingNotes, /gridTemplateColumns:\s*\{\s*xs:\s*['"]1fr['"],\s*sm:\s*['"]repeat\(2, minmax\(0, 1fr\)\)['"],\s*md:\s*['"]repeat\(3, minmax\(0, 1fr\)\)['"]\s*\}/);
+  assert.match(meetingNotes, /maxWidth:\s*['"]none['"]/);
 });
 
 test('除首页个性化进度和悬浮粒子外主前端页面不使用蓝色状态色', async () => {
   const files = [
     'src/theme.ts',
-    'src/pages/History.tsx',
     'src/pages/Dictionary.tsx',
+    'src/pages/Shortcuts.tsx',
+    'src/pages/MeetingNotes.tsx',
     'src/pages/Settings.tsx',
     'src/uiTokens.ts',
     'public/floating-panel.html',

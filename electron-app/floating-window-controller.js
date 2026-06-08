@@ -4,6 +4,7 @@ function createFloatingWindowController({
   isActiveVoiceState = () => false,
   isErrorVoiceState = () => false,
   isTerminalVoiceState = () => false,
+  isFloatingBarEnabled = () => true,
   shouldShowShortcutHint = () => true,
   showFloatingBar = () => undefined,
   hideFloatingBar = () => undefined,
@@ -47,6 +48,13 @@ function createFloatingWindowController({
   }
 
   function renderFloatingBarForVoiceState(payload = {}) {
+    if (!isFloatingBarEnabled()) {
+      lastVoiceState = payload;
+      clearFloatingBarCompletedHideTimer();
+      hideFloatingBar();
+      return;
+    }
+
     if (isTerminalVoiceState(payload)) {
       clearFloatingBarCompletedHideTimer();
       showFloatingBar();
@@ -67,6 +75,10 @@ function createFloatingWindowController({
 
   function updateFloatingBarVisibility(keys) {
     if (floatingPanelVisible) return;
+    if (!isFloatingBarEnabled()) {
+      hideFloatingBar();
+      return;
+    }
     const hasActiveKey = Array.isArray(keys) && keys.some((key) => key?.isKeydown);
     if (hasActiveKey) showFloatingBar();
   }

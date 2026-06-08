@@ -12,16 +12,26 @@ function normalizeHistoryItem(item = {}) {
   const refinedText = String(item.refinedText || '');
   const rawText = String(item.rawText || '');
   const finalText = refinedText || rawText;
+  const mode = ['Dictate', 'Ask', 'Translate', 'CustomCommand'].includes(item.mode) ? item.mode : 'Dictate';
+  const status = item.status === 'error' ? 'error' : 'completed';
+  const retryableMode = mode === 'Dictate' || mode === 'Translate';
+  const hasRetryAudio = status === 'error' && retryableMode && Boolean(item.hasRetryAudio);
+  const retryable = status === 'error'
+    && retryableMode
+    && Boolean(item.retryable || hasRetryAudio || rawText.trim());
 
   return {
     id: String(item.id || crypto.randomUUID()),
     createdAt: String(item.createdAt || new Date().toISOString()),
-    mode: ['Dictate', 'Ask', 'Translate'].includes(item.mode) ? item.mode : 'Dictate',
-    status: item.status === 'error' ? 'error' : 'completed',
+    mode,
+    status,
     rawText,
     refinedText,
     isTestRecord: Boolean(item.isTestRecord),
-    errorCode: item.errorCode ? String(item.errorCode) : undefined,
+    errorCode: status === 'error' && item.errorCode ? String(item.errorCode) : undefined,
+    errorMessage: status === 'error' && item.errorMessage ? String(item.errorMessage) : undefined,
+    hasRetryAudio,
+    retryable,
     durationMs: Math.max(0, Number(item.durationMs) || 0),
     textLength: Math.max(0, Number(item.textLength) || countTextLength(finalText)),
   };

@@ -19,6 +19,24 @@ test('createAudioSessionService 在禁用时不调用系统静音命令', async 
   assert.equal(calls, 0);
 });
 
+test('createAudioSessionService 可以只读列出活跃音频会话且不依赖静音开关', async () => {
+  const calls = [];
+  const service = createAudioSessionService({
+    platform: 'win32',
+    isEnabled: () => false,
+    runAudioSessionControl: async (action, payload) => {
+      calls.push({ action, payload });
+      return { success: true, activeSessions: [{ ProcessId: 10, ProcessName: 'Feishu' }] };
+    },
+  });
+
+  const result = await service.listActiveAudioSessions();
+
+  assert.deepEqual(calls, [{ action: 'list-active-sessions', payload: {} }]);
+  assert.deepEqual(result, { success: true, activeSessions: [{ ProcessId: 10, ProcessName: 'Feishu' }] });
+  assert.equal(service.isMuted(), false);
+});
+
 test('createAudioSessionService 静音后只恢复本轮记录的会话', async () => {
   const calls = [];
   const service = createAudioSessionService({

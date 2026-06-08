@@ -1,6 +1,8 @@
 function registerPermissionIpcHandlers({
+  app = null,
   ipcMain,
   macosPlatformCapabilities = null,
+  processExecPath = process.execPath,
   processPlatform = process.platform,
   systemPreferences = null,
 } = {}) {
@@ -19,6 +21,39 @@ function registerPermissionIpcHandlers({
       confidence: 'none',
       reason: isMacOS() ? 'macos_capability_unavailable' : 'not_macos',
     };
+  }
+
+  function isPackagedApp() {
+    return Boolean(app?.isPackaged);
+  }
+
+  function getAutoLaunchOptions() {
+    return {
+      path: processExecPath,
+      args: ['--hidden'],
+    };
+  }
+
+  function readAutoLaunchStatus() {
+    if (!app || typeof app.getLoginItemSettings !== 'function') {
+      return { success: false, enabled: false, code: 'auto_launch_unavailable' };
+    }
+
+    try {
+      const status = app.getLoginItemSettings(getAutoLaunchOptions());
+      return {
+        success: true,
+        enabled: Boolean(status?.openAtLogin),
+        openAsHidden: Boolean(status?.openAsHidden),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        enabled: false,
+        code: 'auto_launch_status_failed',
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   function readMacOSAppAccessibilityStatus() {
@@ -74,10 +109,50 @@ function registerPermissionIpcHandlers({
       includeEventInjection: Boolean(payload?.includeEventInjection),
     });
   });
-  ipcMain.handle('permission:update-auto-launch', () => {
-    // 自动启动功能暂时停用，恢复时需要补系统真实状态读取和失败回滚。
-    // app.setLoginItemSettings({ openAtLogin: Boolean(payload.enable), path: process.execPath });
-    return { success: false, skipped: true, code: 'auto_launch_disabled' };
+  ipcMain.handle('permission:get-auto-launch-status', () => readAutoLaunchStatus());
+  ipcMain.handle('permission:update-auto-launch', (_, payload = {}) => {
+    const enable = Boolean(payload?.enable);
+
+    if (!isPackagedApp()) {
+      return {
+        success: true,
+        skipped: true,
+        enabled: enable,
+        code: 'auto_launch_dev_skipped',
+      };
+    }
+
+    if (!app || typeof app.setLoginItemSettings !== 'function') {
+      return {
+        success: false,
+        skipped: false,
+        enabled: false,
+        code: 'auto_launch_unavailable',
+      };
+    }
+
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: enable,
+        ...getAutoLaunchOptions(),
+      });
+      const status = readAutoLaunchStatus();
+      if (!status.success) return status;
+      return {
+        success: status.enabled === enable,
+        skipped: false,
+        enabled: status.enabled,
+        code: status.enabled === enable ? undefined : 'auto_launch_status_mismatch',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        skipped: false,
+        enabled: false,
+        code: 'auto_launch_update_failed',
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
   ipcMain.handle('permission:update-show-app-in-dock', () => true);
 

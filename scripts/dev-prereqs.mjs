@@ -23,6 +23,147 @@ export const getRendererIndexPath = ({ rootDir }) => (
   path.join(rootDir, 'electron-app', 'renderer', 'dist', 'index.html')
 );
 
+export const getLlamaServerExecutableName = ({ platform = process.platform }) => (
+  platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+);
+
+export const getBundledLlamaServerPath = ({ rootDir, platform = process.platform }) => (
+  path.join(rootDir, 'release-artifacts', 'llama', getLlamaServerExecutableName({ platform }))
+);
+
+export const getBundledHyMtLlamaServerPath = ({ rootDir, platform = process.platform }) => (
+  path.join(rootDir, 'release-artifacts', 'llama-stq', getLlamaServerExecutableName({ platform }))
+);
+
+export const resolveDevLlamaServerPath = ({
+  env = process.env,
+  existsSync,
+  platform = process.platform,
+  rootDir,
+}) => {
+  const existingEnvPath = String(
+    env.SPEAKMORE_LLAMA_SERVER_PATH
+    || env.LLAMA_SERVER_PATH
+    || env.SPEAKMORE_BUNDLED_LLAMA_SERVER_PATH
+    || '',
+  ).trim();
+  if (existingEnvPath) return existingEnvPath;
+  const bundledPath = getBundledLlamaServerPath({ rootDir, platform });
+  return existsSync(bundledPath) ? bundledPath : '';
+};
+
+export const resolveDevHyMtLlamaServerPath = ({
+  env = process.env,
+  existsSync,
+  platform = process.platform,
+  rootDir,
+}) => {
+  const existingEnvPath = String(
+    env.SPEAKMORE_HYMT_LLAMA_SERVER_PATH
+    || env.SPEAKMORE_BUNDLED_HYMT_LLAMA_SERVER_PATH
+    || '',
+  ).trim();
+  if (existingEnvPath) return existingEnvPath;
+  const bundledPath = getBundledHyMtLlamaServerPath({ rootDir, platform });
+  return existsSync(bundledPath) ? bundledPath : '';
+};
+
+const normalizeComparablePath = (value) => String(value || '')
+  .trim()
+  .replace(/^"|"$/g, '')
+  .replace(/\\/g, '/')
+  .toLowerCase();
+
+const parseJsonObject = (value) => {
+  try {
+    const parsed = JSON.parse(String(value || '').trim() || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const getListeningProcessOnWindows = ({ port, spawnSync }) => {
+  const command = [
+    `$connection = Get-NetTCPConnection -LocalPort ${Number(port)} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1`,
+    'if ($connection) {',
+    '  $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($connection.OwningProcess)"',
+    '  if ($process) {',
+    '    [PSCustomObject]@{ ProcessId = $process.ProcessId; ExecutablePath = $process.ExecutablePath; CommandLine = $process.CommandLine } | ConvertTo-Json -Compress',
+    '  }',
+    '}',
+  ].join('; ');
+  const result = spawnSync('powershell', ['-NoProfile', '-Command', command], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) return null;
+  return parseJsonObject(result.stdout);
+};
+
+const getListeningProcessOnUnix = ({ port, spawnSync }) => {
+  const result = spawnSync('sh', ['-lc', `lsof -nP -iTCP:${Number(port)} -sTCP:LISTEN -Fpca 2>/dev/null | head -n 3`], {
+    encoding: 'utf8',
+  });
+  if (result.error || result.status !== 0 || !String(result.stdout || '').trim()) return null;
+  const lines = String(result.stdout).split(/\r?\n/);
+  const processId = lines.find((line) => line.startsWith('p'))?.slice(1) || '';
+  const command = lines.find((line) => line.startsWith('c'))?.slice(1) || '';
+  const commandLine = lines.find((line) => line.startsWith('a'))?.slice(1) || command;
+  return { ProcessId: processId, ExecutablePath: command, CommandLine: commandLine };
+};
+
+export const checkDevServerPortOwnership = ({
+  port = 8000,
+  pythonBin,
+  spawnSync,
+  platform = process.platform,
+}) => {
+  const processInfo = platform === 'win32'
+    ? getListeningProcessOnWindows({ port, spawnSync })
+    : getListeningProcessOnUnix({ port, spawnSync });
+  if (!processInfo) return { ok: true };
+
+  const expectedPython = normalizeComparablePath(pythonBin);
+  const executablePath = normalizeComparablePath(processInfo.ExecutablePath);
+  const commandLine = normalizeComparablePath(processInfo.CommandLine);
+  const isExpectedBackend = Boolean(
+    expectedPython
+    && (
+      executablePath === expectedPython
+      || commandLine.includes(expectedPython)
+    )
+    && commandLine.includes('main.py')
+  );
+
+  if (isExpectedBackend) {
+    return {
+      ok: false,
+      reason: 'server_port_already_running',
+      message: [
+        `后端端口 ${port} 已经被当前项目 server/.venv 后端占用。`,
+        '请先关闭已运行的开发后端，或直接复用当前后端后单独启动 Electron。',
+        `进程：${processInfo.ProcessId || 'unknown'}`,
+      ].join('\n'),
+    };
+  }
+
+  return {
+    ok: false,
+    reason: 'server_port_owned_by_unexpected_process',
+    message: [
+      `后端端口 ${port} 已被非当前项目 server/.venv 的进程占用，开发后端未启动。`,
+      '这会让客户端连到旧后端，出现“代码改了但行为没变”的问题。',
+      '',
+      `占用进程：${processInfo.ProcessId || 'unknown'}`,
+      `可执行文件：${processInfo.ExecutablePath || '(unknown)'}`,
+      `命令行：${processInfo.CommandLine || '(unknown)'}`,
+      '',
+      '请结束该进程后重新运行 npm run server。',
+    ].join('\n'),
+  };
+};
+
 const serverInstallCommand = ({ platform = process.platform }) => (
   platform === 'win32'
     ? '.\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt'

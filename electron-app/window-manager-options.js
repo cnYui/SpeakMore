@@ -2,6 +2,7 @@ function buildMainWindowOptions({
   preloadPath,
   iconPath,
   session,
+  show = true,
 } = {}) {
   return {
     width: 1080,
@@ -14,6 +15,7 @@ function buildMainWindowOptions({
     backgroundColor: '#ffffff',
     hasShadow: true,
     transparent: false,
+    show,
     icon: iconPath,
     webPreferences: {
       preload: preloadPath,

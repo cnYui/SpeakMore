@@ -31,7 +31,12 @@ test('createLocalCompatState 初始化旧兼容 store 和本地用户默认值',
   });
   assert.equal(state.localStores['app-settings'].preferredLanguage, 'zh-CN');
   assert.equal(state.localStores['app-settings'].translationTargetLanguage, 'ja');
+  assert.equal(state.localStores['app-settings'].meetingRealtimeAsrPreference, 'auto');
+  assert.equal(state.localStores['app-settings'].meetingRealtimeAsrModelEnabled, true);
+  assert.equal(state.localStores['app-settings'].enableInteractionSoundEffects, true);
   assert.equal(state.localStores['app-settings'].enabledMuteBackgroundAudio, true);
+  assert.equal(state.localStores['app-settings'].showFloatingBar, true);
+  assert.equal(state.localStores['app-settings'].hideMainWindowOnClose, true);
   assert.deepEqual(state.localStores['app-storage'], {});
   assert.deepEqual(state.getLocalUser(), {
     user_id: 'local-user',
@@ -52,22 +57,42 @@ test('syncLocalSettingsToLegacyStore 同步设置到旧 app-settings store', () 
   state.syncLocalSettingsToLegacyStore({
     launchAtSystemStartup: true,
     translationTargetLanguage: 'en',
+    meetingRealtimeAsrPreference: 'streaming',
+    meetingRealtimeAsrModelEnabled: false,
     selectedAudioDeviceId: 'mic-1',
+    interactionSoundsEnabled: false,
+    muteBackgroundAudioDuringRecording: false,
+    showFloatingBar: false,
+    hideMainWindowOnClose: false,
   });
 
   assert.equal(state.localStores['app-settings'].launchAtSystemStartup, true);
   assert.equal(state.localStores['app-settings'].translationTargetLanguage, 'en');
+  assert.equal(state.localStores['app-settings'].meetingRealtimeAsrPreference, 'streaming');
+  assert.equal(state.localStores['app-settings'].meetingRealtimeAsrModelEnabled, false);
   assert.equal(state.localStores['app-settings'].selectedMicrophoneDevice, 'mic-1');
+  assert.equal(state.localStores['app-settings'].enableInteractionSoundEffects, false);
+  assert.equal(state.localStores['app-settings'].enabledMuteBackgroundAudio, false);
+  assert.equal(state.localStores['app-settings'].showFloatingBar, false);
+  assert.equal(state.localStores['app-settings'].hideMainWindowOnClose, false);
 
   state.syncLocalSettingsToLegacyStore({
     launchAtSystemStartup: false,
     translationTargetLanguage: 'ja',
     selectedAudioDeviceId: 'default',
+    interactionSoundsEnabled: true,
+    muteBackgroundAudioDuringRecording: true,
+    showFloatingBar: true,
+    hideMainWindowOnClose: true,
   });
 
   assert.equal(state.localStores['app-settings'].launchAtSystemStartup, false);
   assert.equal(state.localStores['app-settings'].translationTargetLanguage, 'ja');
   assert.equal(state.localStores['app-settings'].selectedMicrophoneDevice, null);
+  assert.equal(state.localStores['app-settings'].enableInteractionSoundEffects, true);
+  assert.equal(state.localStores['app-settings'].enabledMuteBackgroundAudio, true);
+  assert.equal(state.localStores['app-settings'].showFloatingBar, true);
+  assert.equal(state.localStores['app-settings'].hideMainWindowOnClose, true);
 });
 
 test('handleStoreUse 保持 get-all、get、set、delete 行为和设置更新广播', () => {

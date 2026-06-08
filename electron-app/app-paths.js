@@ -7,7 +7,7 @@ function createAppPaths({
   getUserDataPath = () => '',
   processPlatform = process.platform,
 } = {}) {
-  const pathApi = processPlatform === 'win32' ? path.win32 : path;
+  const pathApi = processPlatform === 'win32' ? path.win32 : path.posix;
 
   function localDataDir() {
     return pathApi.join(getUserDataPath(), 'local-data');
@@ -28,6 +28,12 @@ function createAppPaths({
       : pathApi.join(baseDir, '..', 'release-artifacts', ...segments);
   }
 
+  function appAssetPath(...segments) {
+    return isPackaged
+      ? pathApi.join(resourcesPath, 'assets', ...segments)
+      : pathApi.join(baseDir, 'assets', ...segments);
+  }
+
   function unpackedAppPath(...segments) {
     const unpackedBaseDir = isPackaged
       ? baseDir.replace(`${pathApi.sep}app.asar${pathApi.sep}`, `${pathApi.sep}app.asar.unpacked${pathApi.sep}`)
@@ -45,13 +51,15 @@ function createAppPaths({
     logFilePath: () => localDataPath('recording.log'),
     recordingsDir: () => localDataPath('recordings'),
     preloadPath: () => pathApi.join(baseDir, 'preload.js'),
-    iconPath: () => packagedResourcePath('assets', 'tray-placeholder.png'),
-    trayIconPath: () => packagedResourcePath('assets', 'tray-placeholder.png'),
+    iconPath: () => appAssetPath('tray-placeholder.png'),
+    trayIconPath: () => appAssetPath('tray-placeholder.png'),
     rightAltListenerPath: () => unpackedAppPath('right-alt-listener.ps1'),
     macosOptionListenerPath: () => unpackedAppPath('macos-option-listener.c'),
     macosPlatformHelperPath: () => unpackedAppPath('macos-platform-helper.m'),
     audioSessionControlPath: () => unpackedAppPath('audio-session-control.ps1'),
     backendExecutablePath: () => packagedResourcePath('backend', executableName('speakmore-backend')),
+    llamaServerPath: () => packagedResourcePath('llama', executableName('llama-server')),
+    hyMtLlamaServerPath: () => packagedResourcePath('llama-stq', executableName('llama-server')),
     ffmpegExecutablePath: () => packagedResourcePath('ffmpeg', 'bin', executableName('ffmpeg')),
     textObserverExecutablePath: () => packagedResourcePath('helper', executableName('WindowsTextObserver')),
     dotnetRootPath: () => packagedResourcePath('dotnet'),

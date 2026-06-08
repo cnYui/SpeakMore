@@ -17,6 +17,9 @@ export type VoiceHistoryItem = {
   rawText: string
   refinedText: string
   errorCode?: VoiceErrorCode
+  errorMessage?: string
+  hasRetryAudio?: boolean
+  retryable?: boolean
   durationMs: number
   textLength: number
 }
@@ -41,8 +44,13 @@ export const emptyVoiceStats: VoiceStats = {
 
 function normalizeHistoryItem(item: VoiceHistoryItem): VoiceHistoryItem {
   const finalText = item.refinedText || item.rawText
+  const retryableMode = item.mode === 'Dictate' || item.mode === 'Translate'
+  const isError = item.status === 'error'
   return {
     ...item,
+    errorMessage: isError ? item.errorMessage || item.errorCode || '' : '',
+    hasRetryAudio: isError && retryableMode && Boolean(item.hasRetryAudio),
+    retryable: isError && retryableMode && Boolean(item.retryable || item.hasRetryAudio || item.rawText.trim()),
     durationMs: Math.max(0, Number(item.durationMs) || 0),
     textLength: Math.max(0, Number(item.textLength) || finalText.trim().length),
   }
@@ -71,6 +79,34 @@ export async function clearVoiceHistory(): Promise<void> {
     await ipcClient.invoke('db:history-clear')
   } catch {
     // 浏览器预览环境没有主进程历史数据可清理。
+  }
+}
+
+export async function deleteVoiceHistory(id: string): Promise<boolean> {
+  try {
+    const response = await ipcClient.invoke<{ success?: boolean }>('db:history-delete', id)
+    return response?.success !== false
+  } catch {
+    return false
+  }
+}
+
+export async function retryVoiceHistory(id: string): Promise<VoiceHistoryItem | null> {
+  try {
+    const response = await ipcClient.invoke<{ success?: boolean; data?: VoiceHistoryItem }>('db:history-retry', id)
+    return response?.data ? normalizeHistoryItem(response.data) : null
+  } catch {
+    return null
+  }
+}
+
+export async function saveVoiceHistoryRetryAudio(id: string, wavBase64: string): Promise<VoiceHistoryItem | null> {
+  if (!id || !wavBase64) return null
+  try {
+    const response = await ipcClient.invoke<{ success?: boolean; data?: VoiceHistoryItem }>('db:history-save-audio', { id, wavBase64 })
+    return response?.data ? normalizeHistoryItem(response.data) : null
+  } catch {
+    return null
   }
 }
 

@@ -30,6 +30,8 @@ export async function deliverVoiceResult(
   mode: VoiceMode,
 ) {
   // 自由提问不自动粘贴；其它模式先尝试粘贴，失败再展示悬浮结果。
+  if (task?.delivery === 'none') return
+
   if (task?.delivery === 'floating-panel' || mode === 'Ask') {
     showFreeAskResult(resultText)
     return

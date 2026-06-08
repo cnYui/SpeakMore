@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 import type { LlmProvider } from './settingsStore'
 import sharedLlmProviders from '../../../../shared/llm-providers.json'
+import sharedTranslationTargetLanguages from '../../../../shared/translation-target-languages.json'
+import sharedMeetingLiveTargetLanguages from '../../../../shared/meeting-live-target-languages.json'
+import sharedMeetingNoteTargetLanguages from '../../../../shared/meeting-note-target-languages.json'
+import sharedInterfaceLanguages from '../../../../shared/interface-languages.json'
 
 type WindowWithIpc = typeof globalThis & {
   ipcRenderer?: {
@@ -13,6 +17,11 @@ type WindowWithIpc = typeof globalThis & {
 }
 
 const originalWindow = globalThis.window
+const expectedInterfaceLanguageIds = [
+  'en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'es-ES', 'pt-BR',
+  'fr-FR', 'de-DE', 'it-IT', 'ru-RU', 'ar-SA', 'he-IL', 'hi-IN',
+  'id-ID', 'ms-MY', 'nl-NL', 'pl-PL', 'th-TH',
+]
 
 afterEach(() => {
   Object.defineProperty(globalThis, 'window', {
@@ -59,6 +68,57 @@ test('loadSettings 会补齐默认大模型 provider 配置', async () => {
   assert.equal(settings.llm.models.deepseek, 'deepseek-chat')
   assert.equal(settings.modelCacheDir, '')
   assert.equal(settings.asrDeviceMode, 'default')
+  assert.equal(settings.interactionSoundsEnabled, true)
+  assert.equal(settings.muteBackgroundAudioDuringRecording, true)
+  assert.equal(settings.showActiveMicrophoneHint, true)
+  assert.equal(settings.remindOnNewAudioDevice, true)
+  assert.equal(settings.meetingDetectionEnabled, true)
+  assert.equal(settings.meetingLiveAudioSource, 'microphone')
+  assert.equal(settings.meetingLiveTargetLanguage, 'off')
+  assert.equal(settings.meetingRealtimeAsrPreference, 'auto')
+  assert.equal(settings.meetingRealtimeAsrModelEnabled, true)
+  assert.equal(settings.translationEnginePreference, 'auto')
+  assert.equal(settings.localTranslationModelEnabled, true)
+  assert.equal(settings.translationModelCacheDir, '')
+  assert.equal(settings.showFloatingBar, true)
+  assert.equal(settings.hideMainWindowOnClose, true)
+})
+
+test('loadSettings 会保留音频和应用行为开关', async () => {
+  installSettingsResponse({
+    interactionSoundsEnabled: false,
+    muteBackgroundAudioDuringRecording: false,
+    showActiveMicrophoneHint: false,
+    remindOnNewAudioDevice: false,
+    meetingDetectionEnabled: false,
+    meetingLiveAudioSource: 'microphone_system',
+    meetingLiveTargetLanguage: 'ja',
+    meetingRealtimeAsrPreference: 'streaming',
+    meetingRealtimeAsrModelEnabled: false,
+    translationEnginePreference: 'local',
+    localTranslationModelEnabled: false,
+    translationModelCacheDir: '  D:\\Models\\HyMT  ',
+    showFloatingBar: false,
+    hideMainWindowOnClose: false,
+  })
+  const settingsStore = await loadSettingsStore('audio-app-switches')
+
+  const settings = await settingsStore.loadSettings()
+
+  assert.equal(settings.interactionSoundsEnabled, false)
+  assert.equal(settings.muteBackgroundAudioDuringRecording, false)
+  assert.equal(settings.showActiveMicrophoneHint, false)
+  assert.equal(settings.remindOnNewAudioDevice, false)
+  assert.equal(settings.meetingDetectionEnabled, false)
+  assert.equal(settings.meetingLiveAudioSource, 'microphone_system')
+  assert.equal(settings.meetingLiveTargetLanguage, 'ja')
+  assert.equal(settings.meetingRealtimeAsrPreference, 'streaming')
+  assert.equal(settings.meetingRealtimeAsrModelEnabled, false)
+  assert.equal(settings.translationEnginePreference, 'local')
+  assert.equal(settings.localTranslationModelEnabled, false)
+  assert.equal(settings.translationModelCacheDir, 'D:\\Models\\HyMT')
+  assert.equal(settings.showFloatingBar, false)
+  assert.equal(settings.hideMainWindowOnClose, false)
 })
 
 test('loadSettings 会保留用户选择的模型缓存目录', async () => {
@@ -165,24 +225,88 @@ test('翻译目标语言选项来自共享元数据', async () => {
   const settingsStore = await loadSettingsStore('translation-language-options')
 
   assert.deepEqual(
-    settingsStore.TRANSLATION_TARGET_LANGUAGES.map((language: { id: string; displayName: string }) => ({
+    settingsStore.TRANSLATION_TARGET_LANGUAGES.map((language: { id: string; label: string; displayName: string; secondaryLabel?: string }) => ({
       id: language.id,
+      label: language.label,
       displayName: language.displayName,
+      secondaryLabel: language.secondaryLabel,
     })),
-    [
-      { id: 'en', displayName: '英文 (en)' },
-      { id: 'ja', displayName: '日语 (ja)' },
-    ],
+    sharedTranslationTargetLanguages.map((language) => ({
+      id: language.id,
+      label: language.label,
+      displayName: language.displayName,
+      secondaryLabel: language.secondaryLabel,
+    })),
+  )
+  assert.equal(
+    settingsStore.TRANSLATION_TARGET_LANGUAGES.find((language: { id: string; secondaryLabel?: string }) => language.id === 'pt-BR')?.secondaryLabel,
+    '葡萄牙语（巴西）',
+  )
+  assert.equal(settingsStore.TRANSLATION_TARGET_LANGUAGES.some((language: { id: string }) => language.id === 'yue'), false)
+  assert.deepEqual(
+    settingsStore.MEETING_LIVE_TARGET_LANGUAGES.map((language: { id: string; label: string }) => ({
+      id: language.id,
+      label: language.label,
+    })),
+    sharedMeetingLiveTargetLanguages.map((language) => ({
+      id: language.id,
+      label: language.label,
+    })),
+  )
+  assert.deepEqual(
+    settingsStore.MEETING_NOTE_TARGET_LANGUAGES.map((language: { id: string; label: string }) => ({
+      id: language.id,
+      label: language.label,
+    })),
+    sharedMeetingNoteTargetLanguages.map((language) => ({
+      id: language.id,
+      label: language.label,
+    })),
+  )
+  assert.deepEqual(
+    settingsStore.MEETING_NOTE_TARGET_LANGUAGES.map((language: { id: string }) => language.id),
+    ['en', 'zh', 'ja', 'ko', 'es', 'fr', 'de', 'ru', 'pt'],
+  )
+  assert.deepEqual(
+    settingsStore.MEETING_LIVE_TARGET_LANGUAGES.map((language: { id: string }) => language.id),
+    ['en', 'zh', 'ja', 'ko', 'es', 'fr', 'de'],
   )
 })
 
-test('loadSettings 会保留共享元数据中的日语翻译目标语言', async () => {
-  installSettingsResponse({ translationTargetLanguage: 'ja' })
-  const settingsStore = await loadSettingsStore('translation-language-ja')
+test('界面语言选项来自共享元数据', async () => {
+  installSettingsResponse({})
+  const settingsStore = await loadSettingsStore('interface-language-options')
+
+  assert.deepEqual(
+    settingsStore.INTERFACE_LANGUAGES.map((language: { id: string; labelKey: string }) => ({
+      id: language.id,
+      labelKey: language.labelKey,
+    })),
+    sharedInterfaceLanguages.map((language) => ({
+      id: language.id,
+      labelKey: language.labelKey,
+    })),
+  )
+  assert.deepEqual(
+    settingsStore.INTERFACE_LANGUAGES.map((language: { id: string }) => language.id),
+    expectedInterfaceLanguageIds,
+  )
+  assert.equal(
+    settingsStore.INTERFACE_LANGUAGES.every(
+      (language: { id: string; labelKey: string }) => language.labelKey === `settings.interfaceLanguage.${language.id}`,
+    ),
+    true,
+  )
+})
+
+test('loadSettings 会保留共享元数据中的新增翻译目标语言', async () => {
+  installSettingsResponse({ translationTargetLanguage: 'pt-BR', meetingLiveTargetLanguage: 'ko' })
+  const settingsStore = await loadSettingsStore('translation-language-extended')
 
   const settings = await settingsStore.loadSettings()
 
-  assert.equal(settings.translationTargetLanguage, 'ja')
+  assert.equal(settings.translationTargetLanguage, 'pt-BR')
+  assert.equal(settings.meetingLiveTargetLanguage, 'ko')
 })
 
 test('loadSettings 遇到未知翻译目标语言会回退默认英文', async () => {
@@ -194,13 +318,32 @@ test('loadSettings 遇到未知翻译目标语言会回退默认英文', async (
   assert.equal(settings.translationTargetLanguage, 'en')
 })
 
-test('loadSettings 会保留英文界面语言', async () => {
-  installSettingsResponse({ preferredLanguage: 'en-US' })
-  const settingsStore = await loadSettingsStore('interface-language-en')
+test('loadSettings normalizes local translation engine settings', async () => {
+  installSettingsResponse({
+    translationEnginePreference: 'bad',
+    meetingRealtimeAsrPreference: 'bad',
+    meetingRealtimeAsrModelEnabled: 0,
+    localTranslationModelEnabled: 0,
+    translationModelCacheDir: '  E:\\HyMT  ',
+  })
+  const settingsStore = await loadSettingsStore('local-translation-settings')
 
   const settings = await settingsStore.loadSettings()
 
-  assert.equal(settings.preferredLanguage, 'en-US')
+  assert.equal(settings.translationEnginePreference, 'auto')
+  assert.equal(settings.meetingRealtimeAsrPreference, 'auto')
+  assert.equal(settings.meetingRealtimeAsrModelEnabled, false)
+  assert.equal(settings.localTranslationModelEnabled, false)
+  assert.equal(settings.translationModelCacheDir, 'E:\\HyMT')
+})
+
+test('loadSettings 会保留截图中的界面语言', async () => {
+  installSettingsResponse({ preferredLanguage: 'ja-JP' })
+  const settingsStore = await loadSettingsStore('interface-language-ja')
+
+  const settings = await settingsStore.loadSettings()
+
+  assert.equal(settings.preferredLanguage, 'ja-JP')
 })
 
 test('loadSettings 遇到未知界面语言会回退简体中文', async () => {

@@ -25,6 +25,12 @@ extraResources:
     to: assets
   - from: release-artifacts/ffmpeg
     to: ffmpeg
+  - from: release-artifacts/llama
+    to: llama
+  - from: release-artifacts/llama-stq
+    to: llama-stq
+    filter:
+      - "**/*"
 asar: true
 asarUnpack:
   - electron-app/right-alt-listener.ps1

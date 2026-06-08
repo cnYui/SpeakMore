@@ -9,6 +9,12 @@ try {
   npm run renderer:build
   npm run build:backend:win
   npm run build:helper:win
+  npm run prepare:llama-runtime
+  try {
+    npm run prepare:hy-mt-runtime -- --optional
+  } catch {
+    Write-Warning "Hy-MT STQ runtime preparation skipped: $($_.Exception.Message)"
+  }
 
   if (Test-Path $assetsDir) {
     Remove-Item -LiteralPath $assetsDir -Recurse -Force

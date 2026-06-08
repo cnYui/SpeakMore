@@ -142,3 +142,18 @@ test('悬浮面板可见时按键状态不会主动显示悬浮条', () => {
 
   assert.deepEqual(calls, []);
 });
+
+test('悬浮条关闭时语音状态仍转发但不会显示胶囊', () => {
+  const { calls, controller } = createControllerHarness({
+    isFloatingBarEnabled: () => false,
+  });
+
+  controller.handleVoiceState({ status: 'recording', visible: true });
+  controller.updateFloatingBarVisibility([{ code: 'RightAlt', isKeydown: true }]);
+
+  assert.deepEqual(calls, [
+    ['bar', 'voice-state', { status: 'recording', visible: true }],
+    ['hide-bar'],
+    ['hide-bar'],
+  ]);
+});

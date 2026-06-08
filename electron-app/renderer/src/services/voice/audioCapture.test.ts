@@ -3,7 +3,10 @@ import { test } from 'node:test'
 
 import {
   conditionAudioForAsr,
+  createAudioQualityTracker,
+  createPcm16Chunk,
   encodePcm16,
+  encodeWavFromPcm16Chunks,
   getAudioStream,
   mixAudioBufferToMono,
   resampleToSampleRate,
@@ -50,6 +53,25 @@ test('sendPcm16Chunk 会把 8k 耳机输入转成协议要求的 16k PCM', () =>
 
   assert.equal(sentPayloads.length, 1)
   assert.deepEqual(Array.from(new Int16Array(sentPayloads[0] as ArrayBuffer)), [0, 8192, 16384, 16384])
+})
+
+test('encodeWavFromPcm16Chunks 会把缓存的 PCM16 封装成 16k 单声道 WAV', () => {
+  const chunk = createPcm16Chunk(Float32Array.from([0, 0.5, -0.5]), 16000)
+  assert.ok(chunk)
+
+  const wav = encodeWavFromPcm16Chunks([chunk])
+  const bytes = new Uint8Array(wav)
+  const view = new DataView(wav)
+
+  assert.equal(String.fromCharCode(...bytes.slice(0, 4)), 'RIFF')
+  assert.equal(String.fromCharCode(...bytes.slice(8, 12)), 'WAVE')
+  assert.equal(String.fromCharCode(...bytes.slice(36, 40)), 'data')
+  assert.equal(view.getUint16(20, true), 1)
+  assert.equal(view.getUint16(22, true), 1)
+  assert.equal(view.getUint32(24, true), 16000)
+  assert.equal(view.getUint16(34, true), 16)
+  assert.equal(view.getUint32(40, true), chunk.byteLength)
+  assert.deepEqual(Array.from(new Int16Array(wav, 44)), [0, 16384, -16384])
 })
 
 test('sendPcm16Chunk 只在 WebSocket OPEN 时发送 ArrayBuffer', () => {
@@ -114,6 +136,45 @@ test('conditionAudioForAsr 会清理耳机输入里的直流偏移', () => {
   const average = Array.from(conditioned).reduce((sum, value) => sum + value, 0) / conditioned.length
 
   assert.ok(Math.abs(average) < 0.000001)
+})
+
+test('createAudioQualityTracker 会统计削波比例和 clipping 提示', () => {
+  const tracker = createAudioQualityTracker()
+
+  tracker.observe(Float32Array.from([1, -1, 0, 0]))
+  const summary = tracker.summarize()
+
+  assert.ok(summary)
+  assert.equal(summary.peak, 1)
+  assert.equal(summary.clipping_ratio, 0.5)
+  assert.equal(summary.speech_frame_ratio, 1)
+  assert.equal(summary.low_volume_ratio, 0)
+  assert.ok(summary.hints.includes('clipping'))
+})
+
+test('createAudioQualityTracker 会识别低音量和大部分静音', () => {
+  const tracker = createAudioQualityTracker()
+
+  tracker.observe(Float32Array.from([0.001, -0.001, 0.001, -0.001]))
+  const summary = tracker.summarize()
+
+  assert.ok(summary)
+  assert.equal(summary.low_volume_ratio, 1)
+  assert.equal(summary.speech_frame_ratio, 0)
+  assert.ok(summary.hints.includes('low_volume'))
+  assert.ok(summary.hints.includes('mostly_silence'))
+})
+
+test('createAudioQualityTracker 会估算噪声底并生成 likely_noisy 提示', () => {
+  const tracker = createAudioQualityTracker()
+
+  tracker.observe(Float32Array.from([0.03, -0.03, 0.03, -0.03]))
+  tracker.observe(Float32Array.from([0.032, -0.032, 0.032, -0.032]))
+  const summary = tracker.summarize()
+
+  assert.ok(summary)
+  assert.equal(summary.estimated_noise_floor, 0.03)
+  assert.ok(summary.hints.includes('likely_noisy'))
 })
 
 test('getAudioStream 在耳机不接受采样率约束时使用同一设备降级重试', async () => {

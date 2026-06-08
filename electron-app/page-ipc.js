@@ -4,12 +4,18 @@ function registerPageIpcHandlers({
   createFloatingBar,
   getMainWindow,
   getFloatingBar,
+  getMeetingSubtitlesWindow = () => null,
   sendToMain = () => undefined,
+  sendToMeetingSubtitles = () => undefined,
   handleFloatingPanelEvent = () => undefined,
   handleVoiceState = () => undefined,
   handleFloatingBarUpdatePositions = () => true,
   handleFloatingBarSetAlwaysOnTopForWindows = () => true,
   handleFloatingWindowsBringToFront = handleFloatingBarSetAlwaysOnTopForWindows,
+  showMeetingSubtitles = () => undefined,
+  hideMeetingSubtitles = () => undefined,
+  handleMeetingDetectorStartRecording = () => undefined,
+  handleMeetingDetectorDismiss = () => undefined,
   openExternalUrl,
   shell,
   getInteractiveCardPayload = () => null,
@@ -83,6 +89,33 @@ function registerPageIpcHandlers({
     return true;
   });
   ipcMain.handle('page:floating-bar-click', () => true);
+  ipcMain.handle('meeting-subtitles:show', (_, payload = {}) => {
+    showMeetingSubtitles(payload);
+    return { success: true };
+  });
+  ipcMain.handle('meeting-subtitles:hide', () => {
+    hideMeetingSubtitles();
+    return { success: true };
+  });
+  ipcMain.handle('meeting-subtitles:is-visible', () => {
+    const target = getMeetingSubtitlesWindow();
+    return { success: true, visible: Boolean(target && !target.isDestroyed() && target.isVisible?.()) };
+  });
+  ipcMain.on('meeting-subtitles:update', (_, payload = {}) => {
+    sendToMeetingSubtitles('meeting-subtitles', payload);
+  });
+  ipcMain.on('meeting-subtitles:close-requested', () => {
+    hideMeetingSubtitles();
+    sendToMain('meeting-subtitles:closed');
+  });
+  ipcMain.handle('meeting-detector:start-recording', (_, payload = {}) => {
+    handleMeetingDetectorStartRecording(payload);
+    return { success: true };
+  });
+  ipcMain.handle('meeting-detector:dismiss', (_, payload = {}) => {
+    handleMeetingDetectorDismiss(payload);
+    return { success: true };
+  });
   ipcMain.on('floating-panel', (_, payload = {}) => {
     handleFloatingPanelEvent(payload);
   });

@@ -6,7 +6,12 @@ function createVoiceBackendUrls(voiceServerUrl = DEFAULT_VOICE_SERVER_URL) {
     readyUrl: `${voiceServerUrl}/ready`,
     modelStatusUrl: `${voiceServerUrl}/model/status`,
     modelDownloadUrl: `${voiceServerUrl}/model/download`,
+    translationModelStatusUrl: `${voiceServerUrl}/translation-model/status`,
+    translationModelDownloadUrl: `${voiceServerUrl}/translation-model/download`,
+    translationModelLoadUrl: `${voiceServerUrl}/translation-model/load`,
+    translationModelUnloadUrl: `${voiceServerUrl}/translation-model/unload`,
     voiceFlowUrl: `${voiceServerUrl}/ai/voice_flow`,
+    textRefineUrl: `${voiceServerUrl}/ai/text_refine`,
     configReloadUrl: `${voiceServerUrl}/config/reload`,
   };
 }

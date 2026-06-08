@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const { registerClipboardUserIpcHandlers } = require('./clipboard-user-ipc');
 const { registerHistoryIpcHandlers } = require('./history-ipc');
 const { registerSettingsIpcHandlers } = require('./settings-ipc');
@@ -32,6 +33,37 @@ function createFakeIpcMain() {
       const listener = listeners.get(channel);
       if (!listener) throw new Error(`missing listener: ${channel}`);
       return listener({}, ...args);
+    },
+  };
+}
+
+function createMemoryFs() {
+  const files = new Map();
+  const dirs = new Set();
+
+  return {
+    files,
+    mkdirSync(dirPath) {
+      dirs.add(path.resolve(dirPath));
+    },
+    writeFileSync(filePath, content) {
+      files.set(path.resolve(filePath), Buffer.from(content));
+    },
+    readFileSync(filePath) {
+      return files.get(path.resolve(filePath));
+    },
+    existsSync(targetPath) {
+      const resolved = path.resolve(targetPath);
+      return files.has(resolved) || dirs.has(resolved);
+    },
+    unlinkSync(filePath) {
+      files.delete(path.resolve(filePath));
+    },
+    readdirSync(dirPath) {
+      const resolvedDir = path.resolve(dirPath);
+      return Array.from(files.keys())
+        .filter((filePath) => path.dirname(filePath) === resolvedDir)
+        .map((filePath) => path.basename(filePath));
     },
   };
 }
@@ -123,6 +155,157 @@ test('registerHistoryIpcHandlers 注册历史和测试记录通道', async () =>
     normalized: true,
   });
   assert.deepEqual(await ipcMain.invoke('test:clear-test-records'), { success: true });
+});
+
+test('registerHistoryIpcHandlers 会保存失败重试音频并在删除和清空时清理', async () => {
+  const ipcMain = createFakeIpcMain();
+  const memoryFs = createMemoryFs();
+  let items = [{
+    id: 'history-1',
+    mode: 'Dictate',
+    status: 'error',
+    rawText: '',
+    refinedText: '',
+    durationMs: 1000,
+    textLength: 0,
+  }];
+
+  registerHistoryIpcHandlers({
+    ipcMain,
+    fs: memoryFs,
+    localDataDir: () => 'C:\\SpeakMoreData',
+    readHistoryItems: () => items,
+    writeHistoryItems: (nextItems) => {
+      items = nextItems;
+    },
+    readHistoryStats: () => ({ countedHistoryIds: [] }),
+    readHistoryStatsForDashboard: () => ({}),
+    upsertHistoryItem: (item) => item,
+    normalizeHistoryItem: (item) => item,
+  });
+
+  const wavBase64 = Buffer.from('RIFFxxxxWAVE').toString('base64');
+  const saved = await ipcMain.invoke('db:history-save-audio', { id: 'history-1', wavBase64 });
+
+  assert.equal(saved.success, true);
+  assert.equal(items[0].hasRetryAudio, true);
+  assert.equal(memoryFs.files.size, 1);
+
+  assert.deepEqual(await ipcMain.invoke('db:history-delete', 'history-1'), { success: true });
+  assert.equal(memoryFs.files.size, 0);
+
+  items = [{ id: 'history-1', mode: 'Dictate', status: 'error', rawText: '', refinedText: '' }];
+  await ipcMain.invoke('db:history-save-audio', { id: 'history-1', wavBase64 });
+  assert.equal(memoryFs.files.size, 1);
+
+  assert.deepEqual(await ipcMain.invoke('db:history-clear'), { success: true });
+  assert.deepEqual(items, []);
+  assert.equal(memoryFs.files.size, 0);
+});
+
+test('registerHistoryIpcHandlers 重试时优先使用保存的音频并更新同一条记录', async () => {
+  const ipcMain = createFakeIpcMain();
+  const memoryFs = createMemoryFs();
+  const voiceFlowCalls = [];
+  let items = [{
+    id: 'history-voice',
+    mode: 'Translate',
+    status: 'error',
+    rawText: '',
+    refinedText: '',
+    hasRetryAudio: true,
+    retryable: true,
+    durationMs: 1000,
+    textLength: 0,
+  }];
+
+  registerHistoryIpcHandlers({
+    ipcMain,
+    fs: memoryFs,
+    localDataDir: () => 'C:\\SpeakMoreData',
+    buildCurrentLlmRequestConfig: () => ({ provider_id: 'deepseek' }),
+    callVoiceFlowBackend: async (payload) => {
+      voiceFlowCalls.push(payload);
+      return { success: true, refine_text: 'translated again', user_prompt: '你好' };
+    },
+    callTextRefineBackend: async () => {
+      throw new Error('text refine should not be used');
+    },
+    readLocalSettings: () => ({ translationTargetLanguage: 'en' }),
+    readHistoryItems: () => items,
+    writeHistoryItems: (nextItems) => {
+      items = nextItems;
+    },
+    readHistoryStats: () => ({ countedHistoryIds: [] }),
+    readHistoryStatsForDashboard: () => ({}),
+    upsertHistoryItem: (item) => {
+      items = [item, ...items.filter((historyItem) => historyItem.id !== item.id)];
+      return item;
+    },
+    normalizeHistoryItem: (item) => item,
+  });
+
+  await ipcMain.invoke('db:history-save-audio', {
+    id: 'history-voice',
+    wavBase64: Buffer.from('RIFFxxxxWAVE').toString('base64'),
+  });
+  const result = await ipcMain.invoke('db:history-retry', 'history-voice');
+
+  assert.equal(result.success, true);
+  assert.equal(voiceFlowCalls.length, 1);
+  assert.equal(voiceFlowCalls[0].mode, 'translation');
+  assert.equal(voiceFlowCalls[0].parameters.output_language, 'en');
+  assert.equal(items[0].status, 'completed');
+  assert.equal(items[0].refinedText, 'translated again');
+  assert.equal(items[0].hasRetryAudio, false);
+  assert.equal(memoryFs.files.size, 0);
+});
+
+test('registerHistoryIpcHandlers 没有重试音频时使用 rawText 重新处理', async () => {
+  const ipcMain = createFakeIpcMain();
+  const textRefineCalls = [];
+  let items = [{
+    id: 'history-text',
+    mode: 'Dictate',
+    status: 'error',
+    rawText: 'hello raw',
+    refinedText: '',
+    retryable: true,
+    durationMs: 1000,
+    textLength: 9,
+  }];
+
+  registerHistoryIpcHandlers({
+    ipcMain,
+    buildCurrentLlmRequestConfig: () => ({ provider_id: 'deepseek' }),
+    callVoiceFlowBackend: async () => {
+      throw new Error('voice flow should not be used');
+    },
+    callTextRefineBackend: async (payload) => {
+      textRefineCalls.push(payload);
+      return { success: true, refine_text: 'hello refined', user_prompt: 'hello raw' };
+    },
+    readHistoryItems: () => items,
+    writeHistoryItems: (nextItems) => {
+      items = nextItems;
+    },
+    readHistoryStats: () => ({ countedHistoryIds: [] }),
+    readHistoryStatsForDashboard: () => ({}),
+    upsertHistoryItem: (item) => {
+      items = [item, ...items.filter((historyItem) => historyItem.id !== item.id)];
+      return item;
+    },
+    normalizeHistoryItem: (item) => item,
+  });
+
+  const result = await ipcMain.invoke('db:history-retry', 'history-text');
+
+  assert.equal(result.success, true);
+  assert.equal(textRefineCalls.length, 1);
+  assert.equal(textRefineCalls[0].mode, 'transcript');
+  assert.equal(textRefineCalls[0].text, 'hello raw');
+  assert.equal(items[0].status, 'completed');
+  assert.equal(items[0].refinedText, 'hello refined');
 });
 
 test('registerSettingsIpcHandlers 注册设置通道', async () => {
@@ -331,9 +514,10 @@ test('registerPermissionIpcHandlers 注册权限和更新兼容通道', async ()
 
   assert.equal(await ipcMain.invoke('permission:request'), true);
   assert.deepEqual(await ipcMain.invoke('permission:update-auto-launch', { enable: true }), {
-    success: false,
+    success: true,
     skipped: true,
-    code: 'auto_launch_disabled',
+    enabled: true,
+    code: 'auto_launch_dev_skipped',
   });
   assert.equal(await ipcMain.invoke('updater:check-for-update'), null);
 });

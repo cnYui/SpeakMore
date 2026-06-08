@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('mute-active-sessions', 'restore-sessions')]
+  [ValidateSet('mute-active-sessions', 'restore-sessions', 'list-active-sessions')]
   [string]$Action,
 
   [string]$Payload = ''
@@ -15,6 +15,7 @@ function Write-JsonResult($value) {
 Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 public sealed class AudioSessionSnapshot
@@ -23,6 +24,7 @@ public sealed class AudioSessionSnapshot
     public int ProcessId { get; set; }
     public bool WasMuted { get; set; }
     public string DisplayName { get; set; }
+    public string ProcessName { get; set; }
 }
 
 internal enum EDataFlow
@@ -160,6 +162,28 @@ internal interface ISimpleAudioVolume
 
 public static class AudioSessionController
 {
+    public static List<AudioSessionSnapshot> ListActiveSessions()
+    {
+        var activeSessions = new List<AudioSessionSnapshot>();
+
+        foreach (var session in EnumerateSessions(activeOnly: true))
+        {
+            bool isMuted;
+            session.Volume.GetMute(out isMuted);
+
+            activeSessions.Add(new AudioSessionSnapshot
+            {
+                SessionKey = session.SessionKey,
+                ProcessId = session.ProcessId,
+                ProcessName = session.ProcessName,
+                WasMuted = isMuted,
+                DisplayName = session.DisplayName
+            });
+        }
+
+        return activeSessions;
+    }
+
     public static List<AudioSessionSnapshot> MuteActiveSessions(int[] excludedProcessIds)
     {
         var excluded = new HashSet<int>(excludedProcessIds ?? Array.Empty<int>());
@@ -184,10 +208,11 @@ public static class AudioSessionController
 
             mutedSessions.Add(new AudioSessionSnapshot
             {
-                SessionKey = session.SessionKey,
-                ProcessId = session.ProcessId,
-                WasMuted = false,
-                DisplayName = session.DisplayName
+                        SessionKey = session.SessionKey,
+                        ProcessId = session.ProcessId,
+                        ProcessName = session.ProcessName,
+                        WasMuted = false,
+                        DisplayName = session.DisplayName
             });
         }
 
@@ -289,6 +314,7 @@ public static class AudioSessionController
                     {
                         SessionKey = BuildSessionKey((int)processIdValue, sessionIdentifier, sessionInstanceIdentifier),
                         ProcessId = (int)processIdValue,
+                        ProcessName = ResolveProcessName((int)processIdValue),
                         DisplayName = string.IsNullOrWhiteSpace(displayName) ? sessionIdentifier : displayName,
                         Volume = volume
                     });
@@ -342,10 +368,28 @@ public static class AudioSessionController
         return processId.ToString() + "|" + normalizedSessionIdentifier + "|" + normalizedSessionInstanceIdentifier;
     }
 
+    private static string ResolveProcessName(int processId)
+    {
+        if (processId <= 0)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return Process.GetProcessById(processId).ProcessName;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
     private sealed class AudioSessionInfo
     {
         public string SessionKey { get; set; }
         public int ProcessId { get; set; }
+        public string ProcessName { get; set; }
         public string DisplayName { get; set; }
         public ISimpleAudioVolume Volume { get; set; }
     }
@@ -380,6 +424,13 @@ try {
   $inputPayload = if ([string]::IsNullOrWhiteSpace($Payload)) { @{} } else { $Payload | ConvertFrom-Json }
 
   switch ($Action) {
+    'list-active-sessions' {
+      Write-JsonResult @{
+        success = $true
+        activeSessions = [AudioSessionController]::ListActiveSessions()
+      }
+      break
+    }
     'mute-active-sessions' {
       $excludedProcessIds = @()
       if ($null -ne $inputPayload.excludedProcessIds) {

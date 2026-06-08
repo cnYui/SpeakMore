@@ -1,59 +1,102 @@
-/**
- * 快捷键设置区块
- *
- * 需要展示固定快捷键说明时看这里。
- */
 import { Box, Typography } from '@mui/material'
+import { useState } from 'react'
+import { ShortcutBindingDialog, ShortcutDisplayButtons } from '../../components/ShortcutBindingDialog'
+import { useVoiceShortcutDisplay } from '../../components/useVoiceShortcutDisplay'
 import { useI18n } from '../../i18n'
-import { getShortcutLabelSet } from '../../services/shortcutLabels'
+import type { ShortcutCommand } from '../../services/shortcutCommandStore'
+import { bodyTextSx, captionTextSx, sectionTitleSx } from '../../uiTokens'
 
-const keybindChip = {
-  borderRadius: '6px',
-  border: '1px solid rgba(119,119,119,0.12)',
-  padding: '4px 8px',
-  fontSize: '13px',
-  display: 'inline-block',
+const sectionTitle = { ...sectionTitleSx, mt: 3, mb: 1 }
+
+const shortcutPanelSx = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+  borderTop: '1px solid rgba(119,119,119,0.08)',
+  borderBottom: '1px solid rgba(119,119,119,0.08)',
+  py: 1.25,
 }
 
-const rowSx = {
+const shortcutLineSx = {
+  ...bodyTextSx,
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '12px 0',
-  borderBottom: '1px solid rgba(119,119,119,0.08)',
-}
-
-const sectionTitle = { fontSize: 16, fontWeight: 500, mt: 3, mb: 1 }
-
-function KeyChips({ keys }: { keys: string[] }) {
-  return (
-    <Box sx={{ display: 'flex', gap: 0.5 }}>
-      {keys.map((key) => (
-        <Box key={key} component="span" sx={keybindChip}>{key}</Box>
-      ))}
-    </Box>
-  )
+  flexWrap: 'wrap',
+  rowGap: 0.75,
+  color: '#2f2f2f',
 }
 
 export default function ShortcutSettingsSection() {
   const { t } = useI18n()
-  const shortcuts = getShortcutLabelSet()
+  const [bindingShortcutCommand, setBindingShortcutCommand] = useState<ShortcutCommand | null>(null)
+  const {
+    voiceInputCommand,
+    voiceShortcutDisplay,
+    smartAssistantAvailable,
+    translateCommand,
+    translateShortcutDisplay,
+    translateCommandEnabled,
+    saveCommand: saveShortcutCommand,
+  } = useVoiceShortcutDisplay()
+
+  const openVoiceShortcutBinding = () => {
+    if (voiceInputCommand) setBindingShortcutCommand(voiceInputCommand)
+  }
+
+  const openTranslateShortcutBinding = () => {
+    if (translateCommand) setBindingShortcutCommand(translateCommand)
+  }
+
+  const handleSaveShortcutBinding = async (command: Partial<ShortcutCommand>) => {
+    await saveShortcutCommand(command)
+    setBindingShortcutCommand(null)
+  }
 
   return (
     <>
       <Typography sx={sectionTitle}>{t('settings.shortcuts')}</Typography>
-      <Box sx={rowSx}>
-        <Typography>{t('settings.shortcut.dictation')}</Typography>
-        <KeyChips keys={shortcuts.dictation} />
+      <Box sx={shortcutPanelSx}>
+        <Typography component="div" sx={shortcutLineSx}>
+          <Box component="span">{t('settings.shortcut.voicePrefix')}</Box>
+          <ShortcutDisplayButtons
+            display={voiceShortcutDisplay}
+            ariaLabel={t('settings.shortcut.bindVoiceInput')}
+            onClick={openVoiceShortcutBinding}
+          />
+          <Box component="span">{t('settings.shortcut.voiceSuffix')}</Box>
+        </Typography>
+        <Typography component="div" sx={{ ...shortcutLineSx, color: smartAssistantAvailable ? '#2f2f2f' : 'text.disabled' }}>
+          <Box component="span">{t('settings.shortcut.smartPrefix')}</Box>
+          <ShortcutDisplayButtons
+            display={voiceShortcutDisplay}
+            disabled={!smartAssistantAvailable}
+            ariaLabel={t('settings.shortcut.bindVoiceInput')}
+            onClick={smartAssistantAvailable ? openVoiceShortcutBinding : undefined}
+          />
+          <Box component="span">{t('settings.shortcut.smartSuffix')}</Box>
+        </Typography>
+        {!smartAssistantAvailable ? (
+          <Typography sx={{ ...captionTextSx, color: 'text.disabled', pl: 0.25 }}>
+            {t('settings.shortcut.smartUnavailable')}
+          </Typography>
+        ) : null}
+        <Typography component="div" sx={{ ...shortcutLineSx, color: translateCommandEnabled ? '#2f2f2f' : 'text.disabled' }}>
+          <Box component="span">{t('settings.shortcut.translatePrefix')}</Box>
+          <ShortcutDisplayButtons
+            display={translateShortcutDisplay}
+            disabled={!translateCommandEnabled}
+            ariaLabel={t('settings.shortcut.bindTranslate')}
+            onClick={translateCommandEnabled ? openTranslateShortcutBinding : undefined}
+          />
+          <Box component="span">{t('settings.shortcut.translateSuffix')}</Box>
+        </Typography>
       </Box>
-      <Box sx={rowSx}>
-        <Typography>{t('settings.shortcut.ask')}</Typography>
-        <KeyChips keys={shortcuts.ask} />
-      </Box>
-      <Box sx={rowSx}>
-        <Typography>{t('settings.shortcut.translate')}</Typography>
-        <KeyChips keys={shortcuts.translate} />
-      </Box>
+
+      <ShortcutBindingDialog
+        command={bindingShortcutCommand}
+        onClose={() => setBindingShortcutCommand(null)}
+        onSave={handleSaveShortcutBinding}
+      />
     </>
   )
 }

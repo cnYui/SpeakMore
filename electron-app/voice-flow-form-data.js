@@ -5,6 +5,8 @@ function normalizeVoiceMode(mode) {
   if (normalized === 'dictate' || normalized === 'dictation') return 'transcript';
   if (normalized === 'ask' || normalized === 'ask_anything') return 'ask_anything';
   if (normalized === 'translate' || normalized === 'translation') return 'translation';
+  if (normalized === 'custom' || normalized === 'custom_command' || normalized === 'custom-command') return 'custom_command';
+  if (normalized === 'meeting' || normalized === 'meeting_notes' || normalized === 'meeting-notes') return 'meeting_notes';
   return 'transcript';
 }
 

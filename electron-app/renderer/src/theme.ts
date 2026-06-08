@@ -3,6 +3,19 @@ import { createTheme } from '@mui/material/styles'
 export const theme = createTheme({
   typography: {
     fontFamily: 'Prompt, SF Pro, -apple-system, BlinkMacSystemFont, Arial, sans-serif',
+    fontSize: 14,
+    body1: {
+      fontSize: 14,
+      lineHeight: 1.45,
+    },
+    body2: {
+      fontSize: 13,
+      lineHeight: 1.45,
+    },
+    button: {
+      fontSize: 14,
+      textTransform: 'none',
+    },
   },
   palette: {
     background: {

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.92);
+}
+#shell {
+  position: relative;
+  width: 94%;
+  height: 76%;
+}
+#panel {
+  position: absolute;
+  left: 0;
+  right: 56px;
+  top: 42px;
+  bottom: 26px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.78);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.28);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+#drag-handle {
+  justify-self: center;
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  margin-top: 12px;
+}
+#close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255,255,255,0.2);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+#close:hover { color: rgba(255,255,255,0.72); background: rgba(255,255,255,0.08); }
+#content {
+  display: grid;
+  place-items: center;
+  padding: 28px 54px 20px;
+  text-align: center;
+}
+#status {
+  font-size: 24px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.42);
+}
+#original, #translation {
+  max-width: 880px;
+  font-size: 24px;
+  line-height: 1.5;
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+#translation {
+  margin-top: 12px;
+  color: rgba(147,197,253,0.96);
+}
+#footer {
+  justify-self: center;
+  width: 42px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  margin-bottom: 10px;
+}
+#capsule {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 44px;
+  height: 108px;
+  border-radius: 22px;
+  background: rgba(18,18,20,0.92);
+  display: grid;
+  grid-template-rows: 44px 1fr;
+  place-items: center;
+  box-shadow: 0 12px 34px rgba(0,0,0,0.28);
+}
+.target {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255,255,255,0.55);
+  border-radius: 999px;
+  position: relative;
+}
+.target::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 2px solid rgba(255,255,255,0.55);
+  border-radius: 999px;
+}
+.dots {
+  display: flex;
+  gap: 4px;
+}
+.dots span {
+  width: 4px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.9);
+}
+body[data-visible="false"] #panel { opacity: 0.3; }
+</style>
+</head>
+<body data-visible="false">
+  <div id="shell">
+    <section id="panel">
+      <div id="drag-handle"></div>
+      <button id="close" aria-label="关闭">×</button>
+      <div id="content">
+        <div>
+          <div id="status">聆听中...</div>
+          <div id="original"></div>
+          <div id="translation"></div>
+        </div>
+      </div>
+      <div id="footer"></div>
+    </section>
+    <aside id="capsule">
+      <div class="target"></div>
+      <div class="dots"><span></span><span></span><span></span></div>
+    </aside>
+  </div>
+<script>
+const statusEl = document.getElementById('status');
+const originalEl = document.getElementById('original');
+const translationEl = document.getElementById('translation');
+const closeButton = document.getElementById('close');
+
+function setText(element, value) {
+  element.textContent = value || '';
+  element.style.display = value ? 'block' : 'none';
+}
+
+function update(payload = {}) {
+  document.body.dataset.visible = payload.visible === false ? 'false' : 'true';
+  const original = String(payload.originalText || payload.transcript || '').trim();
+  const translation = String(payload.translationText || '').trim();
+  setText(originalEl, payload.showOriginal === false ? '' : original);
+  setText(translationEl, payload.showTranslation === false ? '' : translation);
+  statusEl.style.display = original || translation ? 'none' : 'block';
+  statusEl.textContent = payload.statusText || '聆听中...';
+}
+
+if (window.ipcRenderer) {
+  window.ipcRenderer.on('meeting-subtitles', (_event, payload) => update(payload || {}));
+}
+closeButton.addEventListener('click', () => {
+  if (window.ipcRenderer) window.ipcRenderer.send('meeting-subtitles:close-requested');
+});
+update({});
+</script>
+</body>
+</html>

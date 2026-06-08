@@ -381,10 +381,37 @@ $callback = [Win32WindowTree+EnumWindowsProc]{
 } | ConvertTo-Json -Compress
 `;
 
+const VISIBLE_WINDOWS_SCRIPT = `
+$windows = Get-Process |
+  Where-Object {
+    $_.MainWindowHandle -ne 0 -and
+    -not [string]::IsNullOrWhiteSpace($_.MainWindowTitle)
+  } |
+  Select-Object -First 80 @{
+    Name = "hwnd"
+    Expression = { $_.MainWindowHandle.ToInt64().ToString() }
+  }, @{
+    Name = "process_id"
+    Expression = { [int]$_.Id }
+  }, @{
+    Name = "process_name"
+    Expression = { $_.ProcessName }
+  }, @{
+    Name = "window_title"
+    Expression = { $_.MainWindowTitle }
+  }, @{
+    Name = "class_name"
+    Expression = { "" }
+  }
+
+@($windows) | ConvertTo-Json -Depth 4 -Compress
+`;
+
 module.exports = {
   FOCUSED_WINDOW_TREE_SCRIPT,
   FOCUSED_TEXT_TARGET_SCRIPT,
   FOCUSED_WINDOW_SCRIPT,
+  VISIBLE_WINDOWS_SCRIPT,
   UIA_SELECTION_SCRIPT,
   WIN32_CARET_TARGET_SCRIPT,
 };

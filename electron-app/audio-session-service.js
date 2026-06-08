@@ -34,14 +34,18 @@ function createAudioSessionService({
     return platform === 'win32' && isEnabled() !== false;
   }
 
+  function shouldRunAudioSessionControl(action) {
+    return platform === 'win32' && (action === 'list-active-sessions' || shouldMuteBackgroundAudio());
+  }
+
   function runAudioSessionControl(action, payload = {}) {
     if (typeof runAudioSessionControlOverride === 'function') {
       return runAudioSessionControlOverride(action, payload);
     }
 
     return new Promise((resolve, reject) => {
-      if (!shouldMuteBackgroundAudio()) {
-        resolve({ success: true, mutedSessions: [], restoredSessions: [] });
+      if (!shouldRunAudioSessionControl(action)) {
+        resolve({ success: true, mutedSessions: [], restoredSessions: [], activeSessions: [] });
         return;
       }
 
@@ -156,6 +160,27 @@ function createAudioSessionService({
     }
   }
 
+  async function listActiveAudioSessions() {
+    if (platform !== 'win32') {
+      return { success: true, activeSessions: [] };
+    }
+
+    try {
+      const result = await runAudioSessionControl('list-active-sessions');
+      return {
+        success: Boolean(result?.success),
+        activeSessions: Array.isArray(result?.activeSessions) ? result.activeSessions : [],
+      };
+    } catch (error) {
+      logger.warn?.('璇诲彇娲昏穬闊抽浼氳瘽澶辫触:', error);
+      return {
+        success: false,
+        activeSessions: [],
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   function isMuted() {
     return backgroundMuteActive;
   }
@@ -168,6 +193,7 @@ function createAudioSessionService({
     minimalProcessEnv,
     shouldMuteBackgroundAudio,
     runAudioSessionControl,
+    listActiveAudioSessions,
     restoreMutedBackgroundSessions,
     muteBackgroundSessionsForRecording,
     restore: restoreMutedBackgroundSessions,

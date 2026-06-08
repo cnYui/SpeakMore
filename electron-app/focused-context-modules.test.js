@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const EventEmitter = require('node:events');
 const {
   normalizeFocusedInfo,
   normalizeFocusedTextTargetResult,
@@ -24,7 +25,9 @@ const {
   UIA_SELECTION_SCRIPT,
   FOCUSED_TEXT_TARGET_SCRIPT,
   WIN32_CARET_TARGET_SCRIPT,
+  VISIBLE_WINDOWS_SCRIPT,
 } = require('./focused-context/scripts');
+const { powershellJsonCommand } = require('./focused-context/powershell');
 
 function createRichClipboard() {
   let data = {
@@ -232,6 +235,40 @@ test('readers 模块组合 PowerShell reader 和归一化函数', async () => {
   assert.equal(fallbackSnapshot.focusInfo.appInfo.app_identifier, 'Notepad.exe');
 });
 
+test('powershellJsonCommand 超时时会终止子进程并返回错误', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+  };
+  let timeoutCallback = null;
+  let timeoutDelay = 0;
+  let clearedTimer = null;
+
+  const command = powershellJsonCommand('Start-Sleep -Seconds 30', {
+    spawnProcess: () => child,
+    timeoutMs: 25,
+    setTimer: (callback, delay) => {
+      timeoutCallback = callback;
+      timeoutDelay = delay;
+      return 'timer-1';
+    },
+    clearTimer: (timer) => {
+      clearedTimer = timer;
+    },
+  });
+
+  const promise = command();
+  assert.equal(timeoutDelay, 25);
+  timeoutCallback();
+
+  await assert.rejects(promise, /PowerShell command timeout after 25ms/);
+  assert.equal(child.killed, true);
+  assert.equal(clearedTimer, 'timer-1');
+});
+
 test('scripts 模块导出三段 PowerShell 脚本', () => {
   assert.match(FOCUSED_WINDOW_TREE_SCRIPT, /EnumChildWindows/);
   assert.match(FOCUSED_WINDOW_SCRIPT, /GetForegroundWindow/);
@@ -241,4 +278,6 @@ test('scripts 模块导出三段 PowerShell 脚本', () => {
   assert.match(UIA_SELECTION_SCRIPT, /foreground_descendant/);
   assert.match(FOCUSED_TEXT_TARGET_SCRIPT, /ValuePattern/);
   assert.match(WIN32_CARET_TARGET_SCRIPT, /GetGUIThreadInfo/);
+  assert.match(VISIBLE_WINDOWS_SCRIPT, /MainWindowTitle/);
+  assert.doesNotMatch(VISIBLE_WINDOWS_SCRIPT, /EnumWindows/);
 });

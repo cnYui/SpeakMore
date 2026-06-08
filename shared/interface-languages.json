@@ -1,0 +1,21 @@
+[
+  { "id": "en-US", "labelKey": "settings.interfaceLanguage.en-US" },
+  { "id": "zh-CN", "labelKey": "settings.interfaceLanguage.zh-CN" },
+  { "id": "zh-TW", "labelKey": "settings.interfaceLanguage.zh-TW" },
+  { "id": "ja-JP", "labelKey": "settings.interfaceLanguage.ja-JP" },
+  { "id": "ko-KR", "labelKey": "settings.interfaceLanguage.ko-KR" },
+  { "id": "es-ES", "labelKey": "settings.interfaceLanguage.es-ES" },
+  { "id": "pt-BR", "labelKey": "settings.interfaceLanguage.pt-BR" },
+  { "id": "fr-FR", "labelKey": "settings.interfaceLanguage.fr-FR" },
+  { "id": "de-DE", "labelKey": "settings.interfaceLanguage.de-DE" },
+  { "id": "it-IT", "labelKey": "settings.interfaceLanguage.it-IT" },
+  { "id": "ru-RU", "labelKey": "settings.interfaceLanguage.ru-RU" },
+  { "id": "ar-SA", "labelKey": "settings.interfaceLanguage.ar-SA" },
+  { "id": "he-IL", "labelKey": "settings.interfaceLanguage.he-IL" },
+  { "id": "hi-IN", "labelKey": "settings.interfaceLanguage.hi-IN" },
+  { "id": "id-ID", "labelKey": "settings.interfaceLanguage.id-ID" },
+  { "id": "ms-MY", "labelKey": "settings.interfaceLanguage.ms-MY" },
+  { "id": "nl-NL", "labelKey": "settings.interfaceLanguage.nl-NL" },
+  { "id": "pl-PL", "labelKey": "settings.interfaceLanguage.pl-PL" },
+  { "id": "th-TH", "labelKey": "settings.interfaceLanguage.th-TH" }
+]

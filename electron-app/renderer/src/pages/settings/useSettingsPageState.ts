@@ -9,6 +9,8 @@ import {
   loadSettings,
   reloadLlmBackendConfig,
   saveSettings,
+  subscribeSettingsChanges,
+  updateAutoLaunchPreference,
   type LlmProvider,
   type LocalSettings,
 } from '../../services/settingsStore'
@@ -17,7 +19,7 @@ export type AudioDevice = { deviceId: string; label?: string }
 
 function toAudioInputDevices(devices: MediaDeviceInfo[]): AudioDevice[] {
   return devices
-    .filter((device) => device.kind === 'audioinput')
+    .filter((device) => device.kind === 'audioinput' && device.deviceId && device.deviceId !== 'default')
     .map((device) => ({ deviceId: device.deviceId, label: device.label }))
 }
 
@@ -27,9 +29,34 @@ export function useSettingsPageState() {
   const [isLlmEditing, setIsLlmEditing] = useState(false)
   const [isSavingLlm, setIsSavingLlm] = useState(false)
   const [llmSaveMessage, setLlmSaveMessage] = useState('')
+  const [settingsSaveMessage, setSettingsSaveMessage] = useState('')
   const [devices, setDevices] = useState<AudioDevice[]>([])
   const settingsUpdateSeq = useRef(0)
   const settingsRef = useRef(defaultSettings)
+  const isLlmEditingRef = useRef(false)
+
+  const refreshDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      setDevices([])
+      return
+    }
+
+    try {
+      setDevices(toAudioInputDevices(await navigator.mediaDevices.enumerateDevices()))
+    } catch {
+      setDevices([])
+    }
+  }, [])
+
+  useEffect(() => {
+    isLlmEditingRef.current = isLlmEditing
+  }, [isLlmEditing])
+
+  useEffect(() => subscribeSettingsChanges((nextSettings) => {
+    settingsRef.current = nextSettings
+    setSettings(nextSettings)
+    if (!isLlmEditingRef.current) setLlmDraft(nextSettings.llm)
+  }), [])
 
   useEffect(() => {
     let cancelled = false
@@ -43,28 +70,46 @@ export function useSettingsPageState() {
       })
       .catch(() => undefined)
 
-    navigator.mediaDevices.enumerateDevices()
-      .then((items) => {
-        if (cancelled) return
-        setDevices(toAudioInputDevices(items))
-      })
-      .catch(() => {
-        if (cancelled) return
-        setDevices([])
-      })
+    refreshDevices().catch(() => {
+      if (!cancelled) setDevices([])
+    })
 
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [refreshDevices])
+
+  useEffect(() => {
+    if (!navigator.mediaDevices?.addEventListener) return undefined
+    const handleDeviceChange = () => {
+      void refreshDevices()
+    }
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange)
+    return () => navigator.mediaDevices.removeEventListener?.('devicechange', handleDeviceChange)
+  }, [refreshDevices])
 
   const updateSettings = useCallback(async (next: LocalSettings) => {
     const seq = settingsUpdateSeq.current + 1
     settingsUpdateSeq.current = seq
+    const previous = settingsRef.current
     settingsRef.current = next
     setSettings(next)
+    setSettingsSaveMessage('')
 
-    // 自动启动链路暂时停用，避免设置页写入系统开机项。
+    if (next.launchAtSystemStartup !== previous.launchAtSystemStartup) {
+      const autoLaunchResult = await updateAutoLaunchPreference(next.launchAtSystemStartup)
+      if (!autoLaunchResult.success && !autoLaunchResult.skipped) {
+        if (settingsUpdateSeq.current === seq) {
+          settingsRef.current = previous
+          setSettings(previous)
+          setSettingsSaveMessage('settings.appBehavior.autoLaunchUpdateFailed')
+        }
+        return
+      }
+      if (autoLaunchResult.skipped && settingsUpdateSeq.current === seq) {
+        setSettingsSaveMessage('settings.appBehavior.autoLaunchDevSkipped')
+      }
+    }
 
     const saved = await saveSettings(next)
     if (settingsUpdateSeq.current === seq) {
@@ -163,7 +208,9 @@ export function useSettingsPageState() {
     isLlmEditing,
     isSavingLlm,
     llmSaveMessage,
+    settingsSaveMessage,
     devices,
+    refreshDevices,
     updateSettings,
     updateProvider,
     updateCurrentProvider,

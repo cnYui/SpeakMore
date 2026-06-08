@@ -1,72 +1,105 @@
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import { Box, IconButton, Typography } from '@mui/material'
-import { useEffect, useState } from 'react'
-import { subscribeVoiceSession } from '../services/recorder'
+import { Box, Typography } from '@mui/material'
+import { useCallback, useEffect, useState } from 'react'
 import { ipcClient } from '../services/ipc'
 import { listDictionaryEntries, subscribeDictionaryChanges } from '../services/dictionaryStore'
 import { calculateDashboardPersonalization } from '../services/dashboardPersonalization'
-import { formatShortcut, getShortcutLabelSet } from '../services/shortcutLabels'
+import { ShortcutBindingDialog, ShortcutDisplayButtons } from '../components/ShortcutBindingDialog'
+import { useVoiceShortcutDisplay } from '../components/useVoiceShortcutDisplay'
 import {
+  deleteVoiceHistory,
   emptyVoiceStats,
   formatAverageSpeed,
   formatDurationMinutes,
   formatSavedMinutes,
   listVoiceHistory,
   loadVoiceStats,
+  retryVoiceHistory,
+  type VoiceHistoryItem,
   type VoiceStats,
   VOICE_HISTORY_UPDATED_EVENT,
 } from '../services/historyStore'
-import {
-  prependRecentDashboardResult,
-  selectRecentDashboardResults,
-  type RecentDashboardResult,
-} from '../services/recentDashboardResults'
+import type { ShortcutCommand } from '../services/shortcutCommandStore'
+import { selectRecentDashboardResults } from '../services/recentDashboardResults'
 import { useI18n } from '../i18n'
-import { cardSx, pageSx, pageTitleSx, subtlePanelSx } from '../uiTokens'
+import HistoryResultsPanel from './dashboard/HistoryResultsPanel'
+import {
+  adaptivePageSx,
+  captionTextSx,
+  cardSx,
+  helperTextSx,
+  itemTitleSx,
+  metricValueSx,
+  pageDescriptionSx,
+  pageTitleSx,
+  subtlePanelSx,
+} from '../uiTokens'
 
 const PERSONALIZATION_BLUE = '#2563eb'
 
 export default function Dashboard() {
   const { t } = useI18n()
-  const [recentResults, setRecentResults] = useState<RecentDashboardResult[]>([])
+  const [historyItems, setHistoryItems] = useState<VoiceHistoryItem[]>([])
+  const [historyModalOpen, setHistoryModalOpen] = useState(false)
+  const [retryingHistoryId, setRetryingHistoryId] = useState('')
+  const [bindingShortcutCommand, setBindingShortcutCommand] = useState<ShortcutCommand | null>(null)
   const [stats, setStats] = useState<VoiceStats>(emptyVoiceStats)
   const [activeDictionaryCount, setActiveDictionaryCount] = useState(0)
-  const shortcuts = getShortcutLabelSet()
+  const {
+    voiceInputCommand,
+    voiceShortcutDisplay,
+    smartAssistantAvailable,
+    saveCommand: saveShortcutCommand,
+  } = useVoiceShortcutDisplay()
+  const recentResults = selectRecentDashboardResults(historyItems)
   const personalization = calculateDashboardPersonalization({
     totalDurationMs: stats.totalDurationMs,
     totalTextLength: stats.totalTextLength,
     activeDictionaryCount,
   })
 
-  const handleCopyRecentResult = (text: string) => {
+  const refreshHistory = useCallback(() => {
+    return listVoiceHistory()
+      .then((items) => setHistoryItems(items))
+      .catch(() => setHistoryItems([]))
+  }, [])
+
+  const handleCopyHistoryText = (text: string) => {
     if (!text) return
     ipcClient.invoke('clipboard:write-text', text).catch(() => navigator.clipboard.writeText(text))
   }
 
-  useEffect(() => {
-    return subscribeVoiceSession((voiceSession) => {
-      if (voiceSession.status === 'completed' && voiceSession.mode !== 'Ask') {
-        const { refinedText, rawText } = voiceSession
-        const result = refinedText || rawText
-        const id = voiceSession.audioId || `live-${Date.now()}`
-        if (result) {
-          setRecentResults((current) => prependRecentDashboardResult(current, { id, text: result }))
-        }
-      }
+  const emitHistoryUpdated = () => window.dispatchEvent(new Event(VOICE_HISTORY_UPDATED_EVENT))
+
+  const handleDeleteHistoryItem = (id: string) => {
+    void deleteVoiceHistory(id).then((success) => {
+      if (!success) return
+      return refreshHistory().then(emitHistoryUpdated)
     })
-  }, [])
+  }
+
+  const handleRetryHistoryItem = (id: string) => {
+    if (!id || retryingHistoryId) return
+    setRetryingHistoryId(id)
+    void retryVoiceHistory(id)
+      .then(() => refreshHistory())
+      .then(emitHistoryUpdated)
+      .finally(() => setRetryingHistoryId(''))
+  }
+
+  const openVoiceShortcutBinding = () => {
+    if (voiceInputCommand) setBindingShortcutCommand(voiceInputCommand)
+  }
+
+  const handleSaveShortcutBinding = async (command: Partial<ShortcutCommand>) => {
+    await saveShortcutCommand(command)
+    setBindingShortcutCommand(null)
+  }
 
   useEffect(() => {
-    const refreshRecentResults = () => {
-      listVoiceHistory()
-        .then((items) => setRecentResults(selectRecentDashboardResults(items)))
-        .catch(() => undefined)
-    }
-
-    refreshRecentResults()
-    window.addEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshRecentResults)
-    return () => window.removeEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshRecentResults)
-  }, [])
+    refreshHistory()
+    window.addEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshHistory)
+    return () => window.removeEventListener(VOICE_HISTORY_UPDATED_EVENT, refreshHistory)
+  }, [refreshHistory])
 
   useEffect(() => {
     const refreshStats = () => {
@@ -92,30 +125,45 @@ export default function Dashboard() {
   }, [])
 
   return (
-    <Box sx={{ ...pageSx, maxWidth: 980, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Box sx={{ ...adaptivePageSx, display: 'flex', flexDirection: 'column', gap: { xs: 2, lg: 2.5 } }}>
       <Box>
         <Typography sx={pageTitleSx}>{t('dashboard.title')}</Typography>
-        <Typography sx={{ fontSize: 14, color: '#5d5d5d', mt: 0.5 }}>
-          {t('dashboard.shortcut.prefix')}{' '}
-          <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
-            {formatShortcut(shortcuts.dictation)}
-          </Box>{' '}
-          {t('dashboard.shortcut.orPress')}{' '}
-          <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
-            {formatShortcut(shortcuts.translate)}
-          </Box>{' '}
-          {t('dashboard.shortcut.orPress')}{' '}
-          <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
-            {formatShortcut(shortcuts.ask)}
-          </Box>{' '}
-          {t('dashboard.shortcut.suffix')}
+        <Typography component="div" sx={{ ...pageDescriptionSx, color: '#5d5d5d', mt: 0.5, display: 'flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 0.75 }}>
+          <Box component="span">{t('dashboard.shortcut.hold')}</Box>
+          <ShortcutDisplayButtons
+            display={voiceShortcutDisplay}
+            ariaLabel={t('dashboard.shortcut.bindVoiceInput')}
+            onClick={openVoiceShortcutBinding}
+          />
+          <Box component="span">{t('dashboard.shortcut.voiceInputAction')}</Box>
+          <Box component="span" sx={{ ml: 1.1, color: smartAssistantAvailable ? 'inherit' : 'text.disabled' }}>
+            {t('dashboard.shortcut.doubleTap')}
+          </Box>
+          <ShortcutDisplayButtons
+            display={voiceShortcutDisplay}
+            disabled={!smartAssistantAvailable}
+            ariaLabel={t('dashboard.shortcut.bindVoiceInput')}
+            onClick={smartAssistantAvailable ? openVoiceShortcutBinding : undefined}
+          />
+          <Box component="span" sx={{ color: smartAssistantAvailable ? 'inherit' : 'text.disabled' }}>
+            {t('dashboard.shortcut.smartAssistantAction')}
+          </Box>
         </Typography>
       </Box>
 
-      <Box sx={{ ...subtlePanelSx, p: 2, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+      <Box
+        sx={{
+          ...subtlePanelSx,
+          p: { xs: 1.5, md: 2 },
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: 'minmax(280px, 0.9fr) minmax(0, 1.35fr)' },
+          gap: { xs: 1.5, md: 2 },
+          alignItems: 'stretch',
+        }}
+      >
         <Box sx={{ ...cardSx, p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box sx={{ minWidth: 0, flex: 1, pr: 2 }}>
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t('dashboard.personalization.label')}</Typography>
+            <Typography sx={{ ...helperTextSx, color: 'text.secondary' }}>{t('dashboard.personalization.label')}</Typography>
             <Box sx={{ mt: 1.5, height: 8, borderRadius: 999, bgcolor: 'rgba(119,119,119,0.12)', overflow: 'hidden' }}>
               <Box sx={{ height: '100%', width: `${personalization}%`, borderRadius: 999, bgcolor: PERSONALIZATION_BLUE }} />
             </Box>
@@ -131,11 +179,11 @@ export default function Dashboard() {
             flexShrink: 0,
           }}>
             <Box sx={{ width: 48, height: 48, borderRadius: '50%', bgcolor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{personalization}%</Typography>
+              <Typography sx={itemTitleSx}>{personalization}%</Typography>
             </Box>
           </Box>
         </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))', gap: { xs: 1, md: 1.5 } }}>
           {[
             { label: t('dashboard.stats.totalDuration'), value: formatDurationMinutes(stats.totalDurationMs) },
             { label: t('dashboard.stats.totalTextLength'), value: String(stats.totalTextLength) },
@@ -143,8 +191,8 @@ export default function Dashboard() {
             { label: t('dashboard.stats.averageSpeed'), value: formatAverageSpeed(stats.averageCharsPerMinute) },
           ].map((item) => (
             <Box key={item.label} sx={{ ...cardSx, p: '12px' }}>
-              <Typography sx={{ fontSize: 18, fontWeight: 600 }}>{item.value}</Typography>
-              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{item.label}</Typography>
+              <Typography sx={metricValueSx}>{item.value}</Typography>
+              <Typography sx={{ ...captionTextSx, color: 'text.secondary' }}>{item.label}</Typography>
             </Box>
           ))}
         </Box>
@@ -152,39 +200,25 @@ export default function Dashboard() {
 
       <Box>
         <Box sx={{ ...cardSx, p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography sx={{ fontSize: 16, fontWeight: 500 }}>{t('dashboard.recentResults')}</Typography>
-          </Box>
-          <Box sx={{ bgcolor: 'rgba(119,119,119,0.03)', borderRadius: '12px', minHeight: 64, overflow: 'hidden' }}>
-            {recentResults.length > 0 ? recentResults.map((item, index) => (
-              <Box
-                key={item.id}
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'minmax(0, 1fr) auto',
-                  alignItems: 'start',
-                  gap: 1,
-                  p: 1.5,
-                  borderBottom: index === recentResults.length - 1 ? 'none' : '1px solid rgba(119,119,119,0.08)',
-                }}
-              >
-                <Typography sx={{ fontSize: 15, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.text}</Typography>
-                <IconButton
-                  size="small"
-                  aria-label={`${t('dashboard.copyRecentResult')} ${index + 1}`}
-                  onClick={() => handleCopyRecentResult(item.text)}
-                >
-                  <ContentCopyIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Box>
-            )) : (
-              <Box sx={{ p: 1.5 }}>
-                <Typography sx={{ fontSize: 15, whiteSpace: 'pre-wrap' }}>-</Typography>
-              </Box>
-            )}
-          </Box>
+          <HistoryResultsPanel
+            recentResults={recentResults}
+            historyItems={historyItems}
+            modalOpen={historyModalOpen}
+            retryingId={retryingHistoryId}
+            onOpenModal={() => setHistoryModalOpen(true)}
+            onCloseModal={() => setHistoryModalOpen(false)}
+            onCopy={handleCopyHistoryText}
+            onDelete={handleDeleteHistoryItem}
+            onRetry={handleRetryHistoryItem}
+          />
         </Box>
       </Box>
+
+      <ShortcutBindingDialog
+        command={bindingShortcutCommand}
+        onClose={() => setBindingShortcutCommand(null)}
+        onSave={handleSaveShortcutBinding}
+      />
     </Box>
   )
 }
