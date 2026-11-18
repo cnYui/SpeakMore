@@ -3,19 +3,17 @@ productName: SpeakMore
 artifactName: SpeakMore-${version}-${os}-${arch}.${ext}
 directories:
   output: release
+# 只打包运行时文件：主进程 JS、平台脚本、图标、renderer 构建产物和共享元数据。
+# renderer 源码、renderer/node_modules、测试和 C# helper 源码都不进 app.asar。
 files:
   - package.json
-  - electron-app/**/*
-  - shared/**/*
-  - "!**/*.log"
-  - "!**/*.err"
-  - "!**/*.pid"
-  - "!**/.env"
-  - "!**/.env.*"
-  - "!docs/**"
-  - "!server/**"
-  - "!release-artifacts/**"
-  - "!node_modules/.cache/**"
+  - electron-app/*.js
+  - electron-app/focused-context/*.js
+  - electron-app/renderer/dist/**/*
+  - shared/*.json
+  - "!**/*.test.js"
+  - "!**/*.test.mjs"
+  - "!**/*.map"
 extraResources:
   - from: release-artifacts/backend
     to: backend
@@ -26,13 +24,20 @@ extraResources:
   - from: release-artifacts/ffmpeg
     to: ffmpeg
 asar: true
-asarUnpack:
-  - electron-app/right-alt-listener.ps1
-  - electron-app/audio-session-control.ps1
-  - electron-app/macos-option-listener.c
-  - electron-app/macos-platform-helper.m
+# 界面只支持 zh-CN / en-US，其余 Chromium 语言包不打包。
+electronLanguages:
+  - zh-CN
+  - en-US
+compression: maximum
 mac:
   category: public.app-category.productivity
+  icon: packaging/icons/icon-mac.png
+  files:
+    - electron-app/macos-option-listener.c
+    - electron-app/macos-platform-helper.m
+  asarUnpack:
+    - electron-app/macos-option-listener.c
+    - electron-app/macos-platform-helper.m
   target:
     - target: dmg
       arch:
@@ -53,6 +58,13 @@ mac:
 dmg:
   sign: false
 win:
+  icon: packaging/icons/icon.ico
+  files:
+    - electron-app/right-alt-listener.ps1
+    - electron-app/audio-session-control.ps1
+  asarUnpack:
+    - electron-app/right-alt-listener.ps1
+    - electron-app/audio-session-control.ps1
   target:
     - target: zip
       arch:

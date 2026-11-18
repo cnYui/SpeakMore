@@ -81,7 +81,6 @@ body[data-tone="idle"] #hint-text {
     </div>
   </div>
 </div>
-<script src="./lib/three.min.js"></script>
 <script>
 const IS_MACOS = window.ipcRenderer && window.ipcRenderer.platform === 'darwin';
 const IDLE_TEXT = IS_MACOS ? 'Right Option 录音' : 'Right Alt 录音';
@@ -161,12 +160,16 @@ function scheduleProcessingHint(status) {
   }, LONG_PROCESSING_DELAY_MS);
 }
 
+// 粒子球用 Canvas 2D 自绘，投影参数与原 three.js 版本一致（透视相机 75° 视角、相机 z=4、点大小 0.04 随距离缩放），
+// 不再加载 600 KB 的 three.js，也不为悬浮胶囊创建 WebGL 上下文。
+const PARTICLE_CAMERA_Z = 4;
+const PARTICLE_FOV_TAN = Math.tan((75 * Math.PI) / 360);
+const PARTICLE_POINT_SIZE = 0.04;
+
 class ParticleSphere {
   constructor(canvas) {
     this.canvas = canvas;
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-    this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    this.context = canvas.getContext('2d');
     this.particleCount = 800;
     this.state = 'idle';
     this.targetRadius = 1.5;
@@ -175,6 +178,10 @@ class ParticleSphere {
     this.currentOpacity = 0.78;
     this.audioLevel = 0;
     this.basePositions = [];
+    this.positions = new Float32Array(this.particleCount * 3);
+    this.colors = new Float32Array(this.particleCount * 3);
+    this.rotationX = 0;
+    this.rotationY = 0;
     this.statusTimer = null;
     this.frameId = null;
 
@@ -183,13 +190,7 @@ class ParticleSphere {
   }
 
   init() {
-    this.camera.position.z = 4;
-    this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     this.resize();
-
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(this.particleCount * 3);
-    const colors = new Float32Array(this.particleCount * 3);
 
     for (let i = 0; i < this.particleCount; i += 1) {
       const phi = Math.acos(-1 + (2 * i) / this.particleCount);
@@ -199,37 +200,26 @@ class ParticleSphere {
       const y = radius * Math.sin(theta) * Math.sin(phi);
       const z = radius * Math.cos(phi);
 
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = z;
+      this.positions[i * 3] = x;
+      this.positions[i * 3 + 1] = y;
+      this.positions[i * 3 + 2] = z;
       this.basePositions.push({ x, y, z });
 
-      colors[i * 3] = 1;
-      colors[i * 3 + 1] = 1;
-      colors[i * 3 + 2] = 1;
+      this.colors[i * 3] = 1;
+      this.colors[i * 3 + 1] = 1;
+      this.colors[i * 3 + 2] = 1;
     }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-    const material = new THREE.PointsMaterial({
-      size: 0.04,
-      vertexColors: true,
-      transparent: true,
-      opacity: this.currentOpacity,
-      sizeAttenuation: true,
-    });
-
-    this.particles = new THREE.Points(geometry, material);
-    this.scene.add(this.particles);
   }
 
   resize() {
     const width = this.canvas.clientWidth || 120;
     const height = this.canvas.clientHeight || 120;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
+    this.pixelRatio = window.devicePixelRatio || 1;
+    this.cssHeight = height;
+    this.aspect = width / height;
+    this.canvas.width = Math.max(1, Math.round(width * this.pixelRatio));
+    this.canvas.height = Math.max(1, Math.round(height * this.pixelRatio));
+    this.imageData = this.context.createImageData(this.canvas.width, this.canvas.height);
   }
 
   setState(nextState) {
@@ -303,15 +293,13 @@ class ParticleSphere {
 
   animate() {
     this.frameId = window.requestAnimationFrame(() => this.animate());
-    if (!this.particles) return;
 
-    const positions = this.particles.geometry.attributes.position.array;
-    const colors = this.particles.geometry.attributes.color.array;
+    const positions = this.positions;
+    const colors = this.colors;
     const time = performance.now() * 0.001;
 
     this.currentRadius += (this.targetRadius - this.currentRadius) * 0.08;
     this.currentOpacity += (this.targetOpacity - this.currentOpacity) * 0.05;
-    this.particles.material.opacity = this.currentOpacity;
 
     for (let i = 0; i < this.particleCount; i += 1) {
       const base = this.basePositions[i];
@@ -359,13 +347,67 @@ class ParticleSphere {
       }
     }
 
-    this.particles.geometry.attributes.position.needsUpdate = true;
-    this.particles.geometry.attributes.color.needsUpdate = true;
-
     const rotationSpeed = this.state === 'processing' ? 0.004 : 0.003;
-    this.particles.rotation.y += rotationSpeed;
-    this.particles.rotation.x += rotationSpeed * 0.3;
-    this.renderer.render(this.scene, this.camera);
+    this.rotationY += rotationSpeed;
+    this.rotationX += rotationSpeed * 0.3;
+    this.draw();
+  }
+
+  draw() {
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+    const pixels = this.imageData.data;
+    const positions = this.positions;
+    const colors = this.colors;
+    const alpha = Math.min(1, Math.max(0, this.currentOpacity));
+    const cosX = Math.cos(this.rotationX);
+    const sinX = Math.sin(this.rotationX);
+    const cosY = Math.cos(this.rotationY);
+    const sinY = Math.sin(this.rotationY);
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
+    const pointScale = PARTICLE_POINT_SIZE * this.pixelRatio * this.cssHeight * 0.5;
+
+    pixels.fill(0);
+    for (let i = 0; i < this.particleCount; i += 1) {
+      const x = positions[i * 3];
+      const y = positions[i * 3 + 1];
+      const z = positions[i * 3 + 2];
+      // 与 three.js 默认 XYZ 欧拉角一致：先绕 Y 轴，再绕 X 轴。
+      const rotatedX = x * cosY + z * sinY;
+      const rotatedZ = z * cosY - x * sinY;
+      const projectedY = y * cosX - rotatedZ * sinX;
+      const depth = PARTICLE_CAMERA_Z - (y * sinX + rotatedZ * cosX);
+      if (depth <= 0.1) continue;
+
+      const size = Math.max(1, Math.round(pointScale / depth));
+      const left = Math.round(halfWidth + (rotatedX / (depth * PARTICLE_FOV_TAN * this.aspect)) * halfWidth - size / 2);
+      const top = Math.round(halfHeight - (projectedY / (depth * PARTICLE_FOV_TAN)) * halfHeight - size / 2);
+      const red = Math.min(1, Math.max(0, colors[i * 3])) * 255;
+      const green = Math.min(1, Math.max(0, colors[i * 3 + 1])) * 255;
+      const blue = Math.min(1, Math.max(0, colors[i * 3 + 2])) * 255;
+
+      for (let py = Math.max(0, top); py < Math.min(height, top + size); py += 1) {
+        for (let px = Math.max(0, left); px < Math.min(width, left + size); px += 1) {
+          const index = (py * width + px) * 4;
+          const below = pixels[index + 3] / 255;
+          if (below === 0) {
+            pixels[index] = red;
+            pixels[index + 1] = green;
+            pixels[index + 2] = blue;
+            pixels[index + 3] = alpha * 255;
+            continue;
+          }
+          const keep = below * (1 - alpha);
+          const outAlpha = alpha + keep;
+          pixels[index] = (red * alpha + pixels[index] * keep) / outAlpha;
+          pixels[index + 1] = (green * alpha + pixels[index + 1] * keep) / outAlpha;
+          pixels[index + 2] = (blue * alpha + pixels[index + 2] * keep) / outAlpha;
+          pixels[index + 3] = outAlpha * 255;
+        }
+      }
+    }
+    this.context.putImageData(this.imageData, 0, 0);
   }
 }
 
@@ -374,7 +416,7 @@ function renderFallback() {
 }
 
 function initializeParticleSphere() {
-  if (!window.THREE) {
+  if (!particleCanvas.getContext || !particleCanvas.getContext('2d')) {
     renderFallback();
     return;
   }

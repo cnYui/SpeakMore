@@ -8,7 +8,7 @@ HELPER_DIR="$ROOT/release-artifacts/helper"
 
 rm -rf "$ASSETS_DIR"
 mkdir -p "$ASSETS_DIR"
-cp "$ROOT/electron-app/assets/tray-placeholder.png" "$ASSETS_DIR/tray-placeholder.png"
+cp "$ROOT/electron-app/assets/app-icon.png" "$ROOT/electron-app/assets/tray-icon.png" "$ASSETS_DIR/"
 
 mkdir -p "$FFMPEG_DIR"
 FFMPEG_SOURCE="${FFMPEG_PATH:-}"

@@ -24,11 +24,12 @@ fi
 rm -rf "$ROOT/build/pyinstaller/speakmore-backend"
 rm -rf "$ROOT/release-artifacts/backend"
 rm -f "$ROOT/release-artifacts/speakmore-backend"
-mkdir -p "$ROOT/release-artifacts/backend"
+mkdir -p "$ROOT/release-artifacts"
 
+# spec 使用 onedir，COLLECT 名为 backend，产物落在 release-artifacts/backend/（可执行文件 + _internal/）
 "$PYTHON_BIN" -m PyInstaller \
   "$ROOT/packaging/pyinstaller/speakmore-backend.spec" \
-  --distpath "$ROOT/release-artifacts/backend" \
+  --distpath "$ROOT/release-artifacts" \
   --workpath "$ROOT/build/pyinstaller" \
   --noconfirm \
   --clean
