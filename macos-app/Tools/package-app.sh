@@ -41,16 +41,30 @@ rm -rf "$FINAL"
 ditto "$BUILT" "$FINAL"
 RES="$FINAL/Contents/Resources"
 
-if [ ! -x "$BACKEND_DIR/speakmore-backend" ] && [ "${SPEAKMORE_BUILD_BACKEND:-0}" = "1" ]; then
+if [ -n "${SPEAKMORE_LOCAL_BACKEND_DIR:-}" ]; then
+  # 本机安装：不打 1 GB 的 PyInstaller 后端，只放一个启动脚本，转调仓库里 server/.venv 的 Python。
+  # 这个 App 因此只能在这台机器上用（依赖这份仓库检出）；分发请用 PyInstaller 后端。
+  SERVER="$(cd "$SPEAKMORE_LOCAL_BACKEND_DIR" && pwd)"
+  [ -x "$SERVER/.venv/bin/python" ] || { echo "找不到 $SERVER/.venv/bin/python，先准备 server/.venv" >&2; exit 1; }
+  mkdir -p "$RES/backend"
+  cat >"$RES/backend/speakmore-backend" <<EOF
+#!/bin/sh
+# 本机安装用的后端启动脚本（由 package-app.sh 生成）：用仓库里的 server/.venv 运行后端。
+cd "$SERVER" && exec "$SERVER/.venv/bin/python" main.py
+EOF
+  chmod +x "$RES/backend/speakmore-backend"
+  echo "后端：本机脚本 → $SERVER"
+  BACKEND_DIR=""
+elif [ ! -x "$BACKEND_DIR/speakmore-backend" ] && [ "${SPEAKMORE_BUILD_BACKEND:-0}" = "1" ]; then
   echo "== 构建语音后端（PyInstaller）"
   bash "$ROOT/scripts/build-backend-macos.sh"
 fi
-if [ -x "$BACKEND_DIR/speakmore-backend" ]; then
+if [ -n "$BACKEND_DIR" ] && [ -x "$BACKEND_DIR/speakmore-backend" ]; then
   mkdir -p "$RES"
   ditto "$BACKEND_DIR" "$RES/backend"
   echo "后端：$BACKEND_DIR"
-else
-  echo "警告：没有找到语音后端（$BACKEND_DIR/speakmore-backend），App 会依赖已运行的后端。设置 SPEAKMORE_BUILD_BACKEND=1 可以现场构建。" >&2
+elif [ -z "${SPEAKMORE_LOCAL_BACKEND_DIR:-}" ]; then
+  echo "警告：没有找到语音后端（${SPEAKMORE_BACKEND_DIR:-$ROOT/release-artifacts/backend}/speakmore-backend），App 会依赖已运行的后端。设置 SPEAKMORE_BUILD_BACKEND=1 可以现场构建。" >&2
 fi
 
 FFMPEG_SOURCE="${FFMPEG_PATH:-}"
