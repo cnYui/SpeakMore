@@ -74,6 +74,22 @@ export const theme = createTheme({
     },
     MuiButton: {
       defaultProps: { disableElevation: true },
+      // 危险操作（删除）：红色，覆盖 contained / outlined 里写死的蓝色 / 黑色。
+      variants: [
+        {
+          props: { variant: 'contained', color: 'error' },
+          style: {
+            background: 'linear-gradient(180deg, rgba(255, 105, 97, 0.96), rgba(255, 59, 48, 0.90))',
+            boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 6px 16px rgba(255, 59, 48, 0.28), 0 1px 3px rgba(200, 40, 30, 0.25)',
+            '&:hover': { background: 'linear-gradient(180deg, rgba(255, 125, 117, 0.98), rgba(255, 69, 58, 0.94))' },
+            '&.Mui-disabled': { background: 'rgba(255, 59, 48, 0.35)' },
+          },
+        },
+        {
+          props: { variant: 'outlined', color: 'error' },
+          style: { color: '#d70015', '&.Mui-disabled': { color: 'rgba(215, 0, 21, 0.45)' } },
+        },
+      ],
       styleOverrides: {
         root: {
           borderRadius: 9999,

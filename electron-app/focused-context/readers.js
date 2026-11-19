@@ -11,6 +11,7 @@ const {
   FOCUSED_WINDOW_SCRIPT,
   FOCUSED_WINDOW_TREE_SCRIPT,
   UIA_SELECTION_SCRIPT,
+  createRestoreForegroundWindowScript,
   WIN32_CARET_TARGET_SCRIPT,
 } = require('./scripts');
 const { powershellJsonCommand } = require('./powershell');
@@ -168,6 +169,23 @@ async function readFocusedTextTarget({
   }
 }
 
+// 把录音开始时锁定的窗口切回前台。失败只返回原因，不抛出；调用方据此决定走悬浮卡片兜底。
+async function restoreForegroundWindow(hwnd, {
+  runScript = (script) => powershellJsonCommand(script)(),
+} = {}) {
+  const script = createRestoreForegroundWindowScript(hwnd);
+  if (!script) return { success: false, reason: 'invalid_hwnd' };
+  try {
+    const result = await runScript(script);
+    return {
+      success: Boolean(result?.success),
+      reason: typeof result?.reason === 'string' ? result.reason : '',
+    };
+  } catch (error) {
+    return { success: false, reason: 'restore_failed', detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 async function readSelectionSnapshot({
   clipboard,
   readFocusedInfo: readFocus = readFocusedInfo,
@@ -236,5 +254,6 @@ module.exports = {
   readFocusedTextTarget,
   readSelectedTextByUia,
   readSelectionSnapshot,
+  restoreForegroundWindow,
   summarizeSelectionResult,
 };

@@ -27,6 +27,8 @@ struct ContentView: View {
         .containerBackground(.ultraThinMaterial, for: .window)
         // 默认字号 = 规范里的 body（14）；没写字体的 Text 都走这里，见 Support/Typography.swift。
         .font(AppFont.body)
+        // 关闭按钮 / ⌘W = 最小化到 Dock，不退出；见 Support/MinimizeOnClose.swift。
+        .background(MinimizeOnCloseInstaller())
         .toolbar {
             // 工具栏按钮是系统的玻璃样式；点一下就能不用快捷键直接开始一轮语音输入。
             ToolbarItem(placement: .primaryAction) {
@@ -41,6 +43,7 @@ struct ContentView: View {
         }
         .task { await model.monitorLocalChanges() }
         .task { await ScreenshotTour.runIfRequested(model: model) }
+        .task { await ScreenshotTour.runCloseTestIfRequested() }
     }
 
     @ViewBuilder

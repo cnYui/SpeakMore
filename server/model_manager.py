@@ -1,5 +1,7 @@
+import gc
 import json
 import os
+import shutil
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -232,3 +234,54 @@ def is_model_cached(model_id: str) -> bool:
     if find_cached_model_snapshot(model_id) is not None:
         return True
     return find_cached_model_snapshot(model_id, cache_root=get_hf_cache_root()) is not None
+
+
+def get_model_repo_cache_dir(model_id: str, cache_root=None) -> Path:
+    """某个模型在指定缓存根目录下的仓库目录（`models--<owner>--<name>`），不保证存在。"""
+    root = Path(cache_root) if cache_root is not None else get_managed_model_cache_root(model_id)
+    return root / repo_cache_dir_name(get_model_repo_id(model_id))
+
+
+def directory_size_bytes(path: Path) -> int:
+    total = 0
+    for item in path.rglob("*"):
+        try:
+            if item.is_file() and not item.is_symlink():
+                total += item.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def delete_cached_model(model_id: str) -> dict:
+    """删除本应用管理的缓存目录里的该模型文件，返回释放的空间。
+
+    只删“初始化页下载到的那份”（用户设置的模型目录或平台默认目录里的 `models--<repo>`）。
+    显式指定的模型目录（环境变量）和 Hugging Face 缓存可能被别的程序共用，这里不动，只在结果里报告它们的位置，
+    由用户自己处理。
+    """
+    validate_asr_model_id(model_id)
+    managed_dir = get_model_repo_cache_dir(model_id)
+    freed_bytes = 0
+    deleted = False
+    if managed_dir.exists():
+        # 推理库可能还映射着模型文件（Windows 上会导致删除失败），先让 Python 回收已卸载的模型对象。
+        gc.collect()
+        freed_bytes = directory_size_bytes(managed_dir)
+        shutil.rmtree(managed_dir)
+        deleted = True
+
+    external_locations = []
+    explicit_dir = os.getenv(get_model_explicit_dir_env(model_id), "").strip()
+    if explicit_dir and is_valid_model_snapshot(Path(explicit_dir).expanduser(), model_id):
+        external_locations.append(str(Path(explicit_dir).expanduser()))
+    hf_snapshot = find_cached_model_snapshot(model_id, cache_root=get_hf_cache_root())
+    if hf_snapshot is not None:
+        external_locations.append(str(get_model_repo_cache_dir(model_id, cache_root=get_hf_cache_root())))
+
+    return {
+        "deleted": deleted,
+        "freed_bytes": freed_bytes,
+        "path": str(managed_dir),
+        "external_locations": external_locations,
+    }

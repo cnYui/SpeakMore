@@ -190,11 +190,53 @@ final class PasteTargetPolicyTests: XCTestCase {
         XCTAssertEqual(PasteTargetPolicy.resolveForPaste(axTarget: failed, start: chat, readCurrentFocus: { relaunched }).reason, PasteTargetPolicy.targetChangedReason)
         XCTAssertEqual(PasteTargetPolicy.resolveForPaste(axTarget: failed, start: nil, readCurrentFocus: { chat }).reason, "macos_app_compat_start_not_wechat")
 
-        // 不是微信：保留 AX 判定失败的原因，不放行。
+        // 不是微信：同一个应用没变就走“同一应用兜底”放行（见下面的专门测试）；前台换了就不放行。
         let notes = TextTarget(success: false, reason: PasteTargetPolicy.targetUnavailableReason, appFamily: "com.apple.Notes", processId: 3)
-        let denied = PasteTargetPolicy.resolveForPaste(axTarget: notes, start: other, readCurrentFocus: { other })
+        let switched = FocusInfo(bundleId: "com.apple.Safari", appName: "Safari", processId: 4)
+        let denied = PasteTargetPolicy.resolveForPaste(axTarget: notes, start: other, readCurrentFocus: { switched })
         XCTAssertFalse(denied.success)
         XCTAssertEqual(denied.reason, PasteTargetPolicy.targetUnavailableReason)
+    }
+
+    func testSameApplicationFallbackPastesWhenAXCannotConfirmButAppUnchanged() {
+        // Chrome / Electron 类应用默认不向辅助功能暴露输入框：AX 确认不了，但前台还是录音开始时的应用，照样放行。
+        let chrome = FocusInfo(bundleId: "com.google.Chrome", appName: "Chrome", processId: 20, windowTitle: "某个网页")
+        let unconfirmed = TextTarget(success: false, reason: PasteTargetPolicy.targetUnavailableReason, appFamily: "com.google.Chrome", processId: 20)
+        let result = PasteTargetPolicy.resolveForPaste(axTarget: unconfirmed, start: chrome, readCurrentFocus: { chrome })
+        XCTAssertTrue(result.success)
+        XCTAssertEqual(result.source, .sameApplication)
+        XCTAssertEqual(result.confidence, .weak)
+        XCTAssertEqual(result.reason, "macos_same_app_weak")
+    }
+
+    func testSameApplicationFallbackRefusesSystemSurfacesAndBlockedTitles() {
+        func resolve(_ bundle: String, title: String = "窗口") -> TextTarget {
+            let focus = FocusInfo(bundleId: bundle, appName: "x", processId: 5, windowTitle: title)
+            let failed = TextTarget(success: false, reason: PasteTargetPolicy.targetUnavailableReason, appFamily: bundle, processId: 5)
+            return PasteTargetPolicy.resolveForPaste(axTarget: failed, start: focus, readCurrentFocus: { focus })
+        }
+        for bundle in ["com.apple.finder", "com.apple.dock", "com.apple.loginwindow", "cn.yui.speakmore.native", "com.github.Electron"] {
+            XCTAssertFalse(resolve(bundle).success, bundle)
+        }
+        for title in ["设置", "登录", "Sign in to continue", "Preferences", "文件预览"] {
+            XCTAssertFalse(resolve("com.google.Chrome", title: title).success, title)
+        }
+        XCTAssertTrue(resolve("com.google.Chrome", title: "普通网页").success)
+    }
+
+    func testSameApplicationFallbackNeedsBothFocusSnapshots() {
+        let failed = TextTarget(success: false, reason: PasteTargetPolicy.targetUnavailableReason, appFamily: "com.google.Chrome", processId: 20)
+        let chrome = FocusInfo(bundleId: "com.google.Chrome", appName: "Chrome", processId: 20)
+        XCTAssertFalse(PasteTargetPolicy.resolveForPaste(axTarget: failed, start: nil, readCurrentFocus: { chrome }).success, "录音开始时没拿到前台信息，不能凭空放行")
+        XCTAssertFalse(PasteTargetPolicy.resolveForPaste(axTarget: failed, start: chrome, readCurrentFocus: { nil }).success)
+    }
+
+    func testWeChatBlockedTitleIsNotOverriddenBySameApplicationFallback() {
+        let failed = TextTarget(success: false, reason: PasteTargetPolicy.targetUnavailableReason, appFamily: "com.tencent.xinWeChat", processId: 7)
+        let settings = FocusInfo(bundleId: "com.tencent.xinWeChat", appName: "微信", processId: 7, windowTitle: "设置")
+        let result = PasteTargetPolicy.resolveForPaste(axTarget: failed, start: settings, readCurrentFocus: { settings })
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.reason, "macos_app_compat_blocked_window_title")
     }
 
     func testWeChatIdentification() {

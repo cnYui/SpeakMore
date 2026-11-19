@@ -38,6 +38,26 @@ enum ScreenshotTour {
         NSApp.terminate(nil)
     }
 
+
+    /// 开发者工具：设置 `SPEAKMORE_CLOSE_TEST_FILE` 时，启动 3 秒后模拟点关闭按钮（performClose），把窗口状态写进这个文件后退出。
+    /// 用来在没有屏幕录制 / 辅助功能权限的远程会话里验证“关闭 = 最小化”。
+    static func runCloseTestIfRequested() async {
+        guard let path = ProcessInfo.processInfo.environment["SPEAKMORE_CLOSE_TEST_FILE"], !path.isEmpty else { return }
+        try? await Task.sleep(for: .seconds(3))
+        guard let window = mainWindow else {
+            try? "no-main-window".write(toFile: path, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+        let before = "before: miniaturized=\(window.isMiniaturized) visible=\(window.isVisible)"
+        // SPEAKMORE_CLOSE_TEST_SKIP_CLOSE=1：不点关闭，只记录窗口自己的状态（用来排除“启动时就是最小化的”）。
+        if ProcessInfo.processInfo.environment["SPEAKMORE_CLOSE_TEST_SKIP_CLOSE"] == nil { window.performClose(nil) }
+        try? await Task.sleep(for: .seconds(2))
+        let after = "after: miniaturized=\(window.isMiniaturized) alive=\(NSApp.windows.contains(window))"
+        try? [before, after].joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
+        NSApp.terminate(nil)
+    }
+
     /// 主窗口：有标题栏的普通窗口。菜单栏图标（MenuBarExtra）和悬浮窗口也是可见窗口，不能误选。
     private static var mainWindow: NSWindow? {
         NSApp.windows.first { $0.styleMask.contains(.titled) && $0.contentView != nil && $0.frame.width > 400 }

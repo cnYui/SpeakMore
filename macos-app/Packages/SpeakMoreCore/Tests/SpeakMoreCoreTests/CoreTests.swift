@@ -101,6 +101,41 @@ final class BackendClientTests: XCTestCase {
         XCTAssertEqual(transport.requests[0].contentType, "application/json")
     }
 
+    func testDeleteModelSendsIdAndCacheDirAndParsesResult() async throws {
+        let body = #"{"status":"idle","models":[{"model_id":"sensevoice-small-int8","cached":false}],"delete":{"deleted":true,"freed_bytes":4096,"external_locations":["/hf/models--x"]}}"#
+        let transport = FakeTransport([.success((Data(body.utf8), 200))])
+        let result = await BackendClient(baseURL: base, transport: transport).deleteModel(cacheDir: "/models", modelId: "sensevoice-small-int8")
+
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.url.path, "/model/delete")
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.contentType, "application/json")
+        let sent = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.body)) as? [String: Any])
+        XCTAssertEqual(sent as NSDictionary, ["model_id": "sensevoice-small-int8", "cache_dir": "/models"] as NSDictionary)
+        XCTAssertTrue(result.ok)
+        XCTAssertEqual(result.freedBytes, 4096)
+        XCTAssertEqual(result.externalLocations, ["/hf/models--x"])
+        XCTAssertEqual(result.status?.models.first?.cached, false)
+    }
+
+    func testDeleteModelWithoutIdSendsNothing() async {
+        let transport = FakeTransport([])
+        let result = await BackendClient(baseURL: base, transport: transport).deleteModel(modelId: "")
+        XCTAssertFalse(result.ok)
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testDeleteModelReportsBackendRefusalReason() async {
+        for (status, detail) in [(409, "模型正在下载或加载，请稍后再删除"), (500, "删除模型失败: 文件被占用")] {
+            let body = Data(#"{"detail":"\#(detail)"}"#.utf8)
+            let result = await BackendClient(baseURL: base, transport: FakeTransport([.success((body, status))])).deleteModel(modelId: "sensevoice-small")
+            XCTAssertFalse(result.ok, "\(status)")
+            XCTAssertEqual(result.detail, detail)
+        }
+        let down = await BackendClient(baseURL: base, transport: FakeTransport([.failure(URLError(.cannotConnectToHost))])).deleteModel(modelId: "x")
+        XCTAssertFalse(down.ok)
+    }
+
     func testUnreachableBackendIsReportedAsUnavailable() async {
         let client = BackendClient(baseURL: base, transport: FakeTransport([.failure(URLError(.cannotConnectToHost))]))
         let status = await client.modelStatus()

@@ -15,6 +15,7 @@ function registerKeyboardIpcHandlers({
   clipboard,
   spawnProcess = spawn,
   readFocusedTextTarget,
+  restoreForegroundWindow = null,
   createClipboardSnapshot,
   restoreClipboardSnapshot,
   readFocusedInfo,
@@ -114,8 +115,21 @@ function registerKeyboardIpcHandlers({
 
   async function pasteWithWindowsSendKeys(pastedText, startFocusInfo) {
     log('info', '开始检查焦点目标', { startFocusInfo });
-    const textTarget = await readFocusedTextTarget({ startFocusInfo });
+    let textTarget = await readFocusedTextTarget({ startFocusInfo });
     log('info', '焦点目标检查结果', { textTarget });
+
+    // 录音期间焦点可能漂走（别的应用弹窗、用户点了别处）。结果要贴回“录音开始时锁定的光标位置”，
+    // 所以目标不可用时，先把当时的窗口切回前台（窗口会记住自己的光标位置），再检查一次。
+    const lockedHwnd = startFocusInfo?.appInfo?.app_metadata?.hwnd;
+    if (!textTarget.success && lockedHwnd && typeof restoreForegroundWindow === 'function') {
+      const restored = await restoreForegroundWindow(lockedHwnd);
+      log('info', '尝试切回录音开始时的窗口', { lockedHwnd, restored });
+      if (restored?.success) {
+        textTarget = await readFocusedTextTarget({ startFocusInfo });
+        log('info', '切回窗口后重新检查焦点目标', { textTarget });
+      }
+    }
+
     if (!textTarget.success) {
       log('warn', '焦点目标不可用，终止自动粘贴', { textTarget, pastedText });
       return { success: false, reason: textTarget.reason || 'focused_text_target_unavailable' };

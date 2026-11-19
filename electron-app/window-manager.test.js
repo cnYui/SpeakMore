@@ -70,6 +70,19 @@ function createFakeBrowserWindowClass() {
       this.shown = false;
     }
 
+    minimize() {
+      this.minimized = true;
+    }
+
+    restore() {
+      this.minimized = false;
+      this.restoreCallCount = (this.restoreCallCount || 0) + 1;
+    }
+
+    isMinimized() {
+      return Boolean(this.minimized);
+    }
+
     focus() {
       this.focused = true;
     }
@@ -163,7 +176,7 @@ test('createWindowManager 构造阶段不读取 Electron screen 方法', () => {
   }));
 });
 
-test('createWindowManager 创建主窗口并在关闭时隐藏', () => {
+test('createWindowManager 创建主窗口并在关闭时最小化而不是退出或隐藏', () => {
   const BrowserWindow = createFakeBrowserWindowClass();
   const trayActions = [];
   const manager = createWindowManager({
@@ -202,9 +215,17 @@ test('createWindowManager 创建主窗口并在关闭时隐藏', () => {
 
   mainWindow.close();
 
-  assert.equal(mainWindow.hidden, true);
+  // 关闭按钮 = 最小化：窗口没有销毁、也没有藏起来（任务栏里还在），应用不退出。
+  assert.equal(mainWindow.minimized, true);
+  assert.notEqual(mainWindow.hidden, true);
   assert.equal(mainWindow.destroyed, false);
   assert.deepEqual(trayActions, [{ channel: 'page-event--hub--window-blurred', payload: undefined }]);
+
+  // 从托盘“打开主窗口”会还原并聚焦同一个窗口，而不是新建。
+  assert.equal(manager.createMainWindow(), mainWindow);
+  assert.equal(mainWindow.minimized, false);
+  assert.equal(mainWindow.restoreCallCount, 1);
+  assert.equal(mainWindow.focused, true);
 });
 
 test('createWindowManager 创建悬浮条、悬浮面板和托盘', () => {

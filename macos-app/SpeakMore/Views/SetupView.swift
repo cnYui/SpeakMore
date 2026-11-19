@@ -146,7 +146,12 @@ struct SetupView: View {
                 .disabled(!canDownloadAll || backendDown)
             }
         } footer: {
-            Text(model.t("setup.modelListHint"))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.t("setup.modelListHint"))
+                if let notice = model.modelDeleteNotice {
+                    Text(notice.text).foregroundStyle(notice.isError ? Color.red : Color.secondary)
+                }
+            }
         }
     }
 
@@ -205,6 +210,7 @@ private struct ModelRow: View {
     let option: VoiceModelOption
     let busy: Bool
     let backendDown: Bool
+    @State private var confirmingDelete = false
 
     var body: some View {
         let downloading = option.status == .downloading
@@ -236,9 +242,9 @@ private struct ModelRow: View {
                 }
             }
 
-            if !option.active {
+            if !option.active || option.cached {
                 HStack {
-                    if !option.cached {
+                    if !option.active, !option.cached {
                         Button {
                             Task { await model.downloadOnly(option.modelId) }
                         } label: {
@@ -246,17 +252,49 @@ private struct ModelRow: View {
                         }
                         .disabled(downloading || backendDown)
                     }
-                    Button(model.t("setup.useModel")) {
-                        Task { await model.useModel(option.modelId) }
+                    if !option.active {
+                        Button(model.t("setup.useModel")) {
+                            Task { await model.useModel(option.modelId) }
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(busy || downloading || backendDown)
                     }
-                    .buttonStyle(.glassProminent)
-                    .disabled(busy || downloading || backendDown)
+                    if option.cached {
+                        Button(role: .destructive) {
+                            confirmingDelete = true
+                        } label: {
+                            Label(model.t("setup.deleteModel"), systemImage: "trash")
+                        }
+                        // 下载 / 加载中不能删（后端也会拒绝）；当前模型在加载时同理。
+                        .disabled(downloading || (option.active && busy) || model.isModelActionRunning || backendDown)
+                    }
                 }
                 .controlSize(.small)
                 .padding(.top, 2)
             }
         }
         .padding(.vertical, 4)
+        .confirmationDialog(
+            model.t("setup.deleteModelTitle"),
+            isPresented: $confirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button(model.t("setup.deleteModelConfirm"), role: .destructive) {
+                Task { await model.deleteModel(option) }
+            }
+            Button(model.t("setup.deleteModelCancel"), role: .cancel) {}
+        } message: {
+            Text(deleteMessage)
+        }
+    }
+
+    private var deleteMessage: String {
+        let name = option.variant.isEmpty ? option.label : "\(option.label) · \(option.variant)"
+        var text = model.t("setup.deleteModelBody")
+            .replacingOccurrences(of: "{name}", with: name)
+            .replacingOccurrences(of: "{size}", with: formatBytes(option.sizeBytes))
+        if option.active { text += "\n" + model.t("setup.deleteModelActiveWarning") }
+        return text
     }
 
     private var descriptionKey: String? {

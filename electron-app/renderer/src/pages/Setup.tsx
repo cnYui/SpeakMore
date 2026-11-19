@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Box, Button, Chip, LinearProgress, Typography } from '@mui/material'
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, Typography } from '@mui/material'
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload'
 import SettingsIcon from '@mui/icons-material/Settings'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import DownloadIcon from '@mui/icons-material/Download'
+import DeleteIcon from '@mui/icons-material/Delete'
 import { glassItemSx, glassSectionSx, pageSx, pageTitleSx, typo } from '../uiTokens'
 import { useI18n, type TranslationKey } from '../i18n'
 import {
   chooseModelCacheDirectory,
+  deleteVoiceModel,
   downloadVoiceModelOnly,
   getVoiceModelStatus,
   startVoiceModelDownload,
@@ -103,6 +105,10 @@ export default function Setup({ onOpenSettings }: SetupProps) {
   const [modelStatus, setModelStatus] = useState<VoiceModelStatus | null>(null)
   const [settings, setSettings] = useState<LocalSettings | null>(null)
   const [isStartingDownload, setIsStartingDownload] = useState(false)
+  // 删除模型：等待用户确认的模型、删除进行中、结果提示（失败原因 / 别处还有一份）。
+  const [deleteTarget, setDeleteTarget] = useState<VoiceModelOption | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteNotice, setDeleteNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
 
   const currentProvider = useMemo(() => (
     settings?.llm.providers.find((provider) => provider.id === settings.llm.providerId)
@@ -177,6 +183,24 @@ export default function Setup({ onOpenSettings }: SetupProps) {
       setModelStatus(await startVoiceModelDownload(effectiveModelCacheDir, modelId))
     } finally {
       setIsStartingDownload(false)
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    const target = deleteTarget
+    setIsDeleting(true)
+    setDeleteNotice(null)
+    const result = await deleteVoiceModel(target.model_id, effectiveModelCacheDir)
+    setIsDeleting(false)
+    setDeleteTarget(null)
+    if (!result.ok) {
+      setDeleteNotice({ kind: 'error', text: `${t('setup.deleteModelFailed')}${result.detail}` })
+      return
+    }
+    if (result.status) setModelStatus(result.status)
+    if (result.externalLocations.length > 0) {
+      setDeleteNotice({ kind: 'info', text: t('setup.deleteModelExternal').replace('{paths}', result.externalLocations.join('、')) })
     }
   }
 
@@ -304,6 +328,11 @@ export default function Setup({ onOpenSettings }: SetupProps) {
           </Button>
         </Box>
         <Typography sx={{ ...typo.caption, color: 'text.secondary', mb: 1.5 }}>{t('setup.modelListHint')}</Typography>
+        {deleteNotice ? (
+          <Typography sx={{ ...typo.caption, color: deleteNotice.kind === 'error' ? 'error.main' : 'text.secondary', mb: 1.5 }}>
+            {deleteNotice.text}
+          </Typography>
+        ) : null}
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
           {modelOptions.map((option) => {
@@ -350,9 +379,9 @@ export default function Setup({ onOpenSettings }: SetupProps) {
                     ) : null}
                   </Box>
                 ) : null}
-                {!option.active ? (
+                {!option.active || option.cached ? (
                   <Box sx={{ display: 'flex', gap: 1, mt: 1.25 }}>
-                    {!option.cached ? (
+                    {!option.active && !option.cached ? (
                       <Button
                         size="small"
                         variant="outlined"
@@ -363,14 +392,29 @@ export default function Setup({ onOpenSettings }: SetupProps) {
                         {t('setup.downloadModel')}
                       </Button>
                     ) : null}
-                    <Button
-                      size="small"
-                      variant="contained"
-                      onClick={() => void handleUseModel(option.model_id)}
-                      disabled={busy || optionDownloading || modelStatus?.status === 'unavailable'}
-                    >
-                      {t('setup.useModel')}
-                    </Button>
+                    {!option.active ? (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => void handleUseModel(option.model_id)}
+                        disabled={busy || optionDownloading || modelStatus?.status === 'unavailable'}
+                      >
+                        {t('setup.useModel')}
+                      </Button>
+                    ) : null}
+                    {option.cached ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        startIcon={<DeleteIcon />}
+                        onClick={() => setDeleteTarget(option)}
+                        // 下载 / 加载中不能删（后端也会拒绝），当前模型在加载时同理。
+                        disabled={optionDownloading || (option.active && busy) || isDeleting || modelStatus?.status === 'unavailable'}
+                      >
+                        {t('setup.deleteModel')}
+                      </Button>
+                    ) : null}
                   </Box>
                 ) : null}
               </Box>
@@ -397,6 +441,29 @@ export default function Setup({ onOpenSettings }: SetupProps) {
           {t('setup.openSettings')}
         </Button>
       </Box>
+      <Dialog open={Boolean(deleteTarget)} onClose={() => (isDeleting ? undefined : setDeleteTarget(null))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ ...typo.heading }}>{t('setup.deleteModelTitle')}</DialogTitle>
+        <DialogContent>
+          {deleteTarget ? (
+            <>
+              <Typography sx={{ ...typo.body }}>
+                {t('setup.deleteModelBody')
+                  .replace('{name}', `${deleteTarget.label}${deleteTarget.variant ? ` · ${deleteTarget.variant}` : ''}`)
+                  .replace('{size}', formatBytes(deleteTarget.size_bytes))}
+              </Typography>
+              {deleteTarget.active ? (
+                <Typography sx={{ ...typo.caption, color: 'warning.main', mt: 1.5 }}>{t('setup.deleteModelActiveWarning')}</Typography>
+              ) : null}
+            </>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button variant="outlined" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>{t('setup.deleteModelCancel')}</Button>
+          <Button variant="contained" color="error" onClick={() => void handleConfirmDelete()} disabled={isDeleting}>
+            {t('setup.deleteModelConfirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

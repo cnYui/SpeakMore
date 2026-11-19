@@ -130,6 +130,46 @@ function createVoiceBackendClient({
     };
   }
 
+  // 删除一个已下载的模型。modelId 必须明确给出（不能回退到“当前选用的模型”，否则可能误删正在用的）。
+  async function deleteVoiceModel(options = {}) {
+    const modelId = normalizeModelIdOption(options);
+    if (!modelId) {
+      return { success: false, status: 'failed', detail: '缺少 model_id', payload: null };
+    }
+    const cacheDir = normalizeModelCacheDirOption(options);
+    let response = null;
+    let payload = null;
+    try {
+      response = await fetchImpl(urls.modelDeleteUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model_id: modelId, ...(cacheDir ? { cache_dir: cacheDir } : {}) }),
+      });
+      payload = await readJsonSafely(response);
+    } catch {
+      return {
+        success: false,
+        status: 'unavailable',
+        detail: resolveVoiceServerProbeDetail(urls.modelDeleteUrl, 0, null),
+        payload: null,
+      };
+    }
+    if (!response.ok || !payload || typeof payload !== 'object') {
+      // 409（下载 / 加载中）、500（文件被占用等）：后端的 detail 就是给用户看的原因。
+      return {
+        success: false,
+        status: 'failed',
+        detail: resolveVoiceServerProbeDetail(urls.modelDeleteUrl, response.status, payload),
+        payload,
+      };
+    }
+    return {
+      success: true,
+      ...payload,
+      payload,
+    };
+  }
+
   async function callVoiceFlowBackend(payload = {}) {
     const readyState = await checkVoiceServerReady();
     if (!readyState.success) {
@@ -186,6 +226,7 @@ function createVoiceBackendClient({
     checkVoiceServerReady,
     getVoiceModelStatus,
     startVoiceModelDownload,
+    deleteVoiceModel,
     reloadVoiceServerConfig,
     callVoiceFlowBackend,
   };

@@ -38,6 +38,8 @@ final class AppModel {
     var selection: AppPage? = .setup
     var modelStatus: VoiceModelStatus?
     var isModelActionRunning = false
+    /// 最近一次删除模型的结果提示（失败原因 / 别处还有一份），初始化页展示。
+    var modelDeleteNotice: ModelDeleteNotice?
     var accessibilityTrusted = Platform.isAccessibilityTrusted()
     var microphones: [Microphone] = []
     /// 语音链路（快捷键、录音、粘贴、悬浮窗口），应用启动后创建。
@@ -172,9 +174,32 @@ final class AppModel {
         modelStatus = await backend.startDownload(cacheDir: effectiveCacheDir, modelId: modelId)
     }
 
+    /// 删除一个已下载的模型（初始化页的“删除”）。失败原因 / 别处还有一份的提示放进 `modelDeleteNotice`。
+    func deleteModel(_ option: VoiceModelOption) async {
+        isModelActionRunning = true
+        defer { isModelActionRunning = false }
+        modelDeleteNotice = nil
+        let result = await backend.deleteModel(cacheDir: effectiveCacheDir, modelId: option.modelId)
+        guard result.ok else {
+            modelDeleteNotice = ModelDeleteNotice(isError: true, text: t("setup.deleteModelFailed") + result.detail)
+            return
+        }
+        if let status = result.status { modelStatus = status }
+        if !result.externalLocations.isEmpty {
+            let text = t("setup.deleteModelExternal").replacingOccurrences(of: "{paths}", with: result.externalLocations.joined(separator: "、"))
+            modelDeleteNotice = ModelDeleteNotice(isError: false, text: text)
+        }
+    }
+
     func chooseCacheDirectory() async {
         guard let path = Platform.chooseDirectory(startingAt: effectiveCacheDir, prompt: t("setup.choosePrompt")) else { return }
         settings.update { $0.modelCacheDir = path }
         await refreshModelStatus()
     }
+}
+
+/// 初始化页“删除模型”后的提示（失败原因，或别处还有一份、应用不会删的位置）。
+struct ModelDeleteNotice: Equatable {
+    var isError: Bool
+    var text: String
 }

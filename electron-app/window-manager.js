@@ -165,6 +165,8 @@ function createWindowManager({
 
   function createMainWindow() {
     if (mainWindow && !mainWindow.isDestroyed()) {
+      // 关闭按钮把窗口最小化到任务栏（见下面的 close 处理），所以从托盘 / 任务栏再打开时要先还原。
+      if (typeof mainWindow.isMinimized === 'function' && mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
       return mainWindow;
@@ -183,8 +185,9 @@ function createWindowManager({
     mainWindow.loadFile(mainRendererPath());
     mainWindow.on('close', (event) => {
       if (getAppIsQuitting()) return;
+      // 点关闭按钮不退出，也不藏进后台，而是最小化到任务栏；真正退出走托盘“退出”。
       event.preventDefault();
-      mainWindow.hide();
+      mainWindow.minimize();
       sendToMain('page-event--hub--window-blurred');
     });
     mainWindow.on('closed', () => {

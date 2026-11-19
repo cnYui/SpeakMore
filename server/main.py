@@ -25,6 +25,7 @@ from asr import (
     unload_asr_model,
 )
 from model_manager import (
+    delete_cached_model,
     SENSEVOICE_SMALL_MODEL_ID,
     SUPPORTED_ASR_MODEL_IDS,
     configure_model_cache_dir,
@@ -864,6 +865,7 @@ def create_app(
     auto_preload_model: bool = False,
     exit_on_preload_failure: bool = False,
     download_model=download_asr_model,
+    delete_model=delete_cached_model,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -926,6 +928,33 @@ def create_app(
         if apply_requested_model_id(app, requested_model_id):
             start_voice_model_task(app, preload_model, exit_scheduler, exit_on_failure=False)
         return get_voice_model_status(app)
+
+    @app.post("/model/delete")
+    async def model_delete(request: Request):
+        """删除一个已下载的模型（初始化页的“删除”）。正在下载 / 加载时拒绝；删的是当前模型就先卸载，状态回到未下载。"""
+        payload = await read_model_request_payload(request)
+        cache_dir = payload.get("cache_dir")
+        apply_model_cache_dir(cache_dir.strip() if isinstance(cache_dir, str) else "")
+        requested_model_id = normalize_asr_model_id(payload.get("model_id"))
+        if not requested_model_id:
+            raise HTTPException(status_code=400, detail="缺少或不支持的 model_id")
+
+        is_active = requested_model_id == get_active_asr_model_id()
+        if is_model_download_running(app, requested_model_id) or (is_active and is_voice_model_task_running(app)):
+            raise HTTPException(status_code=409, detail="模型正在下载或加载，请稍后再删除")
+
+        if is_active:
+            unload_asr_model()
+            set_voice_service_state(app, "idle", MODEL_MISSING_DETAIL)
+        try:
+            result = await asyncio.to_thread(delete_model, requested_model_id)
+        except Exception as error:
+            raise HTTPException(status_code=500, detail=f"删除模型失败: {error}") from error
+        get_model_download_states(app).pop(requested_model_id, None)
+        if is_active:
+            # 缓存状态变了，重新生成当前模型的服务状态（detail 会随之变成“未下载 / 已下载”）。
+            set_voice_service_state(app, "idle", MODEL_MISSING_DETAIL)
+        return {**get_voice_model_status(app), "delete": result}
 
     @app.post("/config/reload")
     async def reload_config():

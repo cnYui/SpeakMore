@@ -443,3 +443,86 @@ test('registerKeyboardIpcHandlers 连续两次听写时恢复的是最初的用�
   assert.deepEqual(restoreCalls, ['用户原来的剪贴板']);
   assert.equal(clipboard.current, '用户原来的剪贴板');
 });
+
+test('键盘 IPC：焦点漂走时先把录音开始时锁定的窗口切回前台，再检查并粘贴', async () => {
+  const ipcMain = createFakeIpcMain();
+  const timers = createFakeTimers();
+  const restoreCalls = [];
+  const targetChecks = [];
+  const pasteSpawns = [];
+  const clipboard = {
+    current: 'before',
+    writeText(text) { this.current = text; },
+    readText() { return this.current; },
+  };
+  // 第一次检查：前台已经不是录音开始时的窗口；切回之后第二次检查通过。
+  let foregroundRestored = false;
+
+  registerKeyboardIpcHandlers({
+    ipcMain,
+    clipboard,
+    platform: 'win32',
+    ...timers.options,
+    spawnProcess: () => {
+      pasteSpawns.push(true);
+      const child = createFakeChildProcess();
+      setImmediate(() => child.emit('exit', 0));
+      return child;
+    },
+    readFocusedTextTarget: async () => {
+      targetChecks.push(foregroundRestored);
+      return foregroundRestored ? { success: true } : { success: false, reason: 'foreground_changed' };
+    },
+    restoreForegroundWindow: async (hwnd) => {
+      restoreCalls.push(hwnd);
+      foregroundRestored = true;
+      return { success: true, reason: 'restored' };
+    },
+    createClipboardSnapshot: (target) => ({ text: target.current }),
+    restoreClipboardSnapshot: (target, snapshot) => { target.current = snapshot.text; },
+    readFocusedInfo: async () => ({}),
+    textObservationManager: { start: async () => undefined },
+    randomUUID: () => 'audio-1',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const startFocusInfo = { appInfo: { app_metadata: { hwnd: '3802206' } } };
+  const result = await ipcMain.handles.get('keyboard:type-transcript')({}, '听写结果', { startFocusInfo });
+
+  assert.deepEqual(restoreCalls, ['3802206']);
+  assert.deepEqual(targetChecks, [false, true]);
+  assert.equal(pasteSpawns.length, 1);
+  assert.equal(result.success, true);
+  timers.runAll();
+  assert.equal(clipboard.current, 'before', '粘贴后仍然恢复用户原来的剪贴板');
+});
+
+test('键盘 IPC：切不回原窗口（被系统拒绝 / 窗口没了）时不粘贴，返回失败让界面走悬浮卡片', async () => {
+  const ipcMain = createFakeIpcMain();
+  const timers = createFakeTimers();
+  const pasteSpawns = [];
+  const clipboard = { current: 'before', writeText(text) { this.current = text; }, readText() { return this.current; } };
+
+  registerKeyboardIpcHandlers({
+    ipcMain,
+    clipboard,
+    platform: 'win32',
+    ...timers.options,
+    spawnProcess: () => { pasteSpawns.push(true); return createFakeChildProcess(); },
+    readFocusedTextTarget: async () => ({ success: false, reason: 'foreground_changed' }),
+    restoreForegroundWindow: async () => ({ success: false, reason: 'foreground_denied' }),
+    createClipboardSnapshot: (target) => ({ text: target.current }),
+    restoreClipboardSnapshot: (target, snapshot) => { target.current = snapshot.text; },
+    readFocusedInfo: async () => ({}),
+    textObservationManager: { start: async () => undefined },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const result = await ipcMain.handles.get('keyboard:type-transcript')({}, '听写结果', {
+    startFocusInfo: { appInfo: { app_metadata: { hwnd: '1' } } },
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'foreground_changed');
+  assert.equal(pasteSpawns.length, 0, '没有可信目标时不能发 Ctrl+V');
+  assert.equal(clipboard.current, 'before', '也不能碰用户的剪贴板');
+});

@@ -25,9 +25,9 @@
 - `main` 是统一源码主线，保留 Windows 和 macOS 源码、测试、配置、打包脚本和发布说明；ZIP、DMG、EXE、APP、blockmap、`release/` 和 `release-artifacts/` 等打包产物不得提交到仓库，正式产物只上传 GitHub Releases。
 - 发布准备应从 `main` 拉 `release/vX.Y.Z` 分支处理版本号、签名、公证和 release note；不要创建用于长期保存打包产物的 Git 分支。
 - macOS 打包态应用名必须设置为 `SpeakMore`，确保 `app.getPath('userData')` 指向 `~/Library/Application Support/SpeakMore`；设置页保存 `asrDeviceMode=mps` 后，用户真实退出并重开 App 时，Electron 必须按该设置给内置后端注入 `FUNASR_DEVICE=mps`；Windows 设置页保存 `asrDeviceMode=cuda` 后，打包态 Electron 必须给内置后端注入 `FUNASR_DEVICE=cuda:0`。
-- 后端关键接口为 `GET /health`、`GET /model/status`、`POST /model/download`、`GET /ready`、`POST /config/reload`、`POST /ai/voice_flow` 和 `WebSocket /ws/rt_voice_flow`。
+- 后端关键接口为 `GET /health`、`GET /model/status`、`POST /model/download`、`POST /model/delete`、`GET /ready`、`POST /config/reload`、`POST /ai/voice_flow` 和 `WebSocket /ws/rt_voice_flow`。
 - `/health` 表示后端进程存活；`/model/status` 表示当前选用模型的初始化状态，并在 `models` 里列出每个模型的下载状态；`/ready` 表示当前 ASR 模型已加载完成，语音链路可接收请求。
-- 旧的独立模型管理页和 `model:*` IPC 已删除，不要恢复；模型的下载、全部下载和切换只放在“初始化”页，统一走 `voice-model:get-status`、`voice-model:start-download` IPC。
+- 旧的独立模型管理页和 `model:*` IPC 已删除，不要恢复；模型的下载、全部下载和切换只放在“初始化”页，统一走 `voice-model:get-status`、`voice-model:start-download`、`voice-model:delete` IPC。
 - 当前支持两个 ASR 模型，元数据唯一来源是 `shared/asr-models.json`（后端 `server/model_manager.py` 的注册表必须与它一致，有测试校验）：`sensevoice-small`（`FunAudioLLM/SenseVoiceSmall`，FunASR PyTorch，约 900 MB，默认）和 `sensevoice-small-int8`（`csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` 的 `model.int8.onnx` + `tokens.txt`，sherpa-onnx 推理，约 229 MB）。
 - 两个模型都不描述为原生在线 streaming；后端通过累计音频伪流式输出维持现有 WebSocket 协议。int8 版是同一权重的量化导出，2026-11-19 在 7.5 分钟真实录音上与 PyTorch 版字符差异约 1.2%，CPU 推理约快一倍，常驻内存约 0.5 GB（PyTorch 版约 3 GB）。
 - 当前模型由 Electron 设置 `asrModelId` 决定：开发态每次 `/model/status`、`/model/download` 都带 `model_id`，后端在空闲时切换（下载或加载中不切换）；打包态启动后端时注入 `SPEAKMORE_ASR_MODEL_ID`。`POST /model/download` 带 `load: false` 时只下载不切换。切换时先释放旧模型；从 PyTorch 版切到 int8 版后，内存要重启后端进程才会还给系统。
@@ -44,7 +44,7 @@
 - `electron-app/renderer/src/components/AppShell.tsx` 只承担全局壳层和持久化订阅，页面状态拆到 `useGlobalShortcutBridge`、`useVoiceHistoryPersistence` 和 `useSettingsPageState` 之类的专用 hook。
 - 前端修改后必须在 `electron-app/renderer/` 下运行 `npm run build`，再重启 Electron 验证。
 - macOS 本地打包入口为 `npm run build:app:mac`，内容检查为 `npm run verify:app:mac`，MPS 重启生效烟测为 `npm run smoke:app-mps:mac`；公开 release 入口为 `npm run build:release:mac`，必须提供 Developer ID 签名和 Apple notarization 凭证。
-- 主窗口关闭按钮只隐藏窗口到后台，托盘“退出”或真实应用退出才结束 Electron。
+- 主窗口关闭按钮（Windows 与 macOS 原生版一致）默认只最小化窗口、不退出应用，语音链路继续在后台运行；再次打开时（托盘“打开主窗口”、再次启动）要先还原最小化的窗口；托盘“退出”或真实应用退出才结束 Electron。Windows 在 `window-manager.js` 的 `close` 事件里 `preventDefault()` + `minimize()`，macOS 在 `MinimizeOnClose.swift` 里拦截关闭改成 `miniaturize`。
 - 历史、设置、统计、日志和录音相关本地数据由 Electron 主进程写入 `app.getPath('userData')/local-data/`。
 - 词典和自动学习候选也属于本地数据，由 Electron 主进程写入 `app.getPath('userData')/local-data/`，renderer 只能通过 IPC 访问。
 - `electron-app/renderer/src/services/recorder.ts` 是语音状态机 facade 和唯一对外入口；会话状态、音频运行时和生命周期边界分别拆到 `electron-app/renderer/src/services/voice/voiceSessionStore.ts`、`recordingTransportRuntime.ts` 和 `voiceSessionLifecycle.ts`，其余语音链路内部模块仍放在 `electron-app/renderer/src/services/voice/` 下的 `recordingStartup.ts`、`voiceSocket.ts`、`voiceResultDelivery.ts`、`voiceSessionUtils.ts`、`backgroundAudio.ts`、`audioCapture.ts` 和 `audioLevelMonitor.ts`。
@@ -80,6 +80,7 @@
 - 三种模式只要粘贴或替换失败，都必须把最终结果展示到悬浮卡片，不能让用户丢失结果。
 - 自动粘贴前必须先确认当前存在可信文本输入目标；找不到光标或输入目标时，不得静默写剪贴板和发送 `Ctrl+V`，必须直接展示悬浮卡片。
 - 自动粘贴前的输入目标判定按四层收敛：`UIA confirmed` -> `Win32 caret confirmed` -> `app_compat` 弱可信应用族兜底 -> 悬浮卡片；不要把“前台窗口存在”当成可粘贴条件，第三层只在 allowlist 应用族且弱信号充分时放行。当前 allowlist 只做显式应用族匹配，包含微信、QQ、Discord、Codex、Claude Code、ChatGPT、VS Code、Cursor、Slack、Notion、Spotify，不把所有 Electron / Chromium 一刀切放开。
+- 自动粘贴前如果前台窗口已经不是录音开始时锁定的那个（用户点了别处、别的应用抢了焦点），先把锁定的窗口还原到前台再重新判定目标：Windows 走 `focused-context` 的 `restoreForegroundWindow`（AttachThreadInput + SetForegroundWindow，不用模拟 Alt 键，否则 Chrome 会把焦点移到菜单），还原失败才展示悬浮卡片；macOS 走 `Accessibility.activateApplication`，且目标与录音开始时是同一个应用但 AX 读不到文本控件时，按 `sameApplication` 弱可信放行（`PasteTargetPolicy`，非文本类应用 / 窗口标题黑名单除外）。
 - 自动粘贴成功后必须恢复用户原剪贴板内容，不能让 SpeakMore 的结果长期占用系统剪贴板。
 - 剪贴板恢复必须在发出粘贴快捷键之后延迟执行（Windows `keyboard-ipc.js` 当前 600 ms、不阻塞结果返回；macOS 当前等待 180 ms）：Chromium / Electron 应用和微信是异步读剪贴板的，立刻恢复会让目标应用粘贴出用户原来的剪贴板或什么都没写进去。等待期间用户自己改了剪贴板就不再覆盖；连续听写时沿用第一轮保存的原始剪贴板快照。
 - 如果同一轮键态里同时存在自由提问键（Windows `Space` / macOS `RightCommand`）和 `RightShift`，优先按翻译意图处理，避免自由提问抢占翻译。
@@ -115,7 +116,7 @@
 - 首页“整体个性化”只展示基于累计听写时长、累计听写字数和启用正式词条数计算出的百分比；公式采用 `score(value, anchor) = min(1, max(0, value / anchor) ^ 0.55)`，锚点为 `60000` 分钟、`10000000` 字和 `2000` 个启用词条，权重为时长 `25%`、字数 `30%`、词条 `45%`；候选词和停用词不计入分数，该分数只用于首页展示，不改变 prompt 词典裁剪。
 - 首页“最近结果”展示非自由提问的最近三次最终转录/最终结果文字；实时状态只在悬浮胶囊展示。
 - 首页“最近结果”、历史记录条目和自由提问悬浮结果都应提供复制入口；复制动作统一走 `clipboard:write-text` IPC，空结果不能复制占位符。
-- 初始化页展示当前模型的下载/加载状态和可选模型列表：每个模型可单独“下载”（只下载不切换），也可“全部下载”，已下载的模型点“使用此模型”会保存 `asrModelId` 并加载；有任何模型已下载后不再允许改模型保存路径；设置页目前包含固定快捷键展示、麦克风选择、界面语言、翻译目标语言和大模型 provider/API Key/模型配置；开机启动入口暂时不展示，`permission:update-auto-launch` 不应写入系统登录项；大模型配置必须通过“修改”进入编辑态，点击“保存”后写入本地设置并触发后端配置重载；翻译目标语言当前支持英文 `en` 和日语 `ja`。
+- 初始化页展示当前模型的下载/加载状态和可选模型列表：每个模型可单独“下载”（只下载不切换），也可“全部下载”，已下载的模型点“使用此模型”会保存 `asrModelId` 并加载，已下载的模型（含当前模型）还有“删除”：弹确认框后走 `POST /model/delete`，后端拒绝下载 / 加载中的删除（409），删的是当前模型时先卸载并回到“未下载”，只删应用管理的缓存目录（`models--<repo>`），显式目录环境变量和 Hugging Face 缓存可能被别的程序共用，只在结果里报告位置、不删除；有任何模型已下载后不再允许改模型保存路径；设置页目前包含固定快捷键展示、麦克风选择、界面语言、翻译目标语言和大模型 provider/API Key/模型配置；开机启动入口暂时不展示，`permission:update-auto-launch` 不应写入系统登录项；大模型配置必须通过“修改”进入编辑态，点击“保存”后写入本地设置并触发后端配置重载；翻译目标语言当前支持英文 `en` 和日语 `ja`。
 - 不要用历史阶段标签扩大范围做整套页面重构、账户体系、云同步、自动更新或复杂快捷键编辑器；需要做这些功能时先单独设计。
 
 ## 数据与配置
