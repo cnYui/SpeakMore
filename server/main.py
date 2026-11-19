@@ -596,6 +596,11 @@ async def ws_voice_flow(websocket: WebSocket, app_instance: FastAPI | None = Non
         while True:
             message = await websocket.receive()
 
+            # 客户端正常断开时 receive() 会给出 disconnect 消息；必须在这里结束循环，
+            # 否则下一轮 receive() 会抛 RuntimeError，每次断开都在日志里留一长串 traceback。
+            if message["type"] == "websocket.disconnect":
+                break
+
             if message["type"] != "websocket.receive":
                 continue
 

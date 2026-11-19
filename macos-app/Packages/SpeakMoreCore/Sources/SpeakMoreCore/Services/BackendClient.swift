@@ -24,7 +24,7 @@ public struct BackendClient: Sendable {
     public static let defaultBaseURL = URL(string: "http://127.0.0.1:8000")!
 
     public let baseURL: URL
-    private let transport: HTTPTransport
+    let transport: HTTPTransport
 
     public init(baseURL: URL? = nil, transport: HTTPTransport = URLSessionTransport()) {
         let environmentURL = ProcessInfo.processInfo.environment[Self.baseURLEnvironmentKey].flatMap(URL.init(string:))
