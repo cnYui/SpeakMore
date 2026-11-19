@@ -5,6 +5,11 @@
  */
 const { spawn } = require('child_process');
 
+// Chromium / Electron 应用（VS Code、Codex、Chrome、Slack 等）和微信处理 Ctrl+V 时是异步读剪贴板的：
+// SendKeys 进程退出时目标应用可能还没读到。实测在 Chromium 输入框里“发出 Ctrl+V 后立刻恢复剪贴板”
+// 20/20 次粘贴的是用户原来的剪贴板，延迟 20ms 以上恢复则 20/20 正确。这里留足余量，并且不阻塞结果返回。
+const CLIPBOARD_RESTORE_DELAY_MS = 600;
+
 function registerKeyboardIpcHandlers({
   ipcMain,
   clipboard,
@@ -19,9 +24,53 @@ function registerKeyboardIpcHandlers({
   randomUUID = () => require('crypto').randomUUID(),
   processEnv = process.env,
   logger = console,
+  clipboardRestoreDelayMs = CLIPBOARD_RESTORE_DELAY_MS,
+  setTimeoutImpl = setTimeout,
+  clearTimeoutImpl = clearTimeout,
 } = {}) {
   function log(level, message, details = {}) {
     logger?.[level]?.(`[auto-learning][keyboard] ${message}`, details);
+  }
+
+  // 还没恢复的上一轮剪贴板快照。连续两次听写间隔很短时，第二轮必须沿用第一轮保存的“用户原始剪贴板”，
+  // 不能把第一轮的听写结果当成原始内容快照下来。
+  let pendingClipboardRestore = null;
+
+  function takeClipboardSnapshot() {
+    if (pendingClipboardRestore) {
+      clearTimeoutImpl(pendingClipboardRestore.timer);
+      const { snapshot } = pendingClipboardRestore;
+      pendingClipboardRestore = null;
+      return snapshot;
+    }
+    return createClipboardSnapshot(clipboard);
+  }
+
+  function restoreClipboardNow(snapshot, pastedText) {
+    try {
+      restoreClipboardSnapshot(clipboard, snapshot);
+      log('info', '已恢复剪贴板', { pastedText });
+    } catch {
+      log('error', '恢复剪贴板失败', { pastedText });
+      logger.warn?.('自动粘贴后恢复剪贴板失败');
+    }
+  }
+
+  function scheduleClipboardRestore(snapshot, pastedText) {
+    const entry = { snapshot, timer: null };
+    pendingClipboardRestore = entry;
+    entry.timer = setTimeoutImpl(() => {
+      if (pendingClipboardRestore !== entry) return;
+      pendingClipboardRestore = null;
+      // 等待期间用户自己复制了别的内容，就不要再用旧快照覆盖。
+      const currentText = typeof clipboard.readText === 'function' ? clipboard.readText() : pastedText;
+      if (currentText !== pastedText) {
+        log('info', '剪贴板已被用户改动，跳过恢复', { pastedText });
+        return;
+      }
+      restoreClipboardNow(snapshot, pastedText);
+    }, clipboardRestoreDelayMs);
+    log('info', '已安排延迟恢复剪贴板', { pastedText, delayMs: clipboardRestoreDelayMs });
   }
 
   // 这些依赖都由 main.js 注入；启动期直接失败比运行到半截静默丢结果更容易定位接线问题。
@@ -72,13 +121,12 @@ function registerKeyboardIpcHandlers({
       return { success: false, reason: textTarget.reason || 'focused_text_target_unavailable' };
     }
 
-    // 自动粘贴必须临时借用系统剪贴板；先做快照，才能在 finally 中尽量恢复用户原本的剪贴板内容。
-    const previousClipboard = createClipboardSnapshot(clipboard);
+    // 自动粘贴必须临时借用系统剪贴板；先做快照，才能在 finally 中安排恢复用户原本的剪贴板内容。
+    const previousClipboard = takeClipboardSnapshot();
     log('info', '已创建剪贴板快照', {
       pastedText,
       target: textTarget,
     });
-    let restoreFailed = false;
 
     try {
       clipboard.writeText(pastedText);
@@ -124,18 +172,9 @@ function registerKeyboardIpcHandlers({
       }
       return { success: pasteSucceeded };
     } finally {
-      // 恢复剪贴板放在 finally，确保粘贴失败、观察启动失败或 PowerShell 异常时也不会长期占用用户剪贴板。
-      try {
-        restoreClipboardSnapshot(clipboard, previousClipboard);
-        log('info', '已恢复剪贴板', { pastedText });
-      } catch {
-        restoreFailed = true;
-        log('error', '恢复剪贴板失败', { pastedText });
-      }
-
-      if (restoreFailed) {
-        logger.warn?.('自动粘贴后恢复剪贴板失败');
-      }
+      // 恢复剪贴板放在 finally，确保粘贴失败、观察启动失败或 PowerShell 异常时也不会长期占用用户剪贴板；
+      // 但要延迟执行，给目标应用异步读取剪贴板留出时间。
+      scheduleClipboardRestore(previousClipboard, pastedText);
     }
   }
 
@@ -183,5 +222,6 @@ function registerKeyboardIpcHandlers({
 }
 
 module.exports = {
+  CLIPBOARD_RESTORE_DELAY_MS,
   registerKeyboardIpcHandlers,
 };

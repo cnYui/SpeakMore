@@ -2,7 +2,71 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const EventEmitter = require('node:events');
 const { registerPageIpcHandlers } = require('./page-ipc');
-const { registerKeyboardIpcHandlers } = require('./keyboard-ipc');
+const { CLIPBOARD_RESTORE_DELAY_MS, registerKeyboardIpcHandlers } = require('./keyboard-ipc');
+
+function createFakeTimers() {
+  let nextId = 1;
+  const pending = new Map();
+  return {
+    options: {
+      setTimeoutImpl: (callback, delay) => {
+        const id = nextId++;
+        pending.set(id, { callback, delay });
+        return id;
+      },
+      clearTimeoutImpl: (id) => pending.delete(id),
+    },
+    delays: () => [...pending.values()].map((timer) => timer.delay),
+    runAll: () => {
+      const timers = [...pending.values()];
+      pending.clear();
+      timers.forEach((timer) => timer.callback());
+    },
+  };
+}
+
+function createWindowsPasteHarness({ clipboardText = 'before' } = {}) {
+  const ipcMain = createFakeIpcMain();
+  const timers = createFakeTimers();
+  const restoreCalls = [];
+  const snapshotCalls = [];
+  const clipboard = {
+    current: clipboardText,
+    writeText(text) {
+      this.current = text;
+    },
+    readText() {
+      return this.current;
+    },
+  };
+
+  registerKeyboardIpcHandlers({
+    ipcMain,
+    clipboard,
+    platform: 'win32',
+    ...timers.options,
+    spawnProcess: () => {
+      const child = createFakeChildProcess();
+      setImmediate(() => child.emit('exit', 0));
+      return child;
+    },
+    readFocusedTextTarget: async () => ({ success: true }),
+    createClipboardSnapshot: (target) => {
+      snapshotCalls.push(target.current);
+      return { text: target.current };
+    },
+    restoreClipboardSnapshot: (target, snapshot) => {
+      restoreCalls.push(snapshot.text);
+      target.current = snapshot.text;
+    },
+    readFocusedInfo: async () => ({}),
+    textObservationManager: { start: async () => undefined },
+    randomUUID: () => 'audio-1',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  return { ipcMain, timers, clipboard, restoreCalls, snapshotCalls };
+}
 
 function createFakeIpcMain() {
   const handles = new Map();
@@ -134,11 +198,14 @@ test('registerKeyboardIpcHandlers 处理转写粘贴与观察启动', async () =
   const restoreCalls = [];
   const observationStarts = [];
   const spawnCalls = [];
+  const timers = createFakeTimers();
+  clipboard.readText = () => clipboardWrites[clipboardWrites.length - 1];
 
   registerKeyboardIpcHandlers({
     ipcMain,
     clipboard,
     platform: 'win32',
+    ...timers.options,
     spawnProcess: (...args) => {
       spawnCalls.push(args);
       setImmediate(() => child.emit('exit', 0));
@@ -165,6 +232,10 @@ test('registerKeyboardIpcHandlers 处理转写粘贴与观察启动', async () =
 
   assert.deepEqual(clipboardWrites, ['hello']);
   assert.equal(snapshotCalls[0], clipboard);
+  // 剪贴板延迟恢复：结果返回时还不能恢复，否则目标应用可能读到旧剪贴板。
+  assert.deepEqual(restoreCalls, []);
+  assert.deepEqual(timers.delays(), [CLIPBOARD_RESTORE_DELAY_MS]);
+  timers.runAll();
   assert.deepEqual(restoreCalls, [[clipboard, { text: 'before' }]]);
   assert.equal(spawnCalls.length, 1);
   assert.deepEqual(observationStarts, [{
@@ -237,11 +308,14 @@ test('registerKeyboardIpcHandlers 在自动学习启动异常时仍静默完成�
   };
   const restoreCalls = [];
   const spawnCalls = [];
+  const timers = createFakeTimers();
+  clipboard.readText = () => clipboardWrites[clipboardWrites.length - 1];
 
   registerKeyboardIpcHandlers({
     ipcMain,
     clipboard,
     platform: 'win32',
+    ...timers.options,
     spawnProcess: (...args) => {
       spawnCalls.push(args);
       setImmediate(() => child.emit('exit', 0));
@@ -267,6 +341,7 @@ test('registerKeyboardIpcHandlers 在自动学习启动异常时仍静默完成�
 
   assert.deepEqual(clipboardWrites, ['hello']);
   assert.equal(spawnCalls.length, 1);
+  timers.runAll();
   assert.deepEqual(restoreCalls, [[clipboard, { text: 'before' }]]);
 });
 
@@ -342,4 +417,29 @@ test('registerKeyboardIpcHandlers 在 macOS 平台能力失败时返回 reason',
     reason: 'macos_accessibility_permission_missing',
   });
   assert.deepEqual(calls, []);
+});
+
+test('registerKeyboardIpcHandlers 粘贴后延迟恢复剪贴板，期间用户复制了新内容就不覆盖', async () => {
+  const { ipcMain, timers, clipboard, restoreCalls } = createWindowsPasteHarness({ clipboardText: '用户原来的剪贴板' });
+
+  assert.deepEqual(await ipcMain.invoke('keyboard:type-transcript', '听写结果'), { success: true });
+  assert.equal(clipboard.current, '听写结果');
+  clipboard.writeText('用户刚复制的内容');
+  timers.runAll();
+
+  assert.deepEqual(restoreCalls, []);
+  assert.equal(clipboard.current, '用户刚复制的内容');
+});
+
+test('registerKeyboardIpcHandlers 连续两次听写时恢复的是最初的用户剪贴板', async () => {
+  const { ipcMain, timers, clipboard, restoreCalls, snapshotCalls } = createWindowsPasteHarness({ clipboardText: '用户原来的剪贴板' });
+
+  await ipcMain.invoke('keyboard:type-transcript', '第一句');
+  await ipcMain.invoke('keyboard:type-transcript', '第二句');
+  assert.deepEqual(timers.delays(), [CLIPBOARD_RESTORE_DELAY_MS]);
+  timers.runAll();
+
+  assert.deepEqual(snapshotCalls, ['用户原来的剪贴板']);
+  assert.deepEqual(restoreCalls, ['用户原来的剪贴板']);
+  assert.equal(clipboard.current, '用户原来的剪贴板');
 });

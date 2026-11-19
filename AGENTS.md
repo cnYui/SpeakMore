@@ -77,6 +77,7 @@
 - 自动粘贴前必须先确认当前存在可信文本输入目标；找不到光标或输入目标时，不得静默写剪贴板和发送 `Ctrl+V`，必须直接展示悬浮卡片。
 - 自动粘贴前的输入目标判定按四层收敛：`UIA confirmed` -> `Win32 caret confirmed` -> `app_compat` 弱可信应用族兜底 -> 悬浮卡片；不要把“前台窗口存在”当成可粘贴条件，第三层只在 allowlist 应用族且弱信号充分时放行。当前 allowlist 只做显式应用族匹配，包含微信、QQ、Discord、Codex、Claude Code、ChatGPT、VS Code、Cursor、Slack、Notion、Spotify，不把所有 Electron / Chromium 一刀切放开。
 - 自动粘贴成功后必须恢复用户原剪贴板内容，不能让 SpeakMore 的结果长期占用系统剪贴板。
+- 剪贴板恢复必须在发出粘贴快捷键之后延迟执行（Windows `keyboard-ipc.js` 当前 600 ms、不阻塞结果返回；macOS 当前等待 180 ms）：Chromium / Electron 应用和微信是异步读剪贴板的，立刻恢复会让目标应用粘贴出用户原来的剪贴板或什么都没写进去。等待期间用户自己改了剪贴板就不再覆盖；连续听写时沿用第一轮保存的原始剪贴板快照。
 - 如果同一轮键态里同时存在自由提问键（Windows `Space` / macOS `RightCommand`）和 `RightShift`，优先按翻译意图处理，避免自由提问抢占翻译。
 - `focused-context:get-selection-snapshot` 在 Windows 使用 UI Automation 读取 confirmed 选区，读取顺序为 `FocusedElement` 的 TextPattern、前台窗口 Document/TextPattern 子树扫描、剪贴板 fallback；在 macOS 使用 Accessibility API 读取 focused element 的 selected text，当前不启用剪贴板 fallback；`focused-context:get-selected-text` 的剪贴板读取只保留为旧兼容能力，必须尽量恢复原剪贴板。
 - 普通听写和语音翻译启动前不得读取 UIA、AX 或剪贴板选区；只有自由提问需要读取选区作为上下文。
