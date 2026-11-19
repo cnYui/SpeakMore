@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Box } from '@mui/material'
 import Sidebar from './Sidebar'
+import GlassFilters from './GlassFilters'
+import VoiceInputMenu from './VoiceInputMenu'
 import Dashboard from '../pages/Dashboard'
 import History from '../pages/History'
 import Dictionary from '../pages/Dictionary'
@@ -50,25 +52,30 @@ export default function AppShell() {
   return (
     <I18nProvider language={language} setLanguage={setLanguage}>
       <Box sx={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <GlassFilters />
         <Box
           sx={{
             height: 48,
+            flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
-            px: 2,
+            // 右侧要给系统的最小化 / 最大化 / 关闭按钮（titleBarOverlay）留出位置。
+            pl: 2,
+            pr: '156px',
             WebkitAppRegion: 'drag',
           }}
-        />
+        >
+          <VoiceInputMenu />
+        </Box>
 
         <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <Sidebar activePage={page} onNavigate={setPage} />
           <Box
             sx={{
               flex: 1,
-              bgcolor: 'background.paper',
-              borderRadius: '8px',
-              border: '1px solid rgba(119,119,119,0.15)',
+              minWidth: 0,
+              // 内容区不再是一整块白底：各页面自己放玻璃卡片，滚动时背景的光斑保持不动。
               overflow: 'auto',
             }}
           >

@@ -37,6 +37,19 @@ test('buildMainWindowOptions 保持主窗口尺寸、标题栏和 webPreferences
   });
 });
 
+test('buildMainWindowOptions 在 Windows 上启用亚克力材质并让窗口背景透明，其它平台保持纯色', () => {
+  const win = buildMainWindowOptions({ platform: 'win32' });
+  assert.equal(win.backgroundMaterial, 'acrylic');
+  assert.equal(win.backgroundColor, '#00000000');
+  assert.equal(win.transparent, false);
+
+  for (const platform of ['darwin', 'linux']) {
+    const other = buildMainWindowOptions({ platform });
+    assert.equal(other.backgroundMaterial, undefined, platform);
+    assert.equal(other.backgroundColor, '#ffffff', platform);
+  }
+});
+
 test('buildFloatingWindowOptions 保持悬浮窗透明置顶和不可聚焦配置', () => {
   const bounds = { x: 11, y: 22, width: 400, height: 360 };
 

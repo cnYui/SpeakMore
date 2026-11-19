@@ -1,0 +1,92 @@
+/*
+ * Liquid Glass 风格的样式层（Windows 版主窗口）。
+ *
+ * 和 macOS 原生版的玻璃一致的几个要素：半透明填充 + 背景模糊提亮（backdrop-filter）、顶部高光边（inset 白线）、
+ * 柔和的悬浮阴影、大圆角；小元素（徽章、键帽、主按钮、侧边栏选中项）再叠一层边缘折射（SVG 位移滤镜，仅 Chromium 支持）。
+ *
+ * 窗口本身在 Windows 11 上用亚克力材质（见 window-manager-options.js），所以页面背景必须透明；
+ * 又因为 backdrop-filter 只能模糊页面里画出来的内容（看不到亚克力后面的桌面），这里在页面最底下铺几团很淡的彩色光斑，
+ * 给玻璃提供可以“透过去”的内容，没有它们玻璃看起来就只是一块半透明白板。
+ */
+:root {
+  color-scheme: light;
+  --glass-accent: #0a84ff;
+  --glass-fill: rgba(255, 255, 255, 0.46);
+  --glass-fill-strong: rgba(255, 255, 255, 0.66);
+  --glass-fill-flat: rgba(255, 255, 255, 0.52);
+  --glass-border: rgba(255, 255, 255, 0.62);
+  --glass-hairline: rgba(60, 70, 100, 0.10);
+  --glass-blur: blur(26px) saturate(1.85);
+  --glass-blur-light: blur(14px) saturate(1.6);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(255, 255, 255, 0.28), inset 0 -1px 0 rgba(255, 255, 255, 0.22);
+  --glass-shadow: 0 12px 32px rgba(30, 40, 70, 0.10), 0 2px 6px rgba(30, 40, 70, 0.06);
+  --glass-shadow-small: 0 4px 14px rgba(30, 40, 70, 0.10), 0 1px 3px rgba(30, 40, 70, 0.06);
+}
+
+html,
+body,
+#root {
+  background: transparent !important;
+}
+
+/* 最底层：几团很淡的彩色光斑，固定不随内容滚动，玻璃从它们上面“透”出颜色。 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(52vmax 38vmax at 6% 4%, rgba(112, 168, 255, 0.42), transparent 62%),
+    radial-gradient(46vmax 36vmax at 96% 14%, rgba(196, 150, 255, 0.32), transparent 62%),
+    radial-gradient(58vmax 42vmax at 74% 104%, rgba(96, 220, 196, 0.30), transparent 62%),
+    radial-gradient(40vmax 30vmax at 22% 92%, rgba(255, 190, 140, 0.20), transparent 62%),
+    /* 整体提亮：桌面是深色时，亚克力会把窗口压成灰黑，加一层白色薄雾让它回到玻璃的通透感。 */
+    linear-gradient(rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.26));
+}
+
+/* ---------- 玻璃表面 ---------- */
+.glass {
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+
+/* 列表里成批出现的条目：不开 backdrop-filter（几十个同时模糊太费 GPU），只保留填充和高光边。 */
+.glass-flat {
+  background: var(--glass-fill-flat);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), var(--glass-shadow-small);
+}
+
+/* 小元素的边缘折射：先轻微模糊，再用位移图在边缘处弯折背景（中心区域不动）。不支持 url() 滤镜的环境保持上面的普通磨砂。 */
+.glass-lens {
+  background: var(--glass-fill-strong);
+  -webkit-backdrop-filter: var(--glass-blur-light);
+  backdrop-filter: var(--glass-blur-light);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), var(--glass-shadow-small);
+}
+
+@supports (backdrop-filter: url(#glass-refract)) {
+  .glass-lens {
+    -webkit-backdrop-filter: blur(6px) url(#glass-refract) saturate(1.7);
+    backdrop-filter: blur(6px) url(#glass-refract) saturate(1.7);
+  }
+}
+
+/* 主按钮 / 选中项的强调色玻璃。 */
+.glass-accent {
+  background: linear-gradient(180deg, rgba(86, 170, 255, 0.96), rgba(10, 132, 255, 0.90));
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 6px 16px rgba(10, 132, 255, 0.30), 0 1px 3px rgba(10, 80, 200, 0.25);
+}
+
+/* 滚动条：细、半透明，不破坏玻璃。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(80, 90, 120, 0.30) transparent;
+}

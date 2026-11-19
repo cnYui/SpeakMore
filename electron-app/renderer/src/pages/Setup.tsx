@@ -5,7 +5,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import DownloadIcon from '@mui/icons-material/Download'
-import { pageSx, pageTitleSx } from '../uiTokens'
+import { glassItemSx, glassSectionSx, pageSx, pageTitleSx } from '../uiTokens'
 import { useI18n, type TranslationKey } from '../i18n'
 import {
   chooseModelCacheDirectory,
@@ -22,8 +22,7 @@ type SetupProps = {
 }
 
 const sectionSx = {
-  borderTop: '1px solid rgba(119,119,119,0.12)',
-  py: 2,
+  ...glassSectionSx,
 }
 
 const rowSx = {
@@ -34,8 +33,8 @@ const rowSx = {
 }
 
 const modelCardSx = {
-  border: '1px solid rgba(119,119,119,0.18)',
-  borderRadius: 2,
+  ...glassItemSx,
+  borderRadius: '16px',
   px: 2,
   py: 1.5,
 }
@@ -312,7 +311,7 @@ export default function Setup({ onOpenSettings }: SetupProps) {
             const optionDownloading = option.status === 'downloading'
             const optionHasProgress = optionDownloading && typeof option.progress_percent === 'number' && option.total_bytes > 0
             return (
-              <Box key={option.model_id} sx={{ ...modelCardSx, borderColor: option.active ? 'text.primary' : 'rgba(119,119,119,0.18)' }}>
+              <Box key={option.model_id} sx={{ ...modelCardSx, borderColor: option.active ? 'primary.main' : 'var(--glass-border)' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, minWidth: 0 }}>
                     <Typography sx={{ fontSize: 14, fontWeight: 500 }}>

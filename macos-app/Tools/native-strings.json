@@ -174,21 +174,5 @@
   "settings.launchAtLogin.failed": {
     "zh-Hans": "设置登录项失败：",
     "en": "Could not change the login item: "
-  },
-  "toolbar.voiceInput": {
-    "zh-Hans": "语音输入",
-    "en": "Voice Input"
-  },
-  "toolbar.dictate": {
-    "zh-Hans": "听写",
-    "en": "Dictate"
-  },
-  "toolbar.ask": {
-    "zh-Hans": "自由提问",
-    "en": "Ask Anything"
-  },
-  "toolbar.translate": {
-    "zh-Hans": "语音翻译",
-    "en": "Voice Translate"
   }
 }
