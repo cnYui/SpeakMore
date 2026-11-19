@@ -105,6 +105,17 @@ bash macos-app/Tools/package-app.sh
 即 `scripts/build-backend-macos.sh` 的产物），或设 `SPEAKMORE_BUILD_BACKEND=1` 现场构建（很慢，约 1 GB）。
 默认 ad-hoc 签名，只能在本机运行；正式分发要设 `SPEAKMORE_SIGN_IDENTITY="Developer ID Application: …"` 并另行公证。
 
+### 本机安装（点图标启动）
+
+```bash
+bash macos-app/Tools/install-local.sh          # 默认装到 /Applications
+```
+
+打包 → 装到 `/Applications/SpeakMore.app` → 登记到系统。装好后它和普通 App 一样出现在“启动台 / 应用程序”和 Spotlight 里，点图标就启动，
+可以拖到 Dock；开了“登录时自动启动”还会随登录自动运行在菜单栏。后端由 App 自己拉起（已有后端在监听就复用）。
+本机安装版不打 PyInstaller 后端，只放一个转调仓库 `server/.venv` 的启动脚本（`SPEAKMORE_LOCAL_BACKEND_DIR`），所以**依赖这份仓库检出，不要移动或删除仓库目录**；
+要分发给别人请用上面的 PyInstaller 后端。只替换 `SpeakMore.app` 本身，不碰同目录下的别的 App。
+
 ## 保持和 Electron 版一致的生成物
 
 改了 Electron 版的下面这些东西之后，需要重新生成并提交对应文件：
