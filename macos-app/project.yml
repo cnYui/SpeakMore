@@ -1,0 +1,58 @@
+name: SpeakMore
+options:
+  bundleIdPrefix: cn.yui
+  developmentLanguage: zh-Hans
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+packages:
+  SpeakMoreCore:
+    path: Packages/SpeakMoreCore
+targets:
+  SpeakMore:
+    type: application
+    platform: macOS
+    sources:
+      - path: SpeakMore
+        excludes:
+          - Info.plist
+    dependencies:
+      - package: SpeakMoreCore
+    info:
+      path: SpeakMore/Info.plist
+      properties:
+        CFBundleName: SpeakMore
+        CFBundleDisplayName: SpeakMore
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans, en]
+        LSMinimumSystemVersion: "15.0"
+        LSApplicationCategoryType: public.app-category.productivity
+        NSHumanReadableCopyright: MIT License
+        NSMicrophoneUsageDescription: SpeakMore 需要访问麦克风来进行本地语音识别。
+        NSAppleEventsUsageDescription: SpeakMore 需要和当前输入应用协作，以便在授权后粘贴听写结果。
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cn.yui.speakmore.native
+        PRODUCT_NAME: SpeakMore
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+        SWIFT_EMIT_LOC_STRINGS: NO
+schemes:
+  SpeakMore:
+    build:
+      targets:
+        SpeakMore: all
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -1,0 +1,869 @@
+{
+  "personalization": [
+    {
+      "input": {
+        "totalDurationMs": 0,
+        "totalTextLength": 0,
+        "activeDictionaryCount": 0
+      },
+      "expected": 0
+    },
+    {
+      "input": {
+        "totalDurationMs": 600000,
+        "totalTextLength": 1000,
+        "activeDictionaryCount": 5
+      },
+      "expected": 2
+    },
+    {
+      "input": {
+        "totalDurationMs": 3600000,
+        "totalTextLength": 50000,
+        "activeDictionaryCount": 100
+      },
+      "expected": 11
+    },
+    {
+      "input": {
+        "totalDurationMs": 7200000,
+        "totalTextLength": 123456,
+        "activeDictionaryCount": 321
+      },
+      "expected": 20
+    },
+    {
+      "input": {
+        "totalDurationMs": 123456789,
+        "totalTextLength": 2500000,
+        "activeDictionaryCount": 1500
+      },
+      "expected": 56
+    },
+    {
+      "input": {
+        "totalDurationMs": 99999999999999,
+        "totalTextLength": 99999999999,
+        "activeDictionaryCount": 99999
+      },
+      "expected": 100
+    },
+    {
+      "input": {
+        "totalDurationMs": -5,
+        "totalTextLength": -5,
+        "activeDictionaryCount": -5
+      },
+      "expected": 0
+    },
+    {
+      "input": {
+        "totalDurationMs": 1,
+        "totalTextLength": 1,
+        "activeDictionaryCount": 1
+      },
+      "expected": 1
+    }
+  ],
+  "history": {
+    "raw": [
+      {
+        "id": "h1",
+        "createdAt": "2026-11-19T01:00:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "你好世界",
+        "refinedText": "你好，世界。",
+        "durationMs": 4200,
+        "textLength": 6
+      },
+      {
+        "id": "h2",
+        "createdAt": "2026-11-19T01:01:00.000Z",
+        "mode": "Ask",
+        "status": "completed",
+        "rawText": "今天天气",
+        "refinedText": "今天天气怎么样？",
+        "durationMs": 3000
+      },
+      {
+        "id": "h3",
+        "createdAt": "2026-11-19T01:02:00.000Z",
+        "mode": "Translate",
+        "status": "completed",
+        "rawText": "hello",
+        "refinedText": "",
+        "durationMs": "1500"
+      },
+      {
+        "id": "h4",
+        "createdAt": "2026-11-19T01:03:00.000Z",
+        "mode": "Weird",
+        "status": "error",
+        "rawText": "",
+        "refinedText": "",
+        "errorCode": "llm_api_key_missing",
+        "durationMs": 800
+      },
+      {
+        "id": "h5",
+        "createdAt": "2026-11-19T01:04:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "  ",
+        "refinedText": "   ",
+        "durationMs": 100
+      },
+      {
+        "id": "h6",
+        "createdAt": "2026-11-19T01:05:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "表情😀测试👨‍👩‍👧",
+        "refinedText": "",
+        "durationMs": 60000
+      },
+      {
+        "id": "h7",
+        "createdAt": "2026-11-19T01:06:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "abc",
+        "refinedText": "ABC 润色",
+        "durationMs": -10,
+        "textLength": "x"
+      },
+      {
+        "id": "h8",
+        "createdAt": "2026-11-19T01:07:00.000Z",
+        "status": "weird",
+        "rawText": "no mode",
+        "durationMs": 2500.5
+      },
+      {
+        "id": "h1",
+        "createdAt": "2026-11-19T01:08:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "重复 id",
+        "refinedText": "",
+        "durationMs": 999
+      }
+    ],
+    "normalized": [
+      {
+        "id": "h1",
+        "createdAt": "2026-11-19T01:00:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "你好世界",
+        "refinedText": "你好，世界。",
+        "isTestRecord": false,
+        "durationMs": 4200,
+        "textLength": 6
+      },
+      {
+        "id": "h2",
+        "createdAt": "2026-11-19T01:01:00.000Z",
+        "mode": "Ask",
+        "status": "completed",
+        "rawText": "今天天气",
+        "refinedText": "今天天气怎么样？",
+        "isTestRecord": false,
+        "durationMs": 3000,
+        "textLength": 8
+      },
+      {
+        "id": "h3",
+        "createdAt": "2026-11-19T01:02:00.000Z",
+        "mode": "Translate",
+        "status": "completed",
+        "rawText": "hello",
+        "refinedText": "",
+        "isTestRecord": false,
+        "durationMs": 1500,
+        "textLength": 5
+      },
+      {
+        "id": "h4",
+        "createdAt": "2026-11-19T01:03:00.000Z",
+        "mode": "Dictate",
+        "status": "error",
+        "rawText": "",
+        "refinedText": "",
+        "isTestRecord": false,
+        "errorCode": "llm_api_key_missing",
+        "durationMs": 800,
+        "textLength": 0
+      },
+      {
+        "id": "h5",
+        "createdAt": "2026-11-19T01:04:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "  ",
+        "refinedText": "   ",
+        "isTestRecord": false,
+        "durationMs": 100,
+        "textLength": 0
+      },
+      {
+        "id": "h6",
+        "createdAt": "2026-11-19T01:05:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "表情😀测试👨‍👩‍👧",
+        "refinedText": "",
+        "isTestRecord": false,
+        "durationMs": 60000,
+        "textLength": 14
+      },
+      {
+        "id": "h7",
+        "createdAt": "2026-11-19T01:06:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "abc",
+        "refinedText": "ABC 润色",
+        "isTestRecord": false,
+        "durationMs": 0,
+        "textLength": 6
+      },
+      {
+        "id": "h8",
+        "createdAt": "2026-11-19T01:07:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "no mode",
+        "refinedText": "",
+        "isTestRecord": false,
+        "durationMs": 2500.5,
+        "textLength": 7
+      },
+      {
+        "id": "h1",
+        "createdAt": "2026-11-19T01:08:00.000Z",
+        "mode": "Dictate",
+        "status": "completed",
+        "rawText": "重复 id",
+        "refinedText": "",
+        "isTestRecord": false,
+        "durationMs": 999,
+        "textLength": 5
+      }
+    ],
+    "stats": {
+      "schemaVersion": 1,
+      "completedCount": 7,
+      "totalDurationMs": 71300.5,
+      "totalTextLength": 46,
+      "countedHistoryIds": [
+        "h8",
+        "h7",
+        "h6",
+        "h5",
+        "h3",
+        "h2",
+        "h1"
+      ]
+    },
+    "dashboard": {
+      "totalCount": 7,
+      "completedCount": 7,
+      "totalDurationMs": 71300.5,
+      "totalTextLength": 46,
+      "averageCharsPerMinute": 39,
+      "savedMs": 0
+    },
+    "recent": [
+      {
+        "id": "h1",
+        "text": "你好，世界。"
+      },
+      {
+        "id": "h3",
+        "text": "hello"
+      },
+      {
+        "id": "h6",
+        "text": "表情😀测试👨‍👩‍👧"
+      }
+    ],
+    "recentLimit1": [
+      {
+        "id": "h1",
+        "text": "你好，世界。"
+      }
+    ]
+  },
+  "settings": [
+    {
+      "input": {},
+      "expected": {
+        "preferredLanguage": "zh-CN",
+        "translationTargetLanguage": "en",
+        "launchAtSystemStartup": false,
+        "selectedAudioDeviceId": "default",
+        "modelCacheDir": "",
+        "asrDeviceMode": "default",
+        "asrModelId": "sensevoice-small",
+        "llm": {
+          "providerId": "deepseek",
+          "providers": [
+            {
+              "id": "deepseek",
+              "label": "DeepSeek",
+              "baseUrl": "https://api.deepseek.com/v1",
+              "defaultModel": "deepseek-chat",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "openai",
+              "label": "OpenAI",
+              "baseUrl": "https://api.openai.com/v1",
+              "defaultModel": "gpt-5.4",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "zai",
+              "label": "Z.AI",
+              "baseUrl": "https://api.z.ai/api/paas/v4",
+              "defaultModel": "glm-4.6",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "openrouter",
+              "label": "OpenRouter",
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "defaultModel": "openai/gpt-5.4",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "anthropic",
+              "label": "Anthropic",
+              "baseUrl": "https://api.anthropic.com/v1",
+              "defaultModel": "claude-sonnet-4-5",
+              "allowBaseUrlEdit": false,
+              "authType": "anthropic"
+            },
+            {
+              "id": "groq",
+              "label": "Groq",
+              "baseUrl": "https://api.groq.com/openai/v1",
+              "defaultModel": "llama-3.3-70b-versatile",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "cerebras",
+              "label": "Cerebras",
+              "baseUrl": "https://api.cerebras.ai/v1",
+              "defaultModel": "llama-3.3-70b",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "custom",
+              "label": "Custom",
+              "baseUrl": "http://localhost:11434/v1",
+              "defaultModel": "",
+              "allowBaseUrlEdit": true,
+              "authType": "bearer"
+            }
+          ],
+          "apiKeys": {
+            "deepseek": "",
+            "openai": "",
+            "zai": "",
+            "openrouter": "",
+            "anthropic": "",
+            "groq": "",
+            "cerebras": "",
+            "custom": ""
+          },
+          "models": {
+            "deepseek": "deepseek-chat",
+            "openai": "gpt-5.4",
+            "zai": "glm-4.6",
+            "openrouter": "openai/gpt-5.4",
+            "anthropic": "claude-sonnet-4-5",
+            "groq": "llama-3.3-70b-versatile",
+            "cerebras": "llama-3.3-70b",
+            "custom": ""
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "preferredLanguage": "en-US",
+        "translationTargetLanguage": "ja",
+        "asrDeviceMode": "mps",
+        "asrModelId": "sensevoice-small-int8",
+        "modelCacheDir": "  /Users/x/models  "
+      },
+      "expected": {
+        "preferredLanguage": "en-US",
+        "translationTargetLanguage": "ja",
+        "launchAtSystemStartup": false,
+        "selectedAudioDeviceId": "default",
+        "modelCacheDir": "/Users/x/models",
+        "asrDeviceMode": "mps",
+        "asrModelId": "sensevoice-small-int8",
+        "llm": {
+          "providerId": "deepseek",
+          "providers": [
+            {
+              "id": "deepseek",
+              "label": "DeepSeek",
+              "baseUrl": "https://api.deepseek.com/v1",
+              "defaultModel": "deepseek-chat",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "openai",
+              "label": "OpenAI",
+              "baseUrl": "https://api.openai.com/v1",
+              "defaultModel": "gpt-5.4",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "zai",
+              "label": "Z.AI",
+              "baseUrl": "https://api.z.ai/api/paas/v4",
+              "defaultModel": "glm-4.6",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "openrouter",
+              "label": "OpenRouter",
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "defaultModel": "openai/gpt-5.4",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "anthropic",
+              "label": "Anthropic",
+              "baseUrl": "https://api.anthropic.com/v1",
+              "defaultModel": "claude-sonnet-4-5",
+              "allowBaseUrlEdit": false,
+              "authType": "anthropic"
+            },
+            {
+              "id": "groq",
+              "label": "Groq",
+              "baseUrl": "https://api.groq.com/openai/v1",
+              "defaultModel": "llama-3.3-70b-versatile",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "cerebras",
+              "label": "Cerebras",
+              "baseUrl": "https://api.cerebras.ai/v1",
+              "defaultModel": "llama-3.3-70b",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "custom",
+              "label": "Custom",
+              "baseUrl": "http://localhost:11434/v1",
+              "defaultModel": "",
+              "allowBaseUrlEdit": true,
+              "authType": "bearer"
+            }
+          ],
+          "apiKeys": {
+            "deepseek": "",
+            "openai": "",
+            "zai": "",
+            "openrouter": "",
+            "anthropic": "",
+            "groq": "",
+            "cerebras": "",
+            "custom": ""
+          },
+          "models": {
+            "deepseek": "deepseek-chat",
+            "openai": "gpt-5.4",
+            "zai": "glm-4.6",
+            "openrouter": "openai/gpt-5.4",
+            "anthropic": "claude-sonnet-4-5",
+            "groq": "llama-3.3-70b-versatile",
+            "cerebras": "llama-3.3-70b",
+            "custom": ""
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "preferredLanguage": "fr",
+        "translationTargetLanguage": "zz",
+        "asrDeviceMode": "gpu",
+        "asrModelId": "whisper",
+        "selectedAudioDeviceId": "",
+        "modelCacheDir": 42
+      },
+      "expected": {
+        "preferredLanguage": "zh-CN",
+        "translationTargetLanguage": "en",
+        "launchAtSystemStartup": false,
+        "selectedAudioDeviceId": "default",
+        "modelCacheDir": "",
+        "asrDeviceMode": "default",
+        "asrModelId": "sensevoice-small",
+        "llm": {
+          "providerId": "deepseek",
+          "providers": [
+            {
+              "id": "deepseek",
+              "label": "DeepSeek",
+              "baseUrl": "https://api.deepseek.com/v1",
+              "defaultModel": "deepseek-chat",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "openai",
+              "label": "OpenAI",
+              "baseUrl": "https://api.openai.com/v1",
+              "defaultModel": "gpt-5.4",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "zai",
+              "label": "Z.AI",
+              "baseUrl": "https://api.z.ai/api/paas/v4",
+              "defaultModel": "glm-4.6",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "openrouter",
+              "label": "OpenRouter",
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "defaultModel": "openai/gpt-5.4",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "anthropic",
+              "label": "Anthropic",
+              "baseUrl": "https://api.anthropic.com/v1",
+              "defaultModel": "claude-sonnet-4-5",
+              "allowBaseUrlEdit": false,
+              "authType": "anthropic"
+            },
+            {
+              "id": "groq",
+              "label": "Groq",
+              "baseUrl": "https://api.groq.com/openai/v1",
+              "defaultModel": "llama-3.3-70b-versatile",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "cerebras",
+              "label": "Cerebras",
+              "baseUrl": "https://api.cerebras.ai/v1",
+              "defaultModel": "llama-3.3-70b",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "custom",
+              "label": "Custom",
+              "baseUrl": "http://localhost:11434/v1",
+              "defaultModel": "",
+              "allowBaseUrlEdit": true,
+              "authType": "bearer"
+            }
+          ],
+          "apiKeys": {
+            "deepseek": "",
+            "openai": "",
+            "zai": "",
+            "openrouter": "",
+            "anthropic": "",
+            "groq": "",
+            "cerebras": "",
+            "custom": ""
+          },
+          "models": {
+            "deepseek": "deepseek-chat",
+            "openai": "gpt-5.4",
+            "zai": "glm-4.6",
+            "openrouter": "openai/gpt-5.4",
+            "anthropic": "claude-sonnet-4-5",
+            "groq": "llama-3.3-70b-versatile",
+            "cerebras": "llama-3.3-70b",
+            "custom": ""
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "llm": {
+          "providerId": "nope",
+          "apiKeys": {
+            "deepseek": "sk-test",
+            "openai": 123,
+            "custom": "ck"
+          },
+          "models": {
+            "deepseek": "  deepseek-reasoner ",
+            "anthropic": "",
+            "zai": "   "
+          },
+          "providers": [
+            {
+              "id": "custom",
+              "label": " My Gateway ",
+              "baseUrl": " https://gw.example.com/v1 ",
+              "defaultModel": " my-model ",
+              "authType": "anthropic"
+            },
+            {
+              "id": "openai",
+              "baseUrl": "https://evil.example.com",
+              "label": "Hacked"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "preferredLanguage": "zh-CN",
+        "translationTargetLanguage": "en",
+        "launchAtSystemStartup": false,
+        "selectedAudioDeviceId": "default",
+        "modelCacheDir": "",
+        "asrDeviceMode": "default",
+        "asrModelId": "sensevoice-small",
+        "llm": {
+          "providerId": "deepseek",
+          "providers": [
+            {
+              "id": "deepseek",
+              "label": "DeepSeek",
+              "baseUrl": "https://api.deepseek.com/v1",
+              "defaultModel": "deepseek-chat",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "openai",
+              "label": "Hacked",
+              "baseUrl": "https://api.openai.com/v1",
+              "defaultModel": "gpt-5.4",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "zai",
+              "label": "Z.AI",
+              "baseUrl": "https://api.z.ai/api/paas/v4",
+              "defaultModel": "glm-4.6",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "openrouter",
+              "label": "OpenRouter",
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "defaultModel": "openai/gpt-5.4",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "anthropic",
+              "label": "Anthropic",
+              "baseUrl": "https://api.anthropic.com/v1",
+              "defaultModel": "claude-sonnet-4-5",
+              "allowBaseUrlEdit": false,
+              "authType": "anthropic"
+            },
+            {
+              "id": "groq",
+              "label": "Groq",
+              "baseUrl": "https://api.groq.com/openai/v1",
+              "defaultModel": "llama-3.3-70b-versatile",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "cerebras",
+              "label": "Cerebras",
+              "baseUrl": "https://api.cerebras.ai/v1",
+              "defaultModel": "llama-3.3-70b",
+              "allowBaseUrlEdit": false,
+              "authType": "bearer"
+            },
+            {
+              "id": "custom",
+              "label": "My Gateway",
+              "baseUrl": "https://gw.example.com/v1",
+              "defaultModel": "my-model",
+              "allowBaseUrlEdit": true,
+              "authType": "anthropic"
+            }
+          ],
+          "apiKeys": {
+            "deepseek": "sk-test",
+            "openai": "",
+            "zai": "",
+            "openrouter": "",
+            "anthropic": "",
+            "groq": "",
+            "cerebras": "",
+            "custom": "ck"
+          },
+          "models": {
+            "deepseek": "deepseek-reasoner",
+            "openai": "gpt-5.4",
+            "zai": "",
+            "openrouter": "openai/gpt-5.4",
+            "anthropic": "claude-sonnet-4-5",
+            "groq": "llama-3.3-70b-versatile",
+            "cerebras": "llama-3.3-70b",
+            "custom": "my-model"
+          }
+        }
+      }
+    }
+  ],
+  "dictionary": {
+    "steps": [
+      {
+        "success": true,
+        "code": null
+      },
+      {
+        "success": true,
+        "code": null
+      },
+      {
+        "success": true,
+        "code": null
+      },
+      {
+        "success": false,
+        "code": "dictionary_entry_invalid"
+      },
+      {
+        "success": true,
+        "code": null
+      },
+      {
+        "success": true,
+        "code": null
+      },
+      {
+        "success": false,
+        "code": "dictionary_candidate_not_found"
+      },
+      {
+        "success": true,
+        "code": null
+      },
+      {
+        "success": true,
+        "code": null
+      }
+    ],
+    "entries": [
+      {
+        "key": "OpenAI",
+        "phrase": "OpenAI",
+        "aliases": [
+          "open eye",
+          "open a i"
+        ],
+        "source": "manual",
+        "status": "active",
+        "hitCount": 4,
+        "createdAt": "2026-11-19T05:00:00.000Z",
+        "updatedAt": "2026-11-19T06:00:00.000Z",
+        "lastLearnedAt": ""
+      },
+      {
+        "key": "DeepSeek",
+        "phrase": "DeepSeek",
+        "aliases": [
+          "deep sick"
+        ],
+        "source": "manual",
+        "status": "disabled",
+        "hitCount": 0,
+        "createdAt": "2026-11-19T03:00:00.000Z",
+        "updatedAt": "2026-11-19T04:00:00.000Z",
+        "lastLearnedAt": ""
+      }
+    ],
+    "candidates": [
+      {
+        "id": "c1",
+        "wrong": "open eye",
+        "correct": "OpenAI",
+        "count": 4,
+        "status": "promoted",
+        "firstSeenAt": "2026-11-19T01:00:00.000Z",
+        "lastSeenAt": "2026-11-19T05:00:00.000Z"
+      },
+      {
+        "id": "c2",
+        "wrong": "Gemini",
+        "correct": "Gemma",
+        "count": 2,
+        "status": "ignored",
+        "firstSeenAt": "2026-11-19T01:00:00.000Z",
+        "lastSeenAt": "2026-11-19T02:00:00.000Z"
+      },
+      {
+        "id": "c3",
+        "wrong": "a",
+        "correct": "b",
+        "count": 1,
+        "status": "ignored",
+        "firstSeenAt": "2026-11-19T01:00:00.000Z",
+        "lastSeenAt": "2026-11-19T01:00:00.000Z"
+      }
+    ],
+    "aliasSplits": [
+      {
+        "input": "错误写法, 另一个写法，第三个、第四个;第五个；第六个\n第七个",
+        "expected": [
+          "错误写法",
+          "另一个写法",
+          "第三个",
+          "第四个",
+          "第五个",
+          "第六个",
+          "第七个"
+        ]
+      },
+      {
+        "input": "  a ,A, b ,, ",
+        "expected": [
+          "a",
+          "b"
+        ]
+      },
+      {
+        "input": "",
+        "expected": []
+      }
+    ]
+  }
+}

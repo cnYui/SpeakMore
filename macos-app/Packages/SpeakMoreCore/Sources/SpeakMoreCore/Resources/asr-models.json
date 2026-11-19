@@ -1,0 +1,20 @@
+[
+  {
+    "id": "sensevoice-small",
+    "label": "SenseVoiceSmall",
+    "variant": "PyTorch",
+    "repoId": "FunAudioLLM/SenseVoiceSmall",
+    "runtime": "funasr",
+    "sizeBytes": 943980179,
+    "default": true
+  },
+  {
+    "id": "sensevoice-small-int8",
+    "label": "SenseVoiceSmall int8",
+    "variant": "ONNX",
+    "repoId": "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+    "runtime": "sherpa-onnx",
+    "sizeBytes": 239549806,
+    "default": false
+  }
+]
