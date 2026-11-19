@@ -30,6 +30,8 @@ targets:
     info:
       path: SpeakMore/Info.plist
       properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleName: SpeakMore
         CFBundleDisplayName: SpeakMore
         CFBundleDevelopmentRegion: zh-Hans

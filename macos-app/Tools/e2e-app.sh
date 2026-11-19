@@ -4,6 +4,7 @@
 # 连真实后端 + 假大模型；因为没有辅助功能权限，自动粘贴会按设计失败，结果回落到悬浮面板。
 # 悬浮胶囊和悬浮面板每 0.5 秒渲染成 PNG 存到 $OUT，用来核对界面。
 #
+# E2E_SKIP_BACKEND=1 + E2E_APP_BUNDLE=打包好的 SpeakMore.app：不替应用起后端，验证 App 自己拉起内置后端并预加载模型。
 # 前提：先构建过 Debug 版（xcodebuild … -derivedDataPath build/DerivedData）。
 # 用法：bash macos-app/Tools/e2e-app.sh [输出目录]
 set -euo pipefail
@@ -34,6 +35,9 @@ sleep 1
 open -n "$APP_BUNDLE" \
   --env SPEAKMORE_LOCAL_DATA_DIR="$DATA" \
   --env SPEAKMORE_BACKEND_URL="http://127.0.0.1:$BACKEND_PORT" \
+  --env NO_PROXY=127.0.0.1,localhost --env no_proxy=127.0.0.1,localhost \
+  --env PORT="$BACKEND_PORT" \
+  ${E2E_BACKEND_DEV:+--env SPEAKMORE_BACKEND_DEV_DIR="$REPO/server"} \
   --env SPEAKMORE_VOICE_WAV="$WORK/speech.aiff" \
   --env SPEAKMORE_DEMO_DICTATION=5 \
   --env SPEAKMORE_DEMO_MODE="${E2E_DEMO_MODE:-Dictate}" \

@@ -40,29 +40,32 @@ e2e_start_services() {
   fi
   : >"$WORK/llm.log"  # 上面的探测请求不算数
 
-  (
-    cd "$REPO/server"
-    if [ -n "$MODELS" ]; then export TYPELESS_MODEL_CACHE_DIR="$MODELS"; fi
-    # Mac 上开了系统代理时，httpx 会把 127.0.0.1 的请求也送去代理（返回 forbidden），所以显式排除本机地址。
-    NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
-    HOST=127.0.0.1 PORT="$BACKEND_PORT" SPEAKMORE_ASR_MODEL_ID=sensevoice-small-int8 \
-      exec "$PY" main.py >"$WORK/backend.log" 2>&1
-  ) &
-  PIDS+=($!)
+  # E2E_SKIP_BACKEND=1：不替应用起后端（测试应用自己拉起内置后端）。
+  if [ "${E2E_SKIP_BACKEND:-0}" != "1" ]; then
+    (
+      cd "$REPO/server"
+      if [ -n "$MODELS" ]; then export TYPELESS_MODEL_CACHE_DIR="$MODELS"; fi
+      # Mac 上开了系统代理时，httpx 会把 127.0.0.1 的请求也送去代理（返回 forbidden），所以显式排除本机地址。
+      NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+      HOST=127.0.0.1 PORT="$BACKEND_PORT" SPEAKMORE_ASR_MODEL_ID=sensevoice-small-int8 \
+        exec "$PY" main.py >"$WORK/backend.log" 2>&1
+    ) &
+    PIDS+=($!)
 
-  # 后端启动后模型是 idle 状态，要有人让它加载（Electron 版由主进程做，原生版由后端管理器做）。
-  echo "== 等后端起来并加载模型"
-  for _ in $(seq 1 60); do
-    curl -sf "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null && break
-    sleep 1
-  done
-  curl -sf -X POST "http://127.0.0.1:$BACKEND_PORT/model/download" \
-    -H 'content-type: application/json' \
-    -d "{\"model_id\":\"sensevoice-small-int8\"${MODELS:+,\"cache_dir\":\"$MODELS\"}}" >/dev/null
-  for _ in $(seq 1 120); do
-    curl -sf "http://127.0.0.1:$BACKEND_PORT/ready" >/dev/null && { echo "后端已就绪"; break; }
-    sleep 1
-  done
+    # 后端启动后模型是 idle 状态，要有人让它加载（Electron 版由主进程做，原生版由后端管理器做）。
+    echo "== 等后端起来并加载模型"
+    for _ in $(seq 1 60); do
+      curl -sf "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null && break
+      sleep 1
+    done
+    curl -sf -X POST "http://127.0.0.1:$BACKEND_PORT/model/download" \
+      -H 'content-type: application/json' \
+      -d "{\"model_id\":\"sensevoice-small-int8\"${MODELS:+,\"cache_dir\":\"$MODELS\"}}" >/dev/null
+    for _ in $(seq 1 120); do
+      curl -sf "http://127.0.0.1:$BACKEND_PORT/ready" >/dev/null && { echo "后端已就绪"; break; }
+      sleep 1
+    done
+  fi
 }
 
 # 检查假大模型日志：API Key、模型名、词典都送到了润色步骤。
