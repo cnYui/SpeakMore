@@ -25,6 +25,9 @@ enum AppPage: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class AppModel {
+    /// 应用只有一个模型：窗口、菜单栏、应用代理（启动 / 退出）共用。
+    static let shared = AppModel()
+
     let settings: SettingsStore
     let history: HistoryStore
     let dictionary: DictionaryStore
@@ -36,6 +39,8 @@ final class AppModel {
     var isModelActionRunning = false
     var accessibilityTrusted = Platform.isAccessibilityTrusted()
     var microphones: [Microphone] = []
+    /// 语音链路（快捷键、录音、粘贴、悬浮窗口），应用启动后创建。
+    private(set) var coordinator: VoiceCoordinator?
 
     init(data: LocalDataStore = LocalDataStore(), backend: BackendClient = BackendClient()) {
         let settings = SettingsStore(data: data)
@@ -44,6 +49,18 @@ final class AppModel {
         self.dictionary = DictionaryStore(data: data)
         self.backend = backend
         self.l10n = Localizer(settings: settings)
+    }
+
+    /// 应用启动时调用：开始监听快捷键，语音输入不依赖主窗口是否打开。
+    func startServices() {
+        guard coordinator == nil else { return }
+        let coordinator = VoiceCoordinator(settings: settings, history: history, dictionary: dictionary, backend: backend, launcher: nil)
+        self.coordinator = coordinator
+        coordinator.start()
+    }
+
+    func stopServices() {
+        coordinator?.stop()
     }
 
     func t(_ key: String) -> String { l10n.t(key) }
