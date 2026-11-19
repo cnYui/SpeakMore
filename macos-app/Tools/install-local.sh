@@ -35,6 +35,13 @@ if [ -d "$DEST" ]; then rm -r "$DEST"; fi
 ditto "$BUILT" "$DEST"
 "$LSREGISTER" -f "$DEST"
 touch "$DEST"
+# 构建目录里还留着同名同 Bundle ID 的副本，系统可能把 `open -a SpeakMore` 指到它们上面（启动的就成了没有后端的 Debug 版）。
+# 从启动服务里注销这些副本，只留 /Applications 里这一份。
+for copy in "$ROOT/macos-app/build/DerivedData/Build/Products/Debug/SpeakMore.app" \
+            "$ROOT/macos-app/build/DerivedData/Build/Products/Release/SpeakMore.app" \
+            "$BUILT"; do
+  [ -d "$copy" ] && "$LSREGISTER" -u "$copy" || true
+done
 
 echo "== 检查"
 bash "$TOOLS/verify-app.sh" "$DEST" | tail -3
