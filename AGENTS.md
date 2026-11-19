@@ -13,6 +13,7 @@
 - `server/`：本地 FastAPI 后端，负责音频上传、WebSocket 语音流、音频转码、ASR 转写和大模型文本处理。
 - `electron-app/`：Electron 主进程、preload、本地兼容层、托盘、窗口、快捷键、结果交付、本地数据、Windows 音频会话控制和 macOS 开发态适配。
 - `electron-app/renderer/`：Vite + React + MUI + TypeScript 前端，包含首页、历史记录、词典、设置、录音状态机、悬浮胶囊和悬浮面板静态页面。
+- `macos-app/`：用 Xcode / SwiftUI 重写的原生 macOS 主窗口（五个页面），与 Electron 版读写同一份 `local-data/` 并连同一个本地后端；逻辑在 `Packages/SpeakMoreCore`（`swift test`），界面在 `SpeakMore/`。当前不含全局快捷键、录音、自动粘贴、悬浮胶囊和后端进程管理，详见 `macos-app/README.md`。
 - `docs/ai/context/`：AI 上下文、设计、计划、验证和决策记录。新增内容只创建新文件，不覆盖、重命名或删除历史文件。
 - `experiments/`：如果存在，只放独立实验代码，不参与主应用运行链路。
 
@@ -47,6 +48,8 @@
 - 历史、设置、统计、日志和录音相关本地数据由 Electron 主进程写入 `app.getPath('userData')/local-data/`。
 - 词典和自动学习候选也属于本地数据，由 Electron 主进程写入 `app.getPath('userData')/local-data/`，renderer 只能通过 IPC 访问。
 - `electron-app/renderer/src/services/recorder.ts` 是语音状态机 facade 和唯一对外入口；会话状态、音频运行时和生命周期边界分别拆到 `electron-app/renderer/src/services/voice/voiceSessionStore.ts`、`recordingTransportRuntime.ts` 和 `voiceSessionLifecycle.ts`，其余语音链路内部模块仍放在 `electron-app/renderer/src/services/voice/` 下的 `recordingStartup.ts`、`voiceSocket.ts`、`voiceResultDelivery.ts`、`voiceSessionUtils.ts`、`backgroundAudio.ts`、`audioCapture.ts` 和 `audioLevelMonitor.ts`。
+
+- `macos-app/` 里有三份由 Electron 版派生的生成物，改动源头后必须重新生成并提交：`Packages/SpeakMoreCore/Sources/SpeakMoreCore/Resources/*.json`（来自 `shared/`，`Tools/sync-shared.sh`）、`SpeakMore/Resources/Localizable.xcstrings`（来自 `i18n.tsx`，`Tools/generate-localizable.mjs`）、`Tests/SpeakMoreCoreTests/Fixtures/parity.json`（由 JS 实现生成，`Tools/generate-parity-fixtures.mjs`）；原生版的统计、词典、设置规范化和个性化分数规则必须和 JS 实现一致，由 parity 测试保证。
 
 ## 语音链路约束
 

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "en",
+    "label": "英文",
+    "displayName": "英文 (en)",
+    "promptName": "English"
+  },
+  {
+    "id": "ja",
+    "label": "日语",
+    "displayName": "日语 (ja)",
+    "promptName": "Japanese"
+  }
+]

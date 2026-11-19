@@ -1,0 +1,6 @@
+# Xcode / SwiftPM 生成物
+*.xcodeproj/
+.build/
+DerivedData/
+.swiftpm/
+*.xcuserstate
