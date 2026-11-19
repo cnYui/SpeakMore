@@ -54,6 +54,7 @@ test('createAppPaths 在 macOS 使用无 exe 后缀的本地可执行资源', ()
     processPlatform: 'darwin',
   });
 
+  assert.equal(appPaths.trayIconPath(), path.join('/Applications/SpeakMore.app/Contents/Resources', 'assets', 'tray-iconTemplate.png'));
   assert.equal(appPaths.backendExecutablePath(), path.join('/Applications/SpeakMore.app/Contents/Resources', 'backend', 'speakmore-backend'));
   assert.equal(appPaths.ffmpegExecutablePath(), path.join('/Applications/SpeakMore.app/Contents/Resources', 'ffmpeg', 'bin', 'ffmpeg'));
   assert.equal(appPaths.textObserverExecutablePath(), path.join('/Applications/SpeakMore.app/Contents/Resources', 'helper', 'WindowsTextObserver'));

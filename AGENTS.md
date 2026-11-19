@@ -36,7 +36,7 @@
 - `electron-app/main.js` 是 Electron 主进程组合根，主要负责创建服务、依赖接线和生命周期注册；窗口、悬浮状态、IPC、本地数据、后端客户端、音频会话、文本观察和 Right Alt 监听逻辑应放在对应独立模块。
 - `electron-app/main-ipc-registry.js` 负责按上下文注册 IPC，主进程只注入依赖，不在 `main.js` 里直接拼装各通道业务逻辑。
 - `electron-app/voice-backend-client.js` 是主进程与语音后端的统一 HTTP facade，配置重载和语音流协议分别拆到 `voice-config-client.js`、`voice-flow-form-data.js` 和 `voice-backend-urls.js`。
-- 应用图标源和生成脚本在 `packaging/icons/`（`generate_icons.py` 生成 `icon.ico`、`icon-mac.png` 和 `electron-app/assets/` 下的窗口 / 托盘图标）；窗口图标 `app-icon.png`、托盘图标 `tray-icon.png` 通过 `electron-app/app-paths.js` 暴露给主进程，开发态读 `electron-app/assets/`，打包态读 `resources/assets/`。
+- 应用图标的唯一来源是生图原图 `packaging/icons/source/original-generated.webp`：`extract_source.py` 去掉外框和阴影，提取出底板和图形的母版（`source/` 下的 `tile-1024.png`、`bars-*.png`、`geometry.json`、`colors.json`）；`generate_icons.py` 从母版派生全部图标——`icon.png`、`icon-mac.png`（苹果网格留白）、`icon.ico`（40 px 以下用三根竖条的简化版）、深色版、黑白图形、`layers/` 分层图形、`electron-app/assets/` 下的窗口 / 托盘图标（含 macOS 菜单栏模板 `tray-iconTemplate*.png`），以及 `macos-app` 的 `AppIcon` 和 `MenuBarGlyph` 资源。换图标时替换原图后依次运行这两个脚本；窗口图标 `app-icon.png`、托盘图标通过 `electron-app/app-paths.js` 暴露给主进程，开发态读 `electron-app/assets/`，打包态读 `resources/assets/`；macOS 托盘必须用模板图标（黑色 + 透明，不缩放，标记为模板）。
 - 结构测试不能假设所有主进程逻辑都内联在 `main.js`，应检查 `main.js` 与拆分后的生产模块共同组成的主进程实现面。
 - Windows 文本观察 helper 位于 `electron-app/windows-text-observer/`，只服务本轮粘贴后的短时自动学习，不参与基础录音链路。
 - macOS 开发态 Option 监听 helper 位于 `electron-app/macos-option-listener.c`，当前只服务开发态 MVP；主进程启动时用 `clang` 编译到本机临时目录，再把 macOS 右侧 `Option` 与右侧 `Command` / `Shift` 组合映射成既有 `global-keyboard` 事件，不改变 renderer 录音状态机协议；左侧 `Option` 和左侧 `Command` 不应触发提示、录音或模式切换。

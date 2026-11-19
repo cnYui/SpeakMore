@@ -518,3 +518,53 @@ test('handleVoiceState 对终态会显示悬浮条并安排自动隐藏', () => 
 
   assert.equal(floatingBar.hidden, true);
 });
+
+test('托盘使用 macOS 模板图标时不缩放，并标记为模板图标', () => {
+  const BrowserWindow = createFakeBrowserWindowClass();
+  const created = [];
+  const manager = createWindowManager({
+    app: { quit: () => undefined },
+    BrowserWindow,
+    Tray: createFakeTrayClass(),
+    Menu: { buildFromTemplate: (template) => template },
+    nativeImage: {
+      createFromPath: (filePath) => {
+        const image = {
+          filePath,
+          templateFlag: false,
+          resized: false,
+          setTemplateImage(value) { this.templateFlag = value; },
+          resize() { this.resized = true; return this; },
+        };
+        created.push(image);
+        return image;
+      },
+    },
+    session: { fromPartition: (partition) => ({ partition }) },
+    screen: {
+      getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+      getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+      getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    },
+    path,
+    baseDir: '/repo/SpeakMore/electron-app',
+    preloadPath: () => '/repo/SpeakMore/electron-app/preload.js',
+    iconPath: () => '/repo/SpeakMore/electron-app/assets/app-icon.png',
+    trayIconPath: () => '/repo/SpeakMore/electron-app/assets/tray-iconTemplate.png',
+    resolveBottomCenterBounds: (_, windowSize) => ({ x: 0, y: 0, width: windowSize.width, height: windowSize.height }),
+    isActiveVoiceState,
+    isErrorVoiceState,
+    isTerminalVoiceState,
+    shouldShowShortcutHint,
+    sendToMain: () => undefined,
+    sendToFloatingBar: () => undefined,
+    sendToFloatingPanel: () => undefined,
+    getAppIsQuitting: () => false,
+  });
+
+  manager.createTray();
+
+  assert.equal(created.length, 1);
+  assert.equal(created[0].templateFlag, true);
+  assert.equal(created[0].resized, false);
+});

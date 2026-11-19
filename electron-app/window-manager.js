@@ -239,7 +239,15 @@ function createWindowManager({
     if (tray && typeof tray.isDestroyed === 'function' && !tray.isDestroyed()) return tray;
     if (tray && typeof tray.isDestroyed !== 'function') return tray;
 
-    const image = nativeImage.createFromPath(trayIconPath()).resize({ width: 16, height: 16 });
+    const trayImagePath = trayIconPath();
+    // 模板图标（文件名以 Template 结尾，旁边带 @2x）保持原始 20×14 pt，不能缩放，也要标记为模板才会随菜单栏明暗变色。
+    const isTemplateImage = /Template(@\dx)?\.png$/i.test(trayImagePath);
+    let image = nativeImage.createFromPath(trayImagePath);
+    if (isTemplateImage) {
+      if (typeof image.setTemplateImage === 'function') image.setTemplateImage(true);
+    } else {
+      image = image.resize({ width: 16, height: 16 });
+    }
     tray = new Tray(image);
     tray.setToolTip('SpeakMore');
     tray.on('click', createMainWindow);
