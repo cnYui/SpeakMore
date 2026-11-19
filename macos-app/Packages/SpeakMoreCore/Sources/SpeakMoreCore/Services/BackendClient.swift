@@ -18,6 +18,24 @@ public struct ConfigReloadResult: Equatable, Sendable {
     public var detail: String
 }
 
+/// `POST /model/delete` 的结果。成功时带更新后的模型列表；失败时 `detail` 是后端给的原因（下载中 / 文件被占用等）。
+public struct ModelDeleteResult: Equatable, Sendable {
+    public var ok: Bool
+    public var status: VoiceModelStatus?
+    public var detail: String
+    public var freedBytes: Int
+    /// 别处还有一份（显式目录 / Hugging Face 缓存）：应用不会删，只告诉用户位置。
+    public var externalLocations: [String]
+
+    public init(ok: Bool, status: VoiceModelStatus? = nil, detail: String = "", freedBytes: Int = 0, externalLocations: [String] = []) {
+        self.ok = ok
+        self.status = status
+        self.detail = detail
+        self.freedBytes = freedBytes
+        self.externalLocations = externalLocations
+    }
+}
+
 /// 本地 FastAPI 语音后端（默认 `http://127.0.0.1:8000`）的 HTTP 客户端，接口和 Electron 版主进程用的一致。
 public struct BackendClient: Sendable {
     public static let baseURLEnvironmentKey = "SPEAKMORE_BACKEND_URL"
@@ -57,6 +75,35 @@ public struct BackendClient: Sendable {
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         }
         return await decodeStatus(request)
+    }
+
+    /// 删除一个已下载的模型。`modelId` 必须明确给出（不会回退成“当前模型”，避免误删正在用的）。
+    public func deleteModel(cacheDir: String = "", modelId: String) async -> ModelDeleteResult {
+        guard !modelId.isEmpty else { return ModelDeleteResult(ok: false, detail: "缺少 model_id") }
+        var body: [String: Any] = ["model_id": modelId]
+        if !cacheDir.isEmpty { body["cache_dir"] = cacheDir }
+
+        var request = URLRequest(url: baseURL.appendingPathComponent("model/delete"), timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            let (data, statusCode) = try await transport.send(request)
+            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard (200..<300).contains(statusCode), let payload else {
+                // 409（下载 / 加载中）、500（文件被占用等）：后端的 detail 就是给用户看的原因。
+                return ModelDeleteResult(ok: false, detail: (payload?["detail"] as? String) ?? "HTTP \(statusCode)")
+            }
+            let result = payload["delete"] as? [String: Any]
+            return ModelDeleteResult(
+                ok: true,
+                status: VoiceModelStatus(json: payload),
+                freedBytes: VoiceModelStatus.int(result?["freed_bytes"]),
+                externalLocations: (result?["external_locations"] as? [Any])?.compactMap { $0 as? String } ?? []
+            )
+        } catch {
+            return ModelDeleteResult(ok: false, detail: VoiceModelStatus.unavailable.detail)
+        }
     }
 
     /// 保存大模型设置后让后端重新读取配置。

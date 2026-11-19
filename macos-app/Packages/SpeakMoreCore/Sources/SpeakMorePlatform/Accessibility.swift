@@ -11,6 +11,12 @@ public protocol AccessibilityReading: AnyObject {
     func textTarget() -> TextTarget
     /// 自由提问用的选区快照：只认 AX 确认的选中文字。
     func selectionSnapshot() -> SelectionSnapshot
+    /// 把录音开始时的前台应用切回前台（焦点中途漂走时用）；应用没了或系统不让切返回 false。
+    func activateApplication(processId: Int32) async -> Bool
+}
+
+extension AccessibilityReading {
+    public func activateApplication(processId: Int32) async -> Bool { false }
 }
 
 public final class SystemAccessibility: AccessibilityReading {
@@ -162,6 +168,20 @@ public final class SystemAccessibility: AccessibilityReading {
             focused: found.map { snapshot($0.element) }, usedDescendantScan: found?.usedDescendantScan ?? false,
             appFamily: appFamily, processId: processId
         )
+    }
+
+    public func activateApplication(processId: Int32) async -> Bool {
+        guard processId > 0, let app = NSRunningApplication(processIdentifier: processId), !app.isTerminated,
+              let url = app.bundleURL else { return false }
+        // `activate()` 对后台应用基本无效（macOS 14 起要求调用方在前台）；按 URL 打开并要求激活是可靠的办法。
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        do {
+            _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+            return true
+        } catch {
+            return false
+        }
     }
 
     public func selectionSnapshot() -> SelectionSnapshot {

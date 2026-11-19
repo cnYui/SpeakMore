@@ -26,4 +26,5 @@ exports.readSelectedTextByClipboard = focusedContext.readSelectedTextByClipboard
 exports.readSelectedTextByUia = focusedContext.readSelectedTextByUia;
 exports.readSelectionSnapshot = focusedContext.readSelectionSnapshot;
 exports.restoreClipboardSnapshot = focusedContext.restoreClipboardSnapshot;
+exports.restoreForegroundWindow = focusedContext.restoreForegroundWindow;
 exports.wait = focusedContext.wait;

@@ -69,6 +69,7 @@ function createMainIpcRegistry({
   processPlatform = process.platform,
   readFocusedInfo,
   readFocusedTextTarget,
+  restoreForegroundWindow,
   readHistoryItems,
   readHistoryStats,
   readHistoryStatsForDashboard,
@@ -86,6 +87,7 @@ function createMainIpcRegistry({
   shell,
   spawnProcess,
   startVoiceModelDownload,
+  deleteVoiceModel,
   systemPreferences,
   textObservationManager,
   upsertHistoryItem,
@@ -143,6 +145,7 @@ function createMainIpcRegistry({
       ensureVoiceBackendStarted,
       getVoiceModelStatus,
       startVoiceModelDownload,
+      deleteVoiceModel,
     });
     registers.registerFocusedContextIpcHandlers({
       ipcMain,
@@ -168,6 +171,7 @@ function createMainIpcRegistry({
       clipboard,
       spawnProcess,
       readFocusedTextTarget,
+      restoreForegroundWindow,
       createClipboardSnapshot,
       restoreClipboardSnapshot,
       readFocusedInfo,

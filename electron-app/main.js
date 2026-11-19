@@ -38,6 +38,7 @@ const {
   readSelectedTextByClipboard,
   readSelectionSnapshot,
   restoreClipboardSnapshot,
+  restoreForegroundWindow,
 } = require('./focused-context');
 const { resolveBottomCenterBounds } = require('./floating-window-layout');
 const {
@@ -422,6 +423,14 @@ async function startVoiceModelDownload(options = {}) {
   return voiceBackendClient.startVoiceModelDownload(resolveModelRequestOptions(options));
 }
 
+// 删除必须明确指定模型：不走 resolveModelRequestOptions 的“默认当前模型”回退，避免误删正在使用的模型。
+async function deleteVoiceModel(options = {}) {
+  return voiceBackendClient.deleteVoiceModel({
+    cacheDir: resolveModelCacheDirOption(options),
+    modelId: typeof options.modelId === 'string' ? options.modelId.trim() : '',
+  });
+}
+
 async function reloadVoiceServerConfig() {
   return voiceBackendClient.reloadVoiceServerConfig();
 }
@@ -498,6 +507,8 @@ const mainIpcRegistry = createMainIpcRegistry({
   systemPreferences,
   readFocusedInfo: readFocusedInfoForPlatform,
   readFocusedTextTarget: readFocusedTextTargetForPlatform,
+  // macOS 走 macosPlatformCapabilities，不需要这一步。
+  restoreForegroundWindow: IS_MACOS ? null : restoreForegroundWindow,
   readHistoryItems,
   readHistoryStats,
   readHistoryStatsForDashboard,
@@ -516,6 +527,7 @@ const mainIpcRegistry = createMainIpcRegistry({
   shell,
   spawnProcess: spawn,
   startVoiceModelDownload,
+  deleteVoiceModel,
   textObservationManager,
   upsertHistoryItem,
   writeHistoryItems,

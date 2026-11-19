@@ -381,7 +381,63 @@ $callback = [Win32WindowTree+EnumWindowsProc]{
 } | ConvertTo-Json -Compress
 `;
 
+// 把录音开始时锁定的窗口重新切回前台（焦点在中途漂走时用）。hwnd 只接受纯数字，拼进脚本前先校验。
+// Windows 限制后台进程抢前台，所以用挂接输入线程的办法放行；窗口被最小化就先还原。
+function createRestoreForegroundWindowScript(hwnd) {
+  const handle = String(hwnd || '').trim();
+  if (!/^[0-9]{1,20}$/.test(handle)) return null;
+  return `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32RestoreForeground {
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool altTab);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+}
+"@
+$target = [IntPtr]::new([long]${handle})
+if (-not [Win32RestoreForeground]::IsWindow($target)) {
+  [PSCustomObject]@{ success = $false; reason = 'window_gone' } | ConvertTo-Json -Compress
+  exit 0
+}
+if ([Win32RestoreForeground]::IsIconic($target)) { [void][Win32RestoreForeground]::ShowWindow($target, 9) }
+# Windows 不允许后台进程抢前台。把本线程的输入队列临时挂到当前前台窗口的线程上就能放行。
+# 不能用“按一下 Alt”这个常见办法：Alt 按下又松开会让 Chrome 之类的应用把焦点移到菜单栏，之后的 Ctrl+V 就贴不进输入框了。
+$unusedPid = 0
+$foreground = [Win32RestoreForeground]::GetForegroundWindow()
+$foregroundThread = [Win32RestoreForeground]::GetWindowThreadProcessId($foreground, [ref]$unusedPid)
+$currentThread = [Win32RestoreForeground]::GetCurrentThreadId()
+$attached = $false
+if ($foregroundThread -ne 0 -and $foregroundThread -ne $currentThread) {
+  $attached = [Win32RestoreForeground]::AttachThreadInput($currentThread, $foregroundThread, $true)
+}
+[void][Win32RestoreForeground]::BringWindowToTop($target)
+[void][Win32RestoreForeground]::SetForegroundWindow($target)
+if ($attached) { [void][Win32RestoreForeground]::AttachThreadInput($currentThread, $foregroundThread, $false) }
+Start-Sleep -Milliseconds 120
+if ([Win32RestoreForeground]::GetForegroundWindow() -ne $target) {
+  [Win32RestoreForeground]::SwitchToThisWindow($target, $true)
+  Start-Sleep -Milliseconds 120
+}
+$now = [Win32RestoreForeground]::GetForegroundWindow()
+[PSCustomObject]@{
+  success = ($now -eq $target)
+  reason = if ($now -eq $target) { 'restored' } else { 'foreground_denied' }
+  foreground_hwnd = $now.ToInt64().ToString()
+} | ConvertTo-Json -Compress
+`;
+}
+
 module.exports = {
+  createRestoreForegroundWindowScript,
   FOCUSED_WINDOW_TREE_SCRIPT,
   FOCUSED_TEXT_TARGET_SCRIPT,
   FOCUSED_WINDOW_SCRIPT,

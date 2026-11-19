@@ -167,6 +167,45 @@ export async function downloadVoiceModelOnly(modelId: string, cacheDir = ''): Pr
   }
 }
 
+export type DeleteVoiceModelResult = {
+  ok: boolean
+  /** 删除后的模型状态（成功时有）。 */
+  status: VoiceModelStatus | null
+  /** 失败原因（后端给的，直接展示给用户）。 */
+  detail: string
+  freedBytes: number
+  /** 别处还有一份（显式目录 / Hugging Face 缓存），应用不会删，只告诉用户位置。 */
+  externalLocations: string[]
+}
+
+/** 删除一个已下载的模型。 */
+export async function deleteVoiceModel(modelId: string, cacheDir = ''): Promise<DeleteVoiceModelResult> {
+  try {
+    const raw = await ipcClient.invoke<Record<string, unknown>>('voice-model:delete', { cacheDir, modelId })
+    if (!raw || raw.success === false) {
+      return {
+        ok: false,
+        status: null,
+        detail: typeof raw?.detail === 'string' && raw.detail ? raw.detail : '删除模型失败',
+        freedBytes: 0,
+        externalLocations: [],
+      }
+    }
+    const result = (raw.delete && typeof raw.delete === 'object' ? raw.delete : {}) as Record<string, unknown>
+    return {
+      ok: true,
+      status: normalizeModelStatus(raw),
+      detail: '',
+      freedBytes: normalizeNumber(result.freed_bytes),
+      externalLocations: Array.isArray(result.external_locations)
+        ? result.external_locations.filter((item): item is string => typeof item === 'string')
+        : [],
+    }
+  } catch (error) {
+    return { ok: false, status: null, detail: error instanceof Error ? error.message : String(error), freedBytes: 0, externalLocations: [] }
+  }
+}
+
 export async function chooseModelCacheDirectory(defaultPath = ''): Promise<DirectorySelectionResult> {
   try {
     const result = await ipcClient.invoke<Partial<DirectorySelectionResult>>('file:choose-directory', { defaultPath })

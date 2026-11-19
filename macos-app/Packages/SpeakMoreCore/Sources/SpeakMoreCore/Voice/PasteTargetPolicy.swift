@@ -26,6 +26,8 @@ public enum TextTargetSource: String, Sendable, Equatable {
     case accessibility = "macos_ax"
     /// 弱可信：应用不暴露 AX 输入框，按应用族放行（目前只有微信）。
     case appCompat = "macos_app_compat"
+    /// 弱可信：AX 确认不了输入框（Chrome / Electron 类应用默认不暴露），但前台应用还是录音开始时的那个，照样粘贴。
+    case sameApplication = "macos_same_app"
 }
 
 public enum TextTargetConfidence: String, Sendable, Equatable {
@@ -180,12 +182,47 @@ public enum PasteTargetPolicy {
         )
     }
 
-    /// 粘贴前的完整判定：AX 目标 →（失败则）微信兜底；AX 成功后还要确认前台应用没换。
+    // MARK: 同一应用兜底
+
+    private static let blockedTitlePatterns = ["登录", "设置", "图片查看", "文件预览", "偏好设置", "login", "sign in", "settings", "preferences", "preview"]
+
+    /// 这些前台应用不是“可以输入文字的地方”：粘贴没有意义（或者会碰到系统界面），确认不了目标时不放行。
+    private static let nonTextBundleIds: Set<String> = [
+        "com.apple.finder", "com.apple.dock", "com.apple.loginwindow", "com.apple.SecurityAgent",
+        "com.apple.systemuiserver", "com.apple.notificationcenterui", "com.apple.controlcenter",
+        "com.apple.systempreferences", "com.apple.Spotlight",
+        // SpeakMore 自己（原生版和 Electron 版）：结果面板的文字不能再粘回自己。
+        "cn.yui.speakmore.native", "com.github.Electron",
+    ]
+
+    /// AX 确认不了输入框时，只要前台应用和录音开始时是同一个，就照样粘贴（光标本来就锁在那个应用里）。
+    /// Chrome、Electron、微信这类应用默认不向辅助功能暴露输入框，严格要求“确认输入框”会让它们永远粘不进去。
+    /// 代价：如果当时光标不在输入框里，Cmd+V 什么也不会发生；听写结果仍然保存在历史记录里。
+    public static func sameApplicationFallback(failedTarget: TextTarget, start: FocusInfo?, current: FocusInfo?) -> TextTarget? {
+        guard let start, let current, !start.bundleId.isEmpty, !current.bundleId.isEmpty else { return nil }
+        guard !hasFocusChanged(start: start, current: current) else { return nil }
+        guard !nonTextBundleIds.contains(current.bundleId) else { return nil }
+        let titles = [current.windowTitle, start.windowTitle].map { $0.lowercased() }
+        guard !titles.contains(where: { title in blockedTitlePatterns.contains { title.contains($0) } }) else { return nil }
+        var signals = ["same_frontmost_app", "bundle:\(current.bundleId)"]
+        if !current.windowTitle.isEmpty { signals.append("window_title_present") }
+        return TextTarget(
+            success: true, source: .sameApplication, confidence: .weak, reason: "macos_same_app_weak",
+            appFamily: current.bundleId, processId: current.processId, signals: signals
+        )
+    }
+
+    /// 粘贴前的完整判定：AX 目标 →（失败则）微信兜底 →（再失败则）同一应用兜底；AX 成功后还要确认前台应用没换。
     public static func resolveForPaste(
         axTarget: TextTarget, start: FocusInfo?, readCurrentFocus: () -> FocusInfo?
     ) -> TextTarget {
         if !axTarget.success {
-            return weChatFallback(failedTarget: axTarget, start: start, current: readCurrentFocus())
+            let current = readCurrentFocus()
+            let weChat = weChatFallback(failedTarget: axTarget, start: start, current: current)
+            if weChat.success { return weChat }
+            // 微信的“登录 / 设置 / 预览”窗口是明确拦下的，不能再被同一应用兜底放行。
+            if weChat.reason == "macos_app_compat_blocked_window_title" { return weChat }
+            return sameApplicationFallback(failedTarget: axTarget, start: start, current: current) ?? weChat
         }
         if hasTargetChanged(start: start, target: axTarget) {
             var changed = axTarget

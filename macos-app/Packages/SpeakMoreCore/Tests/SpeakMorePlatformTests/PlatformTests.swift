@@ -10,7 +10,17 @@ final class FakeAccessibility: AccessibilityReading, @unchecked Sendable {
     var target = TextTarget(success: true, source: .accessibility, confidence: .confirmed, reason: "ok", appFamily: "com.test", processId: 5)
     var focus: FocusInfo? = FocusInfo(bundleId: "com.test", appName: "Test", processId: 5)
     var selection = SelectionSnapshot()
+    /// 切回应用后前台变成这个（nil = 切不回去）。
+    var focusAfterActivation: FocusInfo?
+    private(set) var activatedProcessIds: [Int32] = []
     func focusInfo() -> FocusInfo? { focus }
+    func activateApplication(processId: Int32) async -> Bool {
+        activatedProcessIds.append(processId)
+        guard let focusAfterActivation else { return false }
+        focus = focusAfterActivation
+        target = TextTarget(success: true, source: .accessibility, confidence: .confirmed, reason: "ok", appFamily: focusAfterActivation.bundleId, processId: focusAfterActivation.processId)
+        return true
+    }
     func textTarget() -> TextTarget { target }
     func selectionSnapshot() -> SelectionSnapshot { selection }
 }
@@ -84,7 +94,8 @@ final class PasteServiceTests: XCTestCase {
     func testNoTrustedTargetNeverTouchesClipboardOrKeys() async {
         let accessibility = FakeAccessibility()
         accessibility.target = TextTarget(success: false, reason: PasteTargetPolicy.targetUnavailableReason, appFamily: "com.test", processId: 5)
-        accessibility.focus = FocusInfo(bundleId: "com.test", processId: 5)
+        // 前台已经换成别的应用，而且切不回去：不放行。
+        accessibility.focus = FocusInfo(bundleId: "com.other", processId: 9)
         let pasteboard = FakePasteboard()
         pasteboard.text = "原内容"
         let keystroke = FakeKeystroke()
@@ -137,6 +148,54 @@ final class PasteServiceTests: XCTestCase {
         XCTAssertTrue(outcome.success)
         XCTAssertEqual(pasteboard.text, "用户刚复制的")
         XCTAssertEqual(pasteboard.restoreCount, 0)
+    }
+
+    func testFocusDriftedAwayReactivatesLockedAppThenPastes() async {
+        let locked = FocusInfo(bundleId: "com.google.Chrome", appName: "Chrome", processId: 20)
+        let accessibility = FakeAccessibility()
+        // 现在前台是别的应用；AX 在那个应用里也确认不了输入框。
+        accessibility.focus = FocusInfo(bundleId: "com.apple.Safari", appName: "Safari", processId: 30)
+        accessibility.target = TextTarget(success: false, reason: PasteTargetPolicy.targetUnavailableReason, appFamily: "com.apple.Safari", processId: 30)
+        accessibility.focusAfterActivation = locked
+        let pasteboard = FakePasteboard()
+        pasteboard.text = "原内容"
+        let keystroke = FakeKeystroke()
+        let sleeps = SleepRecorder()
+
+        let outcome = await makeService(accessibility, pasteboard, keystroke, sleeps: sleeps).paste("听写结果", startFocus: locked)
+
+        XCTAssertTrue(outcome.success)
+        XCTAssertEqual(accessibility.activatedProcessIds, [20], "要先把录音开始时的应用切回前台")
+        XCTAssertEqual(keystroke.sent, 1)
+        XCTAssertEqual(pasteboard.text, "原内容")
+        let delays = await sleeps.delays
+        XCTAssertEqual(delays, [PasteService.reactivateDelay, 0.18], "切回后先等应用恢复焦点，再发 Cmd+V，最后等它读走剪贴板")
+    }
+
+    func testCannotReactivateLockedAppFallsBackToPanel() async {
+        let locked = FocusInfo(bundleId: "com.google.Chrome", appName: "Chrome", processId: 20)
+        let accessibility = FakeAccessibility()
+        accessibility.focus = FocusInfo(bundleId: "com.apple.Safari", appName: "Safari", processId: 30)
+        accessibility.target = TextTarget(success: false, reason: PasteTargetPolicy.targetUnavailableReason, appFamily: "com.apple.Safari", processId: 30)
+        accessibility.focusAfterActivation = nil  // 应用关了 / 系统不让切
+        let pasteboard = FakePasteboard()
+        pasteboard.text = "原内容"
+        let keystroke = FakeKeystroke()
+
+        let outcome = await makeService(accessibility, pasteboard, keystroke).paste("听写结果", startFocus: locked)
+
+        XCTAssertFalse(outcome.success)
+        XCTAssertEqual(accessibility.activatedProcessIds, [20])
+        XCTAssertEqual(keystroke.sent, 0, "前台不是锁定的应用时不能发 Cmd+V")
+        XCTAssertTrue(pasteboard.writes.isEmpty)
+    }
+
+    func testNoReactivationWhenAppUnchanged() async {
+        let accessibility = FakeAccessibility()
+        accessibility.target = TextTarget(success: false, reason: PasteTargetPolicy.targetUnavailableReason, appFamily: "com.test", processId: 5)
+        let outcome = await makeService(accessibility, FakePasteboard(), FakeKeystroke()).paste("x", startFocus: FocusInfo(bundleId: "com.test", appName: "Test", processId: 5))
+        XCTAssertTrue(outcome.success, "前台没换：AX 确认不了也走同一应用兜底直接粘贴")
+        XCTAssertTrue(accessibility.activatedProcessIds.isEmpty)
     }
 
     func testEmptyTextRejected() async {

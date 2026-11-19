@@ -3,6 +3,7 @@ function registerVoiceModelIpcHandlers({
   ensureVoiceBackendStarted,
   getVoiceModelStatus,
   startVoiceModelDownload,
+  deleteVoiceModel,
 } = {}) {
   if (!ipcMain || typeof ipcMain.handle !== 'function') {
     throw new Error('ipcMain is required');
@@ -10,7 +11,7 @@ function registerVoiceModelIpcHandlers({
   if (typeof ensureVoiceBackendStarted !== 'function') {
     throw new Error('ensureVoiceBackendStarted is required');
   }
-  if (typeof getVoiceModelStatus !== 'function' || typeof startVoiceModelDownload !== 'function') {
+  if (typeof getVoiceModelStatus !== 'function' || typeof startVoiceModelDownload !== 'function' || typeof deleteVoiceModel !== 'function') {
     throw new Error('voice model client methods are required');
   }
 
@@ -24,6 +25,13 @@ function registerVoiceModelIpcHandlers({
     const startResult = await ensureVoiceBackendStarted();
     if (startResult?.success === false) return startResult;
     return startVoiceModelDownload(payload);
+  });
+
+  // 初始化页的“删除模型”。
+  ipcMain.handle('voice-model:delete', async (_, payload = {}) => {
+    const startResult = await ensureVoiceBackendStarted();
+    if (startResult?.success === false) return startResult;
+    return deleteVoiceModel(payload);
   });
 }
 

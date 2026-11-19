@@ -44,6 +44,9 @@ public final class PasteService {
     /// 发出 Cmd+V 后等多久再恢复剪贴板：Chromium / Electron 应用和微信是异步读剪贴板的，立刻恢复会粘出用户原来的内容。
     public static let defaultSettleDelay: TimeInterval = 0.18
 
+    /// 切回应用后等多久再读焦点、发 Cmd+V：应用要先完成激活、恢复自己的输入焦点。
+    public static let reactivateDelay: TimeInterval = 0.25
+
     private let accessibility: AccessibilityReading
     private let pasteboard: PasteboardProviding
     private let keystroke: PasteKeystrokeSending
@@ -67,10 +70,18 @@ public final class PasteService {
     public func paste(_ text: String, startFocus: FocusInfo?) async -> PasteOutcome {
         guard !text.isEmpty else { return .failure("empty_text") }
 
-        let target = PasteTargetPolicy.resolveForPaste(
-            axTarget: accessibility.textTarget(), start: startFocus, readCurrentFocus: { accessibility.focusInfo() }
-        )
-        // 找不到可信输入目标时不能静默写剪贴板再发 Cmd+V，直接让调用方展示悬浮面板。
+        var target = resolveTarget(startFocus)
+
+        // 录音期间前台应用可能漂走（别的应用弹窗、用户点了别处）。结果要贴回“录音开始时锁定的光标位置”，
+        // 所以前台不是当时那个应用时，先把它切回前台（应用会记住自己的光标位置）再判定一次。
+        if !target.success, let startFocus, startFocus.processId > 0,
+           PasteTargetPolicy.hasFocusChanged(start: startFocus, current: accessibility.focusInfo()) {
+            if await accessibility.activateApplication(processId: startFocus.processId) {
+                await sleep(Self.reactivateDelay)
+                target = resolveTarget(startFocus)
+            }
+        }
+        // 前台不是锁定的应用、也切不回去，或者是系统界面：不能静默写剪贴板再发 Cmd+V，直接让调用方展示悬浮面板。
         guard target.success else { return .failure(target.reason, target: target) }
 
         let original = pasteboard.snapshot()
@@ -83,6 +94,12 @@ public final class PasteService {
         await sleep(settleDelay)
         restoreIfUntouched(original, writtenChangeCount: writtenChangeCount)
         return PasteOutcome(success: true, reason: "pasted", target: target)
+    }
+
+    private func resolveTarget(_ startFocus: FocusInfo?) -> TextTarget {
+        PasteTargetPolicy.resolveForPaste(
+            axTarget: accessibility.textTarget(), start: startFocus, readCurrentFocus: { accessibility.focusInfo() }
+        )
     }
 
     /// 等待期间用户自己改了剪贴板（changeCount 变了）就不再覆盖。
