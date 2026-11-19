@@ -1,5 +1,6 @@
 import SwiftUI
 import SpeakMoreCore
+import SpeakMorePlatform
 
 /// 设置：快捷键、macOS 权限、麦克风、识别设备、语言、大模型。
 /// 侧边栏里的“设置”页和 ⌘, 打开的设置窗口共用这个视图。
@@ -10,6 +11,7 @@ struct SettingsView: View {
         Form {
             ShortcutsSection()
             PermissionSection()
+            LaunchAtLoginSection()
             MicrophoneSection()
             RuntimeSection()
             LanguageSection()
@@ -46,38 +48,86 @@ private struct PermissionSection: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let trusted = model.accessibilityTrusted
+        let snapshot = model.permissions
         Section {
-            LabeledContent {
-                StatusBadge(
-                    text: model.t(trusted ? "settings.macosAccessibility.trusted" : "settings.macosAccessibility.missing"),
-                    tint: trusted ? .green : .orange
-                )
+            PermissionRow(
+                permission: .microphone, granted: snapshot.microphone == .granted,
+                title: model.t("settings.permission.microphone"), hint: model.t("settings.permission.microphoneHint")
+            )
+            PermissionRow(
+                permission: .accessibility, granted: snapshot.accessibility,
+                title: model.t("settings.macosAccessibility"),
+                hint: model.t(snapshot.accessibility ? "settings.macosAccessibility.readyHint" : "settings.macosAccessibility.missingHint")
+            )
+            PermissionRow(
+                permission: .inputMonitoring, granted: snapshot.inputMonitoring,
+                title: model.t("settings.permission.inputMonitoring"), hint: model.t("settings.permission.inputMonitoringHint")
+            )
+            Button {
+                model.coordinator?.refreshPermissions()
             } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.t("settings.macosAccessibility"))
-                    Text(model.t(trusted ? "settings.macosAccessibility.readyHint" : "settings.macosAccessibility.missingHint"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            HStack {
-                Button {
-                    model.accessibilityTrusted = Platform.isAccessibilityTrusted()
-                } label: {
-                    Label(model.t("settings.macosAccessibility.refresh"), systemImage: "arrow.clockwise")
-                }
-                if !trusted {
-                    Button {
-                        Platform.openAccessibilitySettings()
-                    } label: {
-                        Label(model.t("settings.macosAccessibility.openSettings"), systemImage: "gearshape")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+                Label(model.t("settings.macosAccessibility.refresh"), systemImage: "arrow.clockwise")
             }
         } header: {
             Text(model.t("settings.macosPermissions"))
+        }
+    }
+}
+
+/// 一项系统权限：状态标签 +（未授权时）“授权…”按钮。点按钮先触发系统的授权提示，仍没授权就直接打开对应的系统设置面板。
+private struct PermissionRow: View {
+    @Environment(AppModel.self) private var model
+    let permission: SystemPermission
+    let granted: Bool
+    let title: String
+    let hint: String
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                StatusBadge(
+                    text: model.t(granted ? "settings.permission.granted" : "settings.permission.missing"),
+                    tint: granted ? .green : .orange
+                )
+                if !granted {
+                    Button(model.t("settings.permission.grant")) {
+                        Task {
+                            let ok = await Permissions.request(permission)
+                            model.coordinator?.refreshPermissions()
+                            if !ok { Permissions.openSettings(for: permission) }
+                        }
+                    }
+                }
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(hint).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: 登录时自动启动
+
+private struct LaunchAtLoginSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let state = LaunchAtLogin.state
+        Section {
+            Toggle(model.t("settings.launchAtLogin"), isOn: Binding(
+                get: { model.settings.settings.launchAtSystemStartup },
+                set: { model.setLaunchAtLogin($0) }
+            ))
+            if state == .requiresApproval {
+                Text(model.t("settings.launchAtLogin.requiresApproval")).font(.caption).foregroundStyle(.orange)
+            }
+            if let error = model.launchAtLoginError {
+                Text(model.t("settings.launchAtLogin.failed") + error).font(.caption).foregroundStyle(.red)
+            }
+        } footer: {
+            Text(model.t("settings.launchAtLogin.hint"))
         }
     }
 }

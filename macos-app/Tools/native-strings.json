@@ -130,5 +130,49 @@
   "menubar.quit": {
     "zh-Hans": "退出 SpeakMore",
     "en": "Quit SpeakMore"
+  },
+  "settings.permission.microphone": {
+    "zh-Hans": "麦克风",
+    "en": "Microphone"
+  },
+  "settings.permission.microphoneHint": {
+    "zh-Hans": "录音听写需要访问麦克风。",
+    "en": "Needed to record your voice."
+  },
+  "settings.permission.inputMonitoring": {
+    "zh-Hans": "输入监控",
+    "en": "Input Monitoring"
+  },
+  "settings.permission.inputMonitoringHint": {
+    "zh-Hans": "全局监听右侧 Option / Command / Shift 快捷键需要。授权后立即生效，不用重启。",
+    "en": "Needed to detect the Right Option / Command / Shift shortcuts system-wide. Takes effect immediately."
+  },
+  "settings.permission.granted": {
+    "zh-Hans": "已授权",
+    "en": "Granted"
+  },
+  "settings.permission.missing": {
+    "zh-Hans": "未授权",
+    "en": "Not granted"
+  },
+  "settings.permission.grant": {
+    "zh-Hans": "授权…",
+    "en": "Grant…"
+  },
+  "settings.launchAtLogin": {
+    "zh-Hans": "登录时自动启动",
+    "en": "Open at Login"
+  },
+  "settings.launchAtLogin.hint": {
+    "zh-Hans": "开机登录后自动在菜单栏运行，快捷键随时可用。也可以在系统设置 → 通用 → 登录项里管理。",
+    "en": "Start in the menu bar when you log in so the shortcuts are always available. You can also manage this in System Settings → General → Login Items."
+  },
+  "settings.launchAtLogin.requiresApproval": {
+    "zh-Hans": "需要在系统设置 → 通用 → 登录项里允许 SpeakMore。",
+    "en": "Allow SpeakMore in System Settings → General → Login Items."
+  },
+  "settings.launchAtLogin.failed": {
+    "zh-Hans": "设置登录项失败：",
+    "en": "Could not change the login item: "
   }
 }

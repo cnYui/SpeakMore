@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SpeakMoreCore
+import SpeakMorePlatform
 
 enum AppPage: String, CaseIterable, Identifiable {
     case setup, home, history, dictionary, settings
@@ -42,6 +43,10 @@ final class AppModel {
     /// 语音链路（快捷键、录音、粘贴、悬浮窗口），应用启动后创建。
     private(set) var coordinator: VoiceCoordinator?
 
+    /// 自己拉起 / 关闭的语音后端进程；已经有后端在监听时不会重复启动。
+    @ObservationIgnored let backendProcess: BackendProcessManager
+    var launchAtLoginError: String?
+
     init(data: LocalDataStore = LocalDataStore(), backend: BackendClient = BackendClient()) {
         let settings = SettingsStore(data: data)
         self.settings = settings
@@ -49,18 +54,53 @@ final class AppModel {
         self.dictionary = DictionaryStore(data: data)
         self.backend = backend
         self.l10n = Localizer(settings: settings)
+        let logs = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Logs/SpeakMore/backend.log")
+        self.backendProcess = BackendProcessManager(
+            client: backend,
+            locate: { BackendLocator.locate(resourceURL: Bundle.main.resourceURL) },
+            settings: { await MainActor.run { settings.settings } },
+            logURL: logs
+        )
     }
 
     /// 应用启动时调用：开始监听快捷键，语音输入不依赖主窗口是否打开。
     func startServices() {
         guard coordinator == nil else { return }
-        let coordinator = VoiceCoordinator(settings: settings, history: history, dictionary: dictionary, backend: backend, launcher: nil)
+        let coordinator = VoiceCoordinator(settings: settings, history: history, dictionary: dictionary, backend: backend, launcher: backendProcess)
         self.coordinator = coordinator
         coordinator.start()
+
+        // 拉起内置后端；本机已经缓存了模型就让它提前加载，第一次录音不用等。
+        let launcher = backendProcess
+        let client = backend
+        let current = settings.settings
+        Task.detached {
+            try? await launcher.start()
+            _ = await BackendPreload.run(
+                client: client, cacheDir: current.modelCacheDir, modelId: current.asrModelId,
+                exitDescription: { launcher.exitDescription }
+            )
+        }
+        launchAtLoginError = LaunchAtLogin.reconcile(desired: current.launchAtSystemStartup)
     }
 
     func stopServices() {
         coordinator?.stop()
+        backendProcess.stop()
+    }
+
+    var permissions: PermissionSnapshot { coordinator?.permissions ?? Permissions.current() }
+
+    /// 设置页的“登录时自动启动”开关：先改系统登录项，成功了才写进设置；失败时保持原样并给出原因。
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try LaunchAtLogin.set(enabled)
+            settings.update { $0.launchAtSystemStartup = enabled }
+            launchAtLoginError = nil
+        } catch {
+            launchAtLoginError = error.localizedDescription
+        }
     }
 
     func t(_ key: String) -> String { l10n.t(key) }
