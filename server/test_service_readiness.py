@@ -97,7 +97,7 @@ class ServiceReadinessTest(unittest.TestCase):
     def test_model_status_distinguishes_cached_but_not_loaded_model(self):
         app = main.create_app(preload_model=lambda: None, exit_scheduler=lambda _code: None)
 
-        with patch("main.find_cached_model_snapshot", return_value="/tmp/sensevoice-snapshot"), TestClient(app) as client:
+        with patch("main.is_model_cached", return_value=True), TestClient(app) as client:
             status = client.get("/model/status")
 
         self.assertEqual(status.status_code, 200)

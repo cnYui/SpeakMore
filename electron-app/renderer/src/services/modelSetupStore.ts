@@ -33,6 +33,27 @@ export type VoiceModelStatus = {
   downloaded_files?: number
   total_files?: number
   file_progress_percent?: number | null
+  active_model_id?: string
+  models?: VoiceModelOption[]
+}
+
+export type VoiceModelOption = {
+  model_id: string
+  repo_id: string
+  label: string
+  variant: string
+  runtime: string
+  size_bytes: number
+  active: boolean
+  cached: boolean
+  status: VoiceModelSetupStatus
+  detail: string
+  downloaded_bytes: number
+  total_bytes: number
+  progress_percent: number | null
+  downloaded_files: number
+  total_files: number
+  file_progress_percent: number | null
 }
 
 export type DirectorySelectionResult = {
@@ -57,13 +78,44 @@ function normalizePercent(value: unknown) {
   return Math.max(0, Math.min(100, Math.round(value)))
 }
 
+function normalizeSetupStatus(value: unknown): VoiceModelSetupStatus {
+  const rawStatus = typeof value === 'string' ? value : 'unavailable'
+  return ['idle', 'downloading', 'loading', 'ready', 'failed'].includes(rawStatus)
+    ? rawStatus as VoiceModelSetupStatus
+    : 'unavailable'
+}
+
+function normalizeModelOption(value: unknown): VoiceModelOption | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const option = value as Record<string, unknown>
+  if (typeof option.model_id !== 'string' || !option.model_id) return null
+  return {
+    model_id: option.model_id,
+    repo_id: typeof option.repo_id === 'string' ? option.repo_id : '',
+    label: typeof option.label === 'string' ? option.label : option.model_id,
+    variant: typeof option.variant === 'string' ? option.variant : '',
+    runtime: typeof option.runtime === 'string' ? option.runtime : '',
+    size_bytes: normalizeNumber(option.size_bytes),
+    active: Boolean(option.active),
+    cached: Boolean(option.cached),
+    status: normalizeSetupStatus(option.status),
+    detail: typeof option.detail === 'string' ? option.detail : '',
+    downloaded_bytes: normalizeNumber(option.downloaded_bytes),
+    total_bytes: normalizeNumber(option.total_bytes),
+    progress_percent: normalizePercent(option.progress_percent),
+    downloaded_files: normalizeNumber(option.downloaded_files),
+    total_files: normalizeNumber(option.total_files),
+    file_progress_percent: normalizePercent(option.file_progress_percent),
+  }
+}
+
 function normalizeModelStatus(value: unknown): VoiceModelStatus {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return unavailableStatus
   const status = value as Record<string, unknown>
-  const rawStatus = typeof status.status === 'string' ? status.status : 'unavailable'
-  const normalizedStatus = ['idle', 'downloading', 'loading', 'ready', 'failed'].includes(rawStatus)
-    ? rawStatus as VoiceModelSetupStatus
-    : 'unavailable'
+  const normalizedStatus = normalizeSetupStatus(status.status)
+  const models = Array.isArray(status.models)
+    ? status.models.map(normalizeModelOption).filter((option): option is VoiceModelOption => option !== null)
+    : []
 
   return {
     success: Boolean(status.success ?? normalizedStatus !== 'unavailable'),
@@ -85,6 +137,8 @@ function normalizeModelStatus(value: unknown): VoiceModelStatus {
     downloaded_files: normalizeNumber(status.downloaded_files),
     total_files: normalizeNumber(status.total_files),
     file_progress_percent: normalizePercent(status.file_progress_percent),
+    active_model_id: typeof status.active_model_id === 'string' ? status.active_model_id : '',
+    models,
   }
 }
 export async function getVoiceModelStatus(cacheDir = ''): Promise<VoiceModelStatus> {
@@ -95,9 +149,19 @@ export async function getVoiceModelStatus(cacheDir = ''): Promise<VoiceModelStat
   }
 }
 
-export async function startVoiceModelDownload(cacheDir = ''): Promise<VoiceModelStatus> {
+/** 下载（如未下载）并加载为当前模型；modelId 为空时用设置里选用的模型。 */
+export async function startVoiceModelDownload(cacheDir = '', modelId = ''): Promise<VoiceModelStatus> {
   try {
-    return normalizeModelStatus(await ipcClient.invoke('voice-model:start-download', { cacheDir }))
+    return normalizeModelStatus(await ipcClient.invoke('voice-model:start-download', { cacheDir, modelId }))
+  } catch {
+    return unavailableStatus
+  }
+}
+
+/** 只下载某个模型，不切换当前模型（初始化页的“下载”“全部下载”）。 */
+export async function downloadVoiceModelOnly(modelId: string, cacheDir = ''): Promise<VoiceModelStatus> {
+  try {
+    return normalizeModelStatus(await ipcClient.invoke('voice-model:start-download', { cacheDir, modelId, load: false }))
   } catch {
     return unavailableStatus
   }

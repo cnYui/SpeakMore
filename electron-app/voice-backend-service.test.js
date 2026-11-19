@@ -296,3 +296,24 @@ test('stop 结束已启动的后端进程', async () => {
 
   assert.equal(child.killed, true);
 });
+
+test('start 在打包态把选用的语音模型注入 SPEAKMORE_ASR_MODEL_ID', async () => {
+  const child = createChild();
+  const calls = [];
+  const service = createVoiceBackendService({
+    isPackaged: true,
+    backendExecutablePath: () => 'C:\\backend.exe',
+    getAsrModelId: () => 'sensevoice-small-int8',
+    spawnProcess: (command, args, options) => {
+      calls.push({ command, args, options });
+      return child;
+    },
+    probeReady: async () => ({ success: false, detail: 'starting' }),
+    processEnv: { SPEAKMORE_ASR_MODEL_ID: 'stale' },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  await service.start();
+
+  assert.equal(calls[0].options.env.SPEAKMORE_ASR_MODEL_ID, 'sensevoice-small-int8');
+});

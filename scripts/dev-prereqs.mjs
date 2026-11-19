@@ -7,6 +7,7 @@ export const SERVER_REQUIRED_MODULES = [
   { module: 'torch', package: 'torch' },
   { module: 'torchaudio', package: 'torchaudio' },
   { module: 'transformers', package: 'transformers' },
+  { module: 'sherpa_onnx', package: 'sherpa-onnx' },
 ];
 
 export const getServerVenvPythonPath = ({ rootDir, platform = process.platform }) => (

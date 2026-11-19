@@ -24,13 +24,31 @@ def create_sensevoice_snapshot(cache_root: Path, snapshot_name: str = "sensevoic
 
 
 class AsrConfigTest(unittest.TestCase):
-    def test_model_manager_exposes_only_sensevoice_small(self):
-        self.assertEqual(model_manager.SUPPORTED_ASR_MODEL_IDS, (model_manager.SENSEVOICE_SMALL_MODEL_ID,))
+    def setUp(self):
+        model_manager.reset_active_asr_model_id()
+
+    def tearDown(self):
+        model_manager.reset_active_asr_model_id()
+
+    def test_model_manager_exposes_pytorch_and_int8_sensevoice(self):
+        self.assertEqual(
+            model_manager.SUPPORTED_ASR_MODEL_IDS,
+            (model_manager.SENSEVOICE_SMALL_MODEL_ID, model_manager.SENSEVOICE_SMALL_INT8_MODEL_ID),
+        )
         self.assertEqual(model_manager.DEFAULT_MODEL_ID, model_manager.SENSEVOICE_SMALL_MODEL_ID)
-        self.assertEqual(model_manager.get_active_asr_model_id(), model_manager.SENSEVOICE_SMALL_MODEL_ID)
+        with patch.dict(os.environ, {"SPEAKMORE_ASR_MODEL_ID": ""}, clear=False):
+            self.assertEqual(model_manager.get_active_asr_model_id(), model_manager.SENSEVOICE_SMALL_MODEL_ID)
         self.assertEqual(
             model_manager.get_model_explicit_dir_env(model_manager.SENSEVOICE_SMALL_MODEL_ID),
             "SENSEVOICE_SMALL_MODEL_DIR",
+        )
+        self.assertEqual(
+            model_manager.get_model_explicit_dir_env(model_manager.SENSEVOICE_SMALL_INT8_MODEL_ID),
+            "SENSEVOICE_SMALL_INT8_MODEL_DIR",
+        )
+        self.assertEqual(
+            model_manager.get_model_required_files(model_manager.SENSEVOICE_SMALL_INT8_MODEL_ID),
+            ("model.int8.onnx", "tokens.txt"),
         )
 
     def test_model_manager_supports_sensevoice_small_snapshot(self):

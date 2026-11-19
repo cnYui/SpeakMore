@@ -17,17 +17,24 @@ from fastapi.responses import FileResponse, JSONResponse
 from asr import (
     DOWNLOAD_SOURCE,
     create_streaming_asr_session,
+    download_asr_model,
     get_asr_runtime_device_status,
     preload_asr_model,
     resolve_streaming_model_source,
     transcribe_audio,
+    unload_asr_model,
 )
 from model_manager import (
     SENSEVOICE_SMALL_MODEL_ID,
-    SENSEVOICE_SMALL_REPO_ID,
+    SUPPORTED_ASR_MODEL_IDS,
     configure_model_cache_dir,
-    find_cached_model_snapshot,
+    get_active_asr_model_id,
     get_managed_model_cache_root,
+    get_model_display_metadata,
+    get_model_repo_id,
+    is_model_cached,
+    normalize_asr_model_id,
+    set_active_asr_model_id,
 )
 from refiner import refine_text, reload_refiner_runtime_config
 from runtime_config import (
@@ -207,19 +214,26 @@ def apply_model_cache_dir(cache_dir: str | None) -> str:
     return str(configure_model_cache_dir(cache_dir))
 
 
-async def read_model_cache_dir_from_request(request: Request) -> str:
+async def read_model_request_payload(request: Request) -> dict:
     try:
         payload = await request.json()
     except Exception:
-        return ""
-    if not isinstance(payload, dict):
-        return ""
-    value = payload.get("cache_dir")
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+async def read_model_cache_dir_from_request(request: Request) -> str:
+    value = (await read_model_request_payload(request)).get("cache_dir")
     return value.strip() if isinstance(value, str) else ""
 
 
 def is_sensevoice_cached() -> bool:
-    return find_cached_model_snapshot(SENSEVOICE_SMALL_MODEL_ID) is not None
+    """当前选用的模型是否已在本机（保留旧函数名，兼容调用方）。"""
+    return is_model_cached(get_active_asr_model_id())
+
+
+def get_model_label(model_id: str) -> str:
+    return get_model_display_metadata(model_id)["label"]
 
 
 def normalize_download_progress(progress: dict | None = None) -> dict[str, int | None]:
@@ -264,8 +278,8 @@ def create_voice_service_state(
     return {
         "status": status,
         "detail": normalized_detail,
-        "model_id": SENSEVOICE_SMALL_MODEL_ID,
-        "repo_id": SENSEVOICE_SMALL_REPO_ID,
+        "model_id": get_active_asr_model_id(),
+        "repo_id": get_model_repo_id(get_active_asr_model_id()),
         "device": device_status.get("device"),
         "requested_device": device_status.get("requested_device"),
         "device_source": device_status.get("device_source"),
@@ -327,20 +341,70 @@ def get_voice_service_state(app: FastAPI) -> dict:
     if not isinstance(current, dict):
         return create_voice_service_state("idle", MODEL_MISSING_DETAIL)
 
+    cached = is_sensevoice_cached()
     current = {
         **current,
         **get_asr_runtime_device_status(),
         "cache_dir": get_model_cache_dir(),
-        "cached": is_sensevoice_cached(),
+        "cached": cached,
         "ready": current.get("status") == "ready",
     }
+    # 缓存目录或当前模型变化后，空闲状态的提示要跟着“是否已下载”更新。
+    if current.get("status") == "idle" and current.get("detail") in {MODEL_MISSING_DETAIL, MODEL_CACHED_IDLE_DETAIL}:
+        current["detail"] = MODEL_CACHED_IDLE_DETAIL if cached else MODEL_MISSING_DETAIL
     started_at = current.get("started_at")
     if isinstance(started_at, (float, int)):
         current = {
             **current,
             "elapsed_ms": int((time.time() - float(started_at)) * 1000),
         }
-    return current
+    return {
+        **current,
+        "model_id": get_active_asr_model_id(),
+        "repo_id": get_model_repo_id(get_active_asr_model_id()),
+        "active_model_id": get_active_asr_model_id(),
+        "models": build_models_status(app, current),
+    }
+
+
+def get_model_download_states(app: FastAPI) -> dict[str, dict]:
+    states = getattr(app.state, "model_download_states", None)
+    if not isinstance(states, dict):
+        states = {}
+        app.state.model_download_states = states
+    return states
+
+
+def build_models_status(app: FastAPI, active_state: dict) -> list[dict]:
+    """初始化页的模型列表：当前选用的模型取语音服务状态，其它模型取各自的“只下载”任务状态。"""
+    active_model_id = get_active_asr_model_id()
+    download_states = get_model_download_states(app)
+    models = []
+    for model_id in SUPPORTED_ASR_MODEL_IDS:
+        cached = is_model_cached(model_id)
+        download_state = download_states.get(model_id) or {}
+        download_busy = download_state.get("status") == "downloading"
+        if model_id == active_model_id and not download_busy:
+            status = str(active_state.get("status") or "idle")
+            detail = str(active_state.get("detail") or "")
+            progress = normalize_download_progress(active_state)
+        else:
+            status = str(download_state.get("status") or "idle")
+            detail = str(download_state.get("detail") or "")
+            progress = normalize_download_progress(download_state)
+            if status == "done":
+                status = "idle"
+        models.append({
+            "model_id": model_id,
+            "repo_id": get_model_repo_id(model_id),
+            **get_model_display_metadata(model_id),
+            "active": model_id == active_model_id,
+            "cached": cached,
+            "status": status,
+            "detail": detail,
+            **progress,
+        })
+    return models
 
 
 def is_voice_service_ready(app: FastAPI) -> bool:
@@ -370,10 +434,11 @@ async def preload_voice_service(
     started_at = time.time()
     try:
         source = resolve_streaming_model_source()
+        label = get_model_label(source.model_id)
         if source.kind == DOWNLOAD_SOURCE:
-            set_voice_service_state(app, "downloading", "正在下载 SenseVoiceSmall 模型", started_at)
+            set_voice_service_state(app, "downloading", f"正在下载 {label} 模型", started_at)
         else:
-            set_voice_service_state(app, "loading", "正在加载 SenseVoiceSmall 模型", started_at)
+            set_voice_service_state(app, "loading", f"正在加载 {label} 模型", started_at)
 
         await asyncio.to_thread(
             call_preload_model,
@@ -391,10 +456,67 @@ def start_voice_model_task(app: FastAPI, preload_model, exit_scheduler, exit_on_
     if is_voice_service_ready(app) or is_voice_model_task_running(app):
         return
 
-    set_voice_service_state(app, "loading", "正在准备 SenseVoiceSmall 模型", time.time())
+    set_voice_service_state(app, "loading", f"正在准备 {get_model_label(get_active_asr_model_id())} 模型", time.time())
     app.state.voice_preload_task = asyncio.create_task(
         preload_voice_service(app, preload_model, exit_scheduler, exit_on_failure=exit_on_failure),
     )
+
+
+def is_model_download_running(app: FastAPI, model_id: str) -> bool:
+    tasks = getattr(app.state, "model_download_tasks", None)
+    task = tasks.get(model_id) if isinstance(tasks, dict) else None
+    return bool(task and not task.done())
+
+
+def apply_requested_model_id(app: FastAPI, requested_model_id: str | None) -> bool:
+    """把 Electron 设置里选中的模型设为当前模型。正在下载/加载时不切换，返回是否已是请求的模型。"""
+    model_id = normalize_asr_model_id(requested_model_id)
+    if not model_id or model_id == get_active_asr_model_id():
+        return True
+    if is_voice_model_task_running(app) or is_model_download_running(app, model_id):
+        return False
+    set_active_asr_model_id(model_id)
+    unload_asr_model()
+    set_voice_service_state(app, "idle", MODEL_MISSING_DETAIL)
+    return True
+
+
+async def download_model_only(app: FastAPI, model_id: str, download_model) -> None:
+    states = get_model_download_states(app)
+    label = get_model_label(model_id)
+    started_at = time.time()
+    states[model_id] = {"status": "downloading", "detail": f"正在下载 {label} 模型", "started_at": started_at}
+
+    def on_progress(progress: dict) -> None:
+        states[model_id] = {**states.get(model_id, {}), **normalize_download_progress(progress)}
+
+    try:
+        await asyncio.to_thread(download_model, model_id, on_progress)
+        states[model_id] = {"status": "done", "detail": f"{label} 已下载"}
+    except Exception as error:
+        states[model_id] = {"status": "failed", "detail": f"{label} 下载失败: {error}"}
+
+
+def start_model_download_task(app: FastAPI, model_id: str, download_model) -> None:
+    if is_model_cached(model_id) or is_model_download_running(app, model_id):
+        return
+    if model_id == get_active_asr_model_id() and is_voice_model_task_running(app):
+        return
+    tasks = getattr(app.state, "model_download_tasks", None)
+    if not isinstance(tasks, dict):
+        tasks = {}
+        app.state.model_download_tasks = tasks
+    tasks[model_id] = asyncio.create_task(download_model_only(app, model_id, download_model))
+
+
+def read_bool(value, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    if isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    return default
 
 
 def create_flow_success_payload(refined_text: str, raw_text: str = "") -> dict:
@@ -736,6 +858,7 @@ def create_app(
     exit_scheduler=schedule_startup_failure_exit,
     auto_preload_model: bool = False,
     exit_on_preload_failure: bool = False,
+    download_model=download_asr_model,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -753,6 +876,9 @@ def create_app(
             preload_task = getattr(app.state, "voice_preload_task", None)
             if preload_task:
                 preload_task.cancel()
+            download_tasks = getattr(app.state, "model_download_tasks", None)
+            for task in (download_tasks or {}).values():
+                task.cancel()
 
     app = FastAPI(title="Typeless Local Server", lifespan=lifespan)
     app.add_middleware(
@@ -779,12 +905,21 @@ def create_app(
     @app.get("/model/status")
     async def model_status(request: Request):
         apply_model_cache_dir(request.query_params.get("cache_dir"))
+        apply_requested_model_id(app, request.query_params.get("model_id"))
         return get_voice_model_status(app)
 
     @app.post("/model/download")
     async def model_download(request: Request):
-        apply_model_cache_dir(await read_model_cache_dir_from_request(request))
-        start_voice_model_task(app, preload_model, exit_scheduler, exit_on_failure=False)
+        payload = await read_model_request_payload(request)
+        cache_dir = payload.get("cache_dir")
+        apply_model_cache_dir(cache_dir.strip() if isinstance(cache_dir, str) else "")
+        requested_model_id = normalize_asr_model_id(payload.get("model_id"))
+        # load=false：只下载该模型不切换（初始化页的“下载”“全部下载”）；默认下载后加载为当前模型。
+        if requested_model_id and not read_bool(payload.get("load"), True):
+            start_model_download_task(app, requested_model_id, download_model)
+            return get_voice_model_status(app)
+        if apply_requested_model_id(app, requested_model_id):
+            start_voice_model_task(app, preload_model, exit_scheduler, exit_on_failure=False)
         return get_voice_model_status(app)
 
     @app.post("/config/reload")

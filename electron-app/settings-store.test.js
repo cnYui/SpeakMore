@@ -159,3 +159,12 @@ test('buildCurrentLlmRequestConfig 会按当前 provider 生成请求配置', ()
     auth_type: 'anthropic',
   });
 });
+
+test('normalizeLocalSettings 只接受共享元数据里的语音模型', () => {
+  const sharedAsrModels = require('../shared/asr-models.json');
+  const defaultModel = sharedAsrModels.find((model) => model.default).id;
+
+  assert.equal(normalizeLocalSettings({}).asrModelId, defaultModel);
+  assert.equal(normalizeLocalSettings({ asrModelId: 'sensevoice-small-int8' }).asrModelId, 'sensevoice-small-int8');
+  assert.equal(normalizeLocalSettings({ asrModelId: 'whisper' }).asrModelId, defaultModel);
+});

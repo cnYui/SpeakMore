@@ -192,3 +192,23 @@ test('createVoiceBackendClient 的语音接口在后端未就绪时返回 backen
   assert.equal(result.success, false);
   assert.equal(result.code, 'backend_not_ready');
 });
+
+test('createVoiceBackendClient 把选用的模型和只下载标记传给后端', async () => {
+  const calls = [];
+  const client = createVoiceBackendClient({
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, status: 200, json: async () => ({ status: 'idle', detail: '' }) };
+    },
+    buildCurrentLlmRequestConfig: () => ({ provider_id: 'deepseek', base_url: 'https://api.deepseek.com/v1', api_key: '', model: 'deepseek-chat', auth_type: 'bearer' }),
+    normalizeLlmRequestConfig: (value) => value,
+  });
+
+  await client.getVoiceModelStatus({ modelId: 'sensevoice-small-int8' });
+  await client.startVoiceModelDownload({ modelId: 'sensevoice-small-int8', load: false });
+  await client.startVoiceModelDownload({ cacheDir: 'D:\\Models', modelId: 'sensevoice-small' });
+
+  assert.equal(calls[0].url, 'http://127.0.0.1:8000/model/status?model_id=sensevoice-small-int8');
+  assert.equal(calls[1].init.body, JSON.stringify({ model_id: 'sensevoice-small-int8', load: false }));
+  assert.equal(calls[2].init.body, JSON.stringify({ cache_dir: 'D:\\Models', model_id: 'sensevoice-small' }));
+});

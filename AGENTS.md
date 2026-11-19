@@ -25,11 +25,12 @@
 - 发布准备应从 `main` 拉 `release/vX.Y.Z` 分支处理版本号、签名、公证和 release note；不要创建用于长期保存打包产物的 Git 分支。
 - macOS 打包态应用名必须设置为 `SpeakMore`，确保 `app.getPath('userData')` 指向 `~/Library/Application Support/SpeakMore`；设置页保存 `asrDeviceMode=mps` 后，用户真实退出并重开 App 时，Electron 必须按该设置给内置后端注入 `FUNASR_DEVICE=mps`；Windows 设置页保存 `asrDeviceMode=cuda` 后，打包态 Electron 必须给内置后端注入 `FUNASR_DEVICE=cuda:0`。
 - 后端关键接口为 `GET /health`、`GET /model/status`、`POST /model/download`、`GET /ready`、`POST /config/reload`、`POST /ai/voice_flow` 和 `WebSocket /ws/rt_voice_flow`。
-- `/health` 表示后端进程存活；`/model/status` 表示 SenseVoiceSmall 初始化状态；`/ready` 表示当前 ASR 模型已加载完成，语音链路可接收请求。
-- 旧模型管理能力已删除，Electron 不再注册 `model:*` IPC，也不提供模型切换、删除或选择入口；当前只允许单模型初始化页触发 SenseVoiceSmall 下载/加载。
-- 当前正式 ASR 模型只支持 `FunAudioLLM/SenseVoiceSmall`，用户可见层只有“初始化”页的单模型下载/加载入口。
-- `sensevoice-small` 通过 FunASR `SenseVoiceSmall` 接入，不描述为原生在线 streaming；后端通过累计音频伪流式输出维持现有 WebSocket 协议。
-- ASR 运行时通过 `FUNASR_DEVICE` 选择设备；空值保持默认稳定策略，优先 CUDA，最后 CPU，不自动启用 MPS；`auto` 时优先 CUDA，其次 macOS MPS，最后 CPU；显式 `cuda` / `cuda:0` / `mps` 不可用或非 CPU 初始化失败时必须回退 CPU；MPS 仍是 Apple Silicon 实验加速路径，不承诺性能指标；`/model/status` 和 `/ready` 暴露 `device`、`requested_device`、`device_source` 和 `fallback_reason`；模型扫描顺序固定为 `SENSEVOICE_SMALL_MODEL_DIR` → 用户设置的 `modelCacheDir` / 后端 `TYPELESS_MODEL_CACHE_DIR` → 平台默认模型目录（Windows `%LOCALAPPDATA%\Typeless\models\funasr`，macOS `~/Library/Application Support/SpeakMore/models/funasr`）→ `%USERPROFILE%\.cache\huggingface\hub` 或当前用户 Hugging Face cache → 初始化页点击下载到用户设置的 `modelCacheDir`，未设置时下载到平台默认模型目录。
+- `/health` 表示后端进程存活；`/model/status` 表示当前选用模型的初始化状态，并在 `models` 里列出每个模型的下载状态；`/ready` 表示当前 ASR 模型已加载完成，语音链路可接收请求。
+- 旧的独立模型管理页和 `model:*` IPC 已删除，不要恢复；模型的下载、全部下载和切换只放在“初始化”页，统一走 `voice-model:get-status`、`voice-model:start-download` IPC。
+- 当前支持两个 ASR 模型，元数据唯一来源是 `shared/asr-models.json`（后端 `server/model_manager.py` 的注册表必须与它一致，有测试校验）：`sensevoice-small`（`FunAudioLLM/SenseVoiceSmall`，FunASR PyTorch，约 900 MB，默认）和 `sensevoice-small-int8`（`csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` 的 `model.int8.onnx` + `tokens.txt`，sherpa-onnx 推理，约 229 MB）。
+- 两个模型都不描述为原生在线 streaming；后端通过累计音频伪流式输出维持现有 WebSocket 协议。int8 版是同一权重的量化导出，2026-11-19 在 7.5 分钟真实录音上与 PyTorch 版字符差异约 1.2%，CPU 推理约快一倍，常驻内存约 0.5 GB（PyTorch 版约 3 GB）。
+- 当前模型由 Electron 设置 `asrModelId` 决定：开发态每次 `/model/status`、`/model/download` 都带 `model_id`，后端在空闲时切换（下载或加载中不切换）；打包态启动后端时注入 `SPEAKMORE_ASR_MODEL_ID`。`POST /model/download` 带 `load: false` 时只下载不切换。切换时先释放旧模型；从 PyTorch 版切到 int8 版后，内存要重启后端进程才会还给系统。
+- ASR 运行时通过 `FUNASR_DEVICE` 选择设备；空值保持默认稳定策略，优先 CUDA，最后 CPU，不自动启用 MPS；`auto` 时优先 CUDA，其次 macOS MPS，最后 CPU；显式 `cuda` / `cuda:0` / `mps` 不可用或非 CPU 初始化失败时必须回退 CPU；int8 版只在 CPU 上推理，显式选了 CUDA / MPS 时 `fallback_reason` 为 `int8_onnx_cpu_only`；MPS 仍是 Apple Silicon 实验加速路径，不承诺性能指标；`/model/status` 和 `/ready` 暴露 `device`、`requested_device`、`device_source` 和 `fallback_reason`；模型扫描顺序固定为 `SENSEVOICE_SMALL_MODEL_DIR`（int8 版为 `SENSEVOICE_SMALL_INT8_MODEL_DIR`）→ 用户设置的 `modelCacheDir` / 后端 `TYPELESS_MODEL_CACHE_DIR` → 平台默认模型目录（Windows `%LOCALAPPDATA%\Typeless\models\funasr`，macOS `~/Library/Application Support/SpeakMore/models/funasr`）→ `%USERPROFILE%\.cache\huggingface\hub` 或当前用户 Hugging Face cache → 初始化页点击下载到用户设置的 `modelCacheDir`，未设置时下载到平台默认模型目录。
 - `electron-app/main.js` 加载 `electron-app/renderer/dist/index.html`、`floating-bar.html` 和 `floating-panel.html`。
 - `electron-app/main.js` 是 Electron 主进程组合根，主要负责创建服务、依赖接线和生命周期注册；窗口、悬浮状态、IPC、本地数据、后端客户端、音频会话、文本观察和 Right Alt 监听逻辑应放在对应独立模块。
 - `electron-app/main-ipc-registry.js` 负责按上下文注册 IPC，主进程只注入依赖，不在 `main.js` 里直接拼装各通道业务逻辑。
@@ -92,7 +93,7 @@
 - WebSocket 语音流固定输入来自 `16kHz`、单声道、`pcm_s16le` 二进制 chunk，并在 `start_audio.parameters.audio_format` 声明 `{ type: "pcm_s16le", sample_rate: 16000, channels: 1 }`；`/ai/voice_flow` 兼容入口可以接受上传音频，但后端也必须先转成 PCM16 再喂给 SenseVoiceSmall。
 - WebSocket 协议入口必须防御非法 JSON 和非对象参数；`parameters`、`audio_context` 等输入进入业务逻辑前必须归一化为对象。
 - WebSocket 单轮音频处理失败也必须清空本轮音频块，不能让下一次 `end_audio` 重复处理旧音频。
-- ASR 后端只支持 `sensevoice-small`，不要恢复旧模型兼容逻辑。
+- ASR 后端只支持 `shared/asr-models.json` 里列出的模型，不要恢复旧模型兼容逻辑；新增模型先改共享元数据和后端注册表。
 - 开发态 `uvicorn reload` 必须显式由环境变量 `UVICORN_RELOAD` 开启，不要在代码里默认写死 `reload=True`。
 - 录音期间静音后台声音时，保持“短按开始、再次短按结束”的交互；Windows 上按音频会话静音，结束后只恢复本轮被 SpeakMore 主动静音的会话。
 - 自动学习只能围绕 SpeakMore 本轮粘贴结果短时观察当前焦点控件，不允许做无差别全局文本采集；目标应用不支持 Windows UIA 或 macOS AX focused text 读取时，本轮学习应降级为不可用。
@@ -109,7 +110,7 @@
 - 首页“整体个性化”只展示基于累计听写时长、累计听写字数和启用正式词条数计算出的百分比；公式采用 `score(value, anchor) = min(1, max(0, value / anchor) ^ 0.55)`，锚点为 `60000` 分钟、`10000000` 字和 `2000` 个启用词条，权重为时长 `25%`、字数 `30%`、词条 `45%`；候选词和停用词不计入分数，该分数只用于首页展示，不改变 prompt 词典裁剪。
 - 首页“最近结果”展示非自由提问的最近三次最终转录/最终结果文字；实时状态只在悬浮胶囊展示。
 - 首页“最近结果”、历史记录条目和自由提问悬浮结果都应提供复制入口；复制动作统一走 `clipboard:write-text` IPC，空结果不能复制占位符。
-- 初始化页展示 SenseVoiceSmall 下载/加载状态，并通过 `voice-model:get-status`、`voice-model:start-download` IPC 触发单模型初始化；设置页目前包含固定快捷键展示、麦克风选择、界面语言、翻译目标语言和大模型 provider/API Key/模型配置；开机启动入口暂时不展示，`permission:update-auto-launch` 不应写入系统登录项；大模型配置必须通过“修改”进入编辑态，点击“保存”后写入本地设置并触发后端配置重载；翻译目标语言当前支持英文 `en` 和日语 `ja`。
+- 初始化页展示当前模型的下载/加载状态和可选模型列表：每个模型可单独“下载”（只下载不切换），也可“全部下载”，已下载的模型点“使用此模型”会保存 `asrModelId` 并加载；有任何模型已下载后不再允许改模型保存路径；设置页目前包含固定快捷键展示、麦克风选择、界面语言、翻译目标语言和大模型 provider/API Key/模型配置；开机启动入口暂时不展示，`permission:update-auto-launch` 不应写入系统登录项；大模型配置必须通过“修改”进入编辑态，点击“保存”后写入本地设置并触发后端配置重载；翻译目标语言当前支持英文 `en` 和日语 `ja`。
 - 不要用历史阶段标签扩大范围做整套页面重构、账户体系、云同步、自动更新或复杂快捷键编辑器；需要做这些功能时先单独设计。
 
 ## 数据与配置
@@ -126,7 +127,8 @@
 - 词典页通过主进程 `dictionary:changed` 事件实时刷新自动学习候选和自动词条；页面只展示结果列表，不展示自动学习过程、观察失败原因或用户文本片段。
 - 发给后端大模型 prompt 的词典不应整表注入；后续实现时间衰减时默认每轮最多发送 24 条，可配置范围为 8 到 40 条，硬上限 40 条。手动词条不应天然永久高优先级，排序应由动态 score 决定。
 - 本地设置包含 `translationTargetLanguage`，只允许共享翻译目标语言元数据中的语言代码，由主进程和 renderer 双侧归一化。
-- 本地设置包含 `modelCacheDir`，用于保存用户选择的 SenseVoiceSmall 下载目录；Electron 查询模型状态、触发下载和打包后端启动时都必须把该目录传给后端。该值是本机路径，不得写入仓库或文档示例之外的共享配置。
+- 本地设置包含 `asrModelId`，只允许 `shared/asr-models.json` 里的模型 id，默认 `sensevoice-small`，由主进程和 renderer 双侧归一化。
+- 本地设置包含 `modelCacheDir`，用于保存用户选择的模型下载目录（两个模型共用）；Electron 查询模型状态、触发下载和打包后端启动时都必须把该目录传给后端。该值是本机路径，不得写入仓库或文档示例之外的共享配置。
 - 本地设置包含 `asrDeviceMode`，只允许 `default`、`mps`、`cuda` 和 `cpu`；macOS 设置页展示 `默认 / MPS / CPU`，Windows 设置页展示 `默认 / CUDA / CPU`；打包态 Electron 启动后端时把 `mps`、`cuda`、`cpu` 分别映射为 `FUNASR_DEVICE=mps`、`FUNASR_DEVICE=cuda:0`、`FUNASR_DEVICE=cpu`；`default` 不主动启用 MPS，仍由后端默认策略优先 CUDA 后 CPU；设置保存后需要重启语音后端或应用生效，不做运行中热切换。
 - 听写历史保存由 `AppShell` 这类全局常驻层订阅语音会话完成事件，不要放在首页、历史页等可切换页面组件里。
 - 首页累计统计来自独立 `history-stats.json`，不得从最近 200 条 `history.json` 反推；历史列表裁剪不能影响累计听写时长、累计字数、平均速度和节省时间。

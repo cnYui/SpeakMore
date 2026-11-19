@@ -41,21 +41,33 @@ function createVoiceBackendClient({
     return typeof options.cacheDir === 'string' ? options.cacheDir.trim() : '';
   }
 
+  function normalizeModelIdOption(options = {}) {
+    return typeof options.modelId === 'string' ? options.modelId.trim() : '';
+  }
+
   function withModelCacheDirQuery(url, options = {}) {
     const cacheDir = normalizeModelCacheDirOption(options);
-    if (!cacheDir) return url;
+    const modelId = normalizeModelIdOption(options);
+    if (!cacheDir && !modelId) return url;
     const nextUrl = new URL(url);
-    nextUrl.searchParams.set('cache_dir', cacheDir);
+    if (cacheDir) nextUrl.searchParams.set('cache_dir', cacheDir);
+    if (modelId) nextUrl.searchParams.set('model_id', modelId);
     return nextUrl.toString();
   }
 
+  // load=false 只下载不切换；省略 load 时后端下载后加载为当前模型（兼容旧调用）。
   function buildModelDownloadInit(options = {}) {
     const cacheDir = normalizeModelCacheDirOption(options);
-    if (!cacheDir) return { method: 'POST' };
+    const modelId = normalizeModelIdOption(options);
+    const body = {};
+    if (cacheDir) body.cache_dir = cacheDir;
+    if (modelId) body.model_id = modelId;
+    if (options.load === false) body.load = false;
+    if (!Object.keys(body).length) return { method: 'POST' };
     return {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ cache_dir: cacheDir }),
+      body: JSON.stringify(body),
     };
   }
 

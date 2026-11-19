@@ -34,6 +34,7 @@ function createVoiceBackendService({
   ffmpegBinDir = () => '',
   getModelCacheDir = () => '',
   getAsrDeviceMode = () => 'default',
+  getAsrModelId = () => '',
   spawnProcess,
   probeReady,
   probeModelStatus,
@@ -67,6 +68,9 @@ function createVoiceBackendService({
     if (asrDeviceMode === 'mps') env.FUNASR_DEVICE = 'mps';
     if (asrDeviceMode === 'cuda') env.FUNASR_DEVICE = 'cuda:0';
     if (asrDeviceMode === 'cpu') env.FUNASR_DEVICE = 'cpu';
+    const asrModelId = typeof getAsrModelId === 'function' ? String(getAsrModelId() || '').trim() : '';
+    delete env.SPEAKMORE_ASR_MODEL_ID;
+    if (asrModelId) env.SPEAKMORE_ASR_MODEL_ID = asrModelId;
     return env;
   }
 
