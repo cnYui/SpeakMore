@@ -45,9 +45,10 @@ struct DashboardView: View {
     // MARK: 个性化 + 统计
 
     private func personalizationAndStats(stats: DashboardStats, personalization: Int) -> some View {
-        Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+        GlassEffectContainer(spacing: 12) {
+          Grid(horizontalSpacing: 12, verticalSpacing: 12) {
             GridRow {
-                GroupBox {
+                GlassCard {
                     HStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(model.t("dashboard.personalization.label"))
@@ -66,7 +67,6 @@ struct DashboardView: View {
                         .tint(.blue)
                         .frame(width: 56, height: 56)
                     }
-                    .padding(4)
                 }
                 .gridCellColumns(2)
             }
@@ -93,6 +93,7 @@ struct DashboardView: View {
                     label: model.t("dashboard.stats.averageSpeed")
                 )
             }
+          }
         }
     }
 
@@ -100,7 +101,7 @@ struct DashboardView: View {
 
     private var recentResults: some View {
         let results = model.history.recentResults
-        return GroupBox {
+        return GlassCard(title: model.t("dashboard.recentResults")) {
             if results.isEmpty {
                 Text(model.t("dashboard.noResults"))
                     .foregroundStyle(.secondary)
@@ -119,8 +120,6 @@ struct DashboardView: View {
                     }
                 }
             }
-        } label: {
-            Text(model.t("dashboard.recentResults")).font(.headline)
         }
     }
 }
@@ -130,7 +129,7 @@ private struct StatCard: View {
     let label: String
 
     var body: some View {
-        GroupBox {
+        GlassCard {
             VStack(alignment: .leading, spacing: 2) {
                 Text(value)
                     .font(.title2.weight(.semibold))
@@ -139,8 +138,6 @@ private struct StatCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(2)
         }
     }
 }

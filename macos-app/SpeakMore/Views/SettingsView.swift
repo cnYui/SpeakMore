@@ -18,6 +18,7 @@ struct SettingsView: View {
             LlmSection()
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .navigationTitle(model.t("settings.title"))
         .task { model.refreshMicrophones() }
     }
@@ -316,7 +317,7 @@ private struct LlmSection: View {
                 if isEditing {
                     Button(model.t("settings.cancel"), action: cancel).disabled(isSaving)
                     Button(model.t("settings.save")) { Task { await save() } }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                         .disabled(isSaving)
                 } else {
                     Button(model.t("settings.edit"), action: beginEditing)

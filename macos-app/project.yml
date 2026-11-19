@@ -4,7 +4,7 @@ options:
   developmentLanguage: zh-Hans
   createIntermediateGroups: true
   deploymentTarget:
-    macOS: "15.0"
+    macOS: "26.0"
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -36,7 +36,7 @@ targets:
         CFBundleDisplayName: SpeakMore
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans, en]
-        LSMinimumSystemVersion: "15.0"
+        LSMinimumSystemVersion: "26.0"
         LSApplicationCategoryType: public.app-category.productivity
         NSHumanReadableCopyright: MIT License
         NSMicrophoneUsageDescription: SpeakMore 需要访问麦克风来进行本地语音识别。

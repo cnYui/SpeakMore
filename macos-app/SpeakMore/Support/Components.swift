@@ -7,10 +7,9 @@ struct KeyCap: View {
     var body: some View {
         Text(text)
             .font(.system(.callout, design: .rounded).weight(.medium))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.separator))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .glassEffect(.regular, in: .rect(cornerRadius: 9))
             .accessibilityLabel(text)
     }
 }
@@ -28,7 +27,7 @@ struct KeyChips: View {
     }
 }
 
-/// 状态标签：胶囊底色 + 同色文字。
+/// 状态标签：带色调的玻璃胶囊 + 同色文字。
 struct StatusBadge: View {
     let text: String
     var tint: Color = .secondary
@@ -36,10 +35,10 @@ struct StatusBadge: View {
     var body: some View {
         Text(text)
             .font(.caption.weight(.medium))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
             .foregroundStyle(tint)
-            .background(tint.opacity(0.14), in: Capsule())
+            .glassEffect(.regular.tint(tint.opacity(0.28)), in: .capsule)
     }
 }
 
@@ -71,4 +70,23 @@ struct CopyButton: View {
 
 func formatBytes(_ bytes: Int) -> String {
     ByteCountFormatter.string(fromByteCount: Int64(max(0, bytes)), countStyle: .file)
+}
+
+/// 玻璃卡片（Liquid Glass）：用于首页的统计、最近结果等内容块。
+/// 多张卡片并排时放进 `GlassEffectContainer`，玻璃之间会按系统的方式融合、采样同一片背景。
+struct GlassCard<Content: View>: View {
+    var title: String?
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let title {
+                Text(title).font(.headline)
+            }
+            content
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+    }
 }

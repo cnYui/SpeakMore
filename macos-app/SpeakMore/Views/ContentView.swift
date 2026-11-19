@@ -23,6 +23,20 @@ struct ContentView: View {
                 .navigationTitle(model.t(page.titleKey))
                 .navigationSubtitle(model.t("app.name"))
         }
+        // 半透明窗口：桌面和后面的内容透过材质露出来，侧边栏 / 工具栏的玻璃才有东西可折射。
+        .containerBackground(.ultraThinMaterial, for: .window)
+        .toolbar {
+            // 工具栏按钮是系统的玻璃样式；点一下就能不用快捷键直接开始一轮语音输入。
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button(model.t("toolbar.dictate"), systemImage: "mic") { model.coordinator?.toggle(mode: .dictate) }
+                    Button(model.t("toolbar.ask"), systemImage: "questionmark.bubble") { model.coordinator?.toggle(mode: .ask) }
+                    Button(model.t("toolbar.translate"), systemImage: "translate") { model.coordinator?.toggle(mode: .translate) }
+                } label: {
+                    Label(model.t("toolbar.voiceInput"), systemImage: "mic.fill")
+                }
+            }
+        }
         .task { await model.monitorLocalChanges() }
         .task { await ScreenshotTour.runIfRequested(model: model) }
     }

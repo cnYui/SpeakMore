@@ -46,7 +46,7 @@ struct DictionaryView: View {
                 }
             }
             .listStyle(.inset)
-            .alternatingRowBackgrounds()
+            .scrollContentBackground(.hidden)
             .overlay {
                 if entries.isEmpty && candidates.isEmpty {
                     if query.isEmpty {
@@ -70,7 +70,7 @@ struct DictionaryView: View {
                 TextField(model.t("dictionary.correctLabel"), text: $phrase)
                 TextField(model.t("dictionary.aliasLabel"), text: $aliases, prompt: Text(model.t("dictionary.aliasPlaceholder")))
                 Button(model.t("dictionary.saveEntry"), action: save)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
             }
