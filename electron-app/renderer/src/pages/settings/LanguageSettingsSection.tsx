@@ -10,6 +10,7 @@ import {
   type InterfaceLanguage,
   type LocalSettings,
 } from '../../services/settingsStore'
+import { typo } from '../../uiTokens'
 
 type LanguageSettingsSectionProps = {
   settings: LocalSettings
@@ -24,7 +25,7 @@ const rowSx = {
   borderBottom: '1px solid rgba(119,119,119,0.08)',
 }
 
-const sectionTitle = { fontSize: 16, fontWeight: 500, mt: 3, mb: 1 }
+const sectionTitle = { ...typo.heading, mt: 3, mb: 1 }
 
 export default function LanguageSettingsSection({ settings, updateSettings }: LanguageSettingsSectionProps) {
   const { setLanguage, t } = useI18n()

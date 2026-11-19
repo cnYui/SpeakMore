@@ -103,7 +103,7 @@ private struct PermissionRow: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                Text(hint).font(.caption).foregroundStyle(.secondary)
+                Text(hint).font(AppFont.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -122,10 +122,10 @@ private struct LaunchAtLoginSection: View {
                 set: { model.setLaunchAtLogin($0) }
             ))
             if state == .requiresApproval {
-                Text(model.t("settings.launchAtLogin.requiresApproval")).font(.caption).foregroundStyle(.orange)
+                Text(model.t("settings.launchAtLogin.requiresApproval")).font(AppFont.caption).foregroundStyle(.orange)
             }
             if let error = model.launchAtLoginError {
-                Text(model.t("settings.launchAtLogin.failed") + error).font(.caption).foregroundStyle(.red)
+                Text(model.t("settings.launchAtLogin.failed") + error).font(AppFont.caption).foregroundStyle(.red)
             }
         } footer: {
             Text(model.t("settings.launchAtLogin.hint"))
@@ -189,7 +189,7 @@ private struct RuntimeSection: View {
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.t("settings.asrRuntime.mode"))
-                    Text(model.t("settings.asrRuntime.restartRequired")).font(.caption).foregroundStyle(.secondary)
+                    Text(model.t("settings.asrRuntime.restartRequired")).font(AppFont.caption).foregroundStyle(.secondary)
                 }
             }
 
@@ -211,7 +211,7 @@ private struct RuntimeSection: View {
                     Text(model.t("settings.asrRuntime.currentDevice"))
                     if !fallback.isEmpty {
                         Text("\(model.t("settings.asrRuntime.fallbackReason"))：\(fallback)")
-                            .font(.caption)
+                            .font(AppFont.caption)
                             .foregroundStyle(.orange)
                     }
                 }
@@ -307,7 +307,7 @@ private struct LlmSection: View {
 
             if !message.isEmpty {
                 Text(message)
-                    .font(.callout)
+                    .font(AppFont.caption)
                     .foregroundStyle(messageIsError ? Color.red : Color.green)
             }
         } header: {

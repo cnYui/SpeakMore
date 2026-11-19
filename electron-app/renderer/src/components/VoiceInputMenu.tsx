@@ -11,6 +11,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useI18n } from '../i18n'
 import { toggleRecording } from '../services/recorder'
 import type { VoiceMode } from '../services/voice/voiceTypes'
+import { typo, iconSize } from '../uiTokens'
 
 const items: { mode: VoiceMode; labelKey: 'toolbar.dictate' | 'toolbar.ask' | 'toolbar.translate' }[] = [
   { mode: 'Dictate', labelKey: 'toolbar.dictate' },
@@ -34,16 +35,15 @@ export default function VoiceInputMenu() {
           px: '14px',
           gap: 0.75,
           borderRadius: 9999,
-          fontSize: 13,
-          fontWeight: 500,
+          ...typo.bodyMedium,
           color: 'text.primary',
           // 拖动区域里的按钮必须声明 no-drag，否则点不到。
           WebkitAppRegion: 'no-drag',
         }}
       >
-        <MicIcon sx={{ fontSize: 17, color: 'primary.main' }} />
+        <MicIcon sx={{ fontSize: iconSize.inline, color: 'primary.main' }} />
         <Box component="span">{t('toolbar.voiceInput')}</Box>
-        <KeyboardArrowDownIcon sx={{ fontSize: 17, color: 'text.secondary' }} />
+        <KeyboardArrowDownIcon sx={{ fontSize: iconSize.inline, color: 'text.secondary' }} />
       </ButtonBase>
       <Menu
         anchorEl={anchor}

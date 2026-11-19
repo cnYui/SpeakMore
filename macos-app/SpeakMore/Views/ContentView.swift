@@ -25,6 +25,8 @@ struct ContentView: View {
         }
         // 半透明窗口：桌面和后面的内容透过材质露出来，侧边栏 / 工具栏的玻璃才有东西可折射。
         .containerBackground(.ultraThinMaterial, for: .window)
+        // 默认字号 = 规范里的 body（14）；没写字体的 Text 都走这里，见 Support/Typography.swift。
+        .font(AppFont.body)
         .toolbar {
             // 工具栏按钮是系统的玻璃样式；点一下就能不用快捷键直接开始一轮语音输入。
             ToolbarItem(placement: .primaryAction) {

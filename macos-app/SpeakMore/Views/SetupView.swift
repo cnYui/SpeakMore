@@ -65,7 +65,7 @@ struct SetupView: View {
                     .foregroundStyle(.orange)
             } else if let detail = status?.detail, !detail.isEmpty {
                 Text(detail)
-                    .font(.callout)
+                    .font(AppFont.caption)
                     .foregroundStyle(status?.status == .failed ? Color.red : Color.secondary)
             }
 
@@ -107,7 +107,7 @@ struct SetupView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ProgressView(value: Double(percent), total: 100)
                 Text(model.format("setup.progressFormat", percent, formatBytes(status.downloadedBytes), formatBytes(status.totalBytes)))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(AppFont.caption).foregroundStyle(.secondary)
             }
         } else {
             VStack(alignment: .leading, spacing: 4) {
@@ -116,7 +116,7 @@ struct SetupView: View {
                 if status.hasFileProgress {
                     Text(model.format("setup.filesFormat", status.downloadedFiles, status.totalFiles)
                          + (status.downloadedFiles == 0 ? " · " + model.t("setup.modelFilesProgressHint") : ""))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(AppFont.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -212,25 +212,25 @@ private struct ModelRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(option.variant.isEmpty ? option.label : "\(option.label) · \(option.variant)")
-                    .font(.headline)
+                    .font(AppFont.heading)
                 Text(model.format("setup.sizeFormat", formatBytes(option.sizeBytes)))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(AppFont.caption).foregroundStyle(.secondary)
                 Spacer()
                 if option.active { StatusBadge(text: model.t("setup.modelInUse"), tint: .accentColor) }
                 StatusBadge(text: model.t(statusKey), tint: tint)
             }
 
             if let description = descriptionKey {
-                Text(model.t(description)).font(.callout).foregroundStyle(.secondary)
+                Text(model.t(description)).font(AppFont.caption).foregroundStyle(.secondary)
             }
             if !option.active, option.status == .failed, !option.detail.isEmpty {
-                Text(option.detail).font(.caption).foregroundStyle(.red)
+                Text(option.detail).font(AppFont.caption).foregroundStyle(.red)
             }
             if downloading, !option.active {
                 if let percent = option.progressPercent, option.totalBytes > 0 {
                     ProgressView(value: Double(percent), total: 100)
                     Text(model.format("setup.progressFormat", percent, formatBytes(option.downloadedBytes), formatBytes(option.totalBytes)))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(AppFont.caption).foregroundStyle(.secondary)
                 } else {
                     ProgressView().progressViewStyle(.linear)
                 }

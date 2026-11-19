@@ -5,6 +5,7 @@ import { useI18n, type TranslationKey } from '../../i18n'
 import { ipcClient } from '../../services/ipc'
 import { getVoiceModelStatus, type VoiceModelStatus } from '../../services/modelSetupStore'
 import { type AsrDeviceMode, type LocalSettings } from '../../services/settingsStore'
+import { typo } from '../../uiTokens'
 
 type AsrRuntimeSettingsSectionProps = {
   settings: LocalSettings
@@ -20,7 +21,7 @@ const rowSx = {
   borderBottom: '1px solid rgba(119,119,119,0.08)',
 }
 
-const sectionTitle = { fontSize: 16, fontWeight: 500, mt: 3, mb: 1 }
+const sectionTitle = { ...typo.heading, mt: 3, mb: 1 }
 
 function normalizeMode(value: string | null): AsrDeviceMode | null {
   if (value === 'default' || value === 'mps' || value === 'cuda' || value === 'cpu') return value
@@ -87,10 +88,10 @@ export default function AsrRuntimeSettingsSection({
       <Box sx={rowSx}>
         <Box>
           <Typography>{t('settings.asrRuntime.mode')}</Typography>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
+          <Typography sx={{ ...typo.caption, color: 'text.secondary', mt: 0.5 }}>
             {t('settings.asrRuntime.restartRequired')}
           </Typography>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
+          <Typography sx={{ ...typo.caption, color: 'text.secondary', mt: 0.5 }}>
             {t('settings.asrRuntime.devModeHint')}
           </Typography>
         </Box>
@@ -113,7 +114,7 @@ export default function AsrRuntimeSettingsSection({
         <Box>
           <Typography>{t('settings.asrRuntime.currentDevice')}</Typography>
           {fallbackReason ? (
-            <Typography sx={{ fontSize: 13, color: 'warning.main', mt: 0.5 }}>
+            <Typography sx={{ ...typo.caption, color: 'warning.main', mt: 0.5 }}>
               {t('settings.asrRuntime.fallbackReason')}：{fallbackReason}
             </Typography>
           ) : null}

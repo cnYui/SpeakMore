@@ -6,6 +6,7 @@
 import { Box, MenuItem, Select, Typography } from '@mui/material'
 import { type LocalSettings } from '../../services/settingsStore'
 import { useI18n } from '../../i18n'
+import { typo } from '../../uiTokens'
 
 type AudioDevice = { deviceId: string; label?: string }
 
@@ -23,7 +24,7 @@ const rowSx = {
   borderBottom: '1px solid rgba(119,119,119,0.08)',
 }
 
-const sectionTitle = { fontSize: 16, fontWeight: 500, mt: 3, mb: 1 }
+const sectionTitle = { ...typo.heading, mt: 3, mb: 1 }
 
 export default function AudioSettingsSection({ settings, devices, updateSettings }: AudioSettingsSectionProps) {
   const { t } = useI18n()

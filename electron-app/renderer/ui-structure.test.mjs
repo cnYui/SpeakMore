@@ -1392,3 +1392,31 @@ test('除首页个性化进度和悬浮粒子外主前端页面不使用蓝色�
     }
   }
 });
+
+test('页面和组件不再写死字号：只能用 uiTokens 的 typo（5 个字号），图标尺寸用 iconSize', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const files = [];
+  for (const dir of ['../renderer/src/pages', '../renderer/src/pages/settings', '../renderer/src/components']) {
+    const entries = await readdir(new URL(`${dir}/`, import.meta.url));
+    for (const name of entries) if (name.endsWith('.tsx')) files.push(`${dir}/${name}`);
+  }
+  assert.ok(files.length >= 10, '应该扫到所有页面和组件');
+
+  const offenders = [];
+  for (const file of files) {
+    const content = await readProjectFile(file);
+    content.split('\n').forEach((line, index) => {
+      // 图标组件（<XxxIcon sx={{ fontSize: 18 }} />）的 fontSize 是图标尺寸，不属于字号规范。
+      if (/Icon\b/.test(line)) return;
+      if (/fontSize:\s*['"]?\d/.test(line)) offenders.push(`${file}:${index + 1}  ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(offenders, [], `这些行写死了字号，请改用 typo.title/stat/heading/body/caption：\n${offenders.join('\n')}`);
+});
+
+test('字号规范只有 5 个字号：24 / 20 / 16 / 14 / 12', async () => {
+  const tokens = await readProjectFile('./src/uiTokens.ts');
+  const sizes = [...tokens.matchAll(/^  (title|stat|heading|body|bodyMedium|bodyStrong|caption): \{ fontSize: (\d+)/gm)]
+    .map((match) => Number(match[2]));
+  assert.deepEqual([...new Set(sizes)].sort((a, b) => b - a), [24, 20, 16, 14, 12]);
+});

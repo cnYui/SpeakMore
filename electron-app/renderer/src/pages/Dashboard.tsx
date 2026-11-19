@@ -22,7 +22,7 @@ import {
   type RecentDashboardResult,
 } from '../services/recentDashboardResults'
 import { useI18n } from '../i18n'
-import { cardSx, glassItemSx, pageSx, pageTitleSx, shortcutChipSx, subtlePanelSx } from '../uiTokens'
+import { cardSx, glassItemSx, pageSx, pageTitleSx, shortcutChipSx, subtlePanelSx, typo } from '../uiTokens'
 
 const PERSONALIZATION_BLUE = '#2563eb'
 
@@ -95,7 +95,7 @@ export default function Dashboard() {
     <Box sx={{ ...pageSx, maxWidth: 980, display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Box>
         <Typography sx={pageTitleSx}>{t('dashboard.title')}</Typography>
-        <Typography sx={{ fontSize: 14, color: 'text.secondary', mt: 0.5 }}>
+        <Typography sx={{ ...typo.body, color: 'text.secondary', mt: 0.5 }}>
           {t('dashboard.shortcut.prefix')}{' '}
           <Box component="kbd" className="glass-lens" sx={{ ...shortcutChipSx, fontFamily: 'inherit' }}>
             {formatShortcut(shortcuts.dictation)}
@@ -115,7 +115,7 @@ export default function Dashboard() {
       <Box sx={{ ...subtlePanelSx, p: 2, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
         <Box sx={{ ...cardSx, p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box sx={{ minWidth: 0, flex: 1, pr: 2 }}>
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t('dashboard.personalization.label')}</Typography>
+            <Typography sx={{ ...typo.caption, color: 'text.secondary' }}>{t('dashboard.personalization.label')}</Typography>
             <Box sx={{ mt: 1.5, height: 8, borderRadius: 999, bgcolor: 'rgba(119,119,119,0.12)', overflow: 'hidden' }}>
               <Box sx={{ height: '100%', width: `${personalization}%`, borderRadius: 999, bgcolor: PERSONALIZATION_BLUE }} />
             </Box>
@@ -131,7 +131,7 @@ export default function Dashboard() {
             flexShrink: 0,
           }}>
             <Box sx={{ width: 48, height: 48, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.86)', boxShadow: 'inset 0 1px 0 #fff, 0 1px 4px rgba(30,40,70,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{personalization}%</Typography>
+              <Typography sx={{ ...typo.bodyStrong }}>{personalization}%</Typography>
             </Box>
           </Box>
         </Box>
@@ -143,8 +143,8 @@ export default function Dashboard() {
             { label: t('dashboard.stats.averageSpeed'), value: formatAverageSpeed(stats.averageCharsPerMinute) },
           ].map((item) => (
             <Box key={item.label} sx={{ ...cardSx, p: '12px' }}>
-              <Typography sx={{ fontSize: 18, fontWeight: 600 }}>{item.value}</Typography>
-              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{item.label}</Typography>
+              <Typography sx={{ ...typo.stat }}>{item.value}</Typography>
+              <Typography sx={{ ...typo.caption, color: 'text.secondary' }}>{item.label}</Typography>
             </Box>
           ))}
         </Box>
@@ -153,7 +153,7 @@ export default function Dashboard() {
       <Box>
         <Box sx={{ ...cardSx, p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography sx={{ fontSize: 16, fontWeight: 500 }}>{t('dashboard.recentResults')}</Typography>
+            <Typography sx={{ ...typo.heading }}>{t('dashboard.recentResults')}</Typography>
           </Box>
           <Box sx={{ ...glassItemSx, borderRadius: '16px', minHeight: 64, overflow: 'hidden' }}>
             {recentResults.length > 0 ? recentResults.map((item, index) => (
@@ -168,7 +168,7 @@ export default function Dashboard() {
                   borderBottom: index === recentResults.length - 1 ? 'none' : '1px solid var(--glass-hairline)',
                 }}
               >
-                <Typography sx={{ fontSize: 15, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.text}</Typography>
+                <Typography sx={{ ...typo.body, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.text}</Typography>
                 <IconButton
                   size="small"
                   aria-label={`${t('dashboard.copyRecentResult')} ${index + 1}`}
@@ -179,7 +179,7 @@ export default function Dashboard() {
               </Box>
             )) : (
               <Box sx={{ p: 1.5 }}>
-                <Typography sx={{ fontSize: 15, whiteSpace: 'pre-wrap' }}>-</Typography>
+                <Typography sx={{ ...typo.body, whiteSpace: 'pre-wrap' }}>-</Typography>
               </Box>
             )}
           </Box>

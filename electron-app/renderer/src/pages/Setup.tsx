@@ -5,7 +5,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import DownloadIcon from '@mui/icons-material/Download'
-import { glassItemSx, glassSectionSx, pageSx, pageTitleSx } from '../uiTokens'
+import { glassItemSx, glassSectionSx, pageSx, pageTitleSx, typo } from '../uiTokens'
 import { useI18n, type TranslationKey } from '../i18n'
 import {
   chooseModelCacheDirectory,
@@ -214,13 +214,13 @@ export default function Setup({ onOpenSettings }: SetupProps) {
   return (
     <Box sx={{ ...pageSx, maxWidth: 760 }}>
       <Typography sx={{ ...pageTitleSx, mb: 1 }}>{t('setup.title')}</Typography>
-      <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 3 }}>
+      <Typography sx={{ ...typo.body, color: 'text.secondary', mb: 3 }}>
         {t('setup.subtitle')}
       </Typography>
 
       <Box sx={sectionSx}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-          <Typography sx={{ fontSize: 16, fontWeight: 500 }}>{t('setup.model')}</Typography>
+          <Typography sx={{ ...typo.heading }}>{t('setup.model')}</Typography>
           <Chip
             size="small"
             label={statusText}
@@ -241,7 +241,7 @@ export default function Setup({ onOpenSettings }: SetupProps) {
           <Typography sx={{ textAlign: 'right', wordBreak: 'break-all' }}>{effectiveModelCacheDir || '-'}</Typography>
         </Box>
         {modelStatus?.detail ? (
-          <Typography sx={{ fontSize: 13, color: modelStatus.status === 'failed' ? 'error.main' : 'text.secondary', mt: 1 }}>
+          <Typography sx={{ ...typo.caption, color: modelStatus.status === 'failed' ? 'error.main' : 'text.secondary', mt: 1 }}>
             {modelStatus.detail}
           </Typography>
         ) : null}
@@ -252,11 +252,11 @@ export default function Setup({ onOpenSettings }: SetupProps) {
               value={hasDownloadProgress ? downloadProgressPercent : undefined}
             />
             {hasDownloadProgress ? (
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.75 }}>
+              <Typography sx={{ ...typo.caption, color: 'text.secondary', mt: 0.75 }}>
                 {`${downloadProgressPercent}% · ${formatBytes(modelStatus?.downloaded_bytes)} / ${formatBytes(modelStatus?.total_bytes)}`}
               </Typography>
             ) : hasFileProgress ? (
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.75 }}>
+              <Typography sx={{ ...typo.caption, color: 'text.secondary', mt: 0.75 }}>
                 {`${t('setup.modelFilesProgress')} ${modelStatus?.downloaded_files} / ${modelStatus?.total_files}${shouldExplainFileProgressPause ? ` · ${t('setup.modelFilesProgressHint')}` : ''}`}
               </Typography>
             ) : null}
@@ -292,7 +292,7 @@ export default function Setup({ onOpenSettings }: SetupProps) {
         </Box>
 
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 3, mb: 0.5 }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 500 }}>{t('setup.modelList')}</Typography>
+          <Typography sx={{ ...typo.bodyMedium }}>{t('setup.modelList')}</Typography>
           <Button
             size="small"
             variant="outlined"
@@ -303,7 +303,7 @@ export default function Setup({ onOpenSettings }: SetupProps) {
             {t('setup.downloadAll')}
           </Button>
         </Box>
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 1.5 }}>{t('setup.modelListHint')}</Typography>
+        <Typography sx={{ ...typo.caption, color: 'text.secondary', mb: 1.5 }}>{t('setup.modelListHint')}</Typography>
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
           {modelOptions.map((option) => {
@@ -314,10 +314,10 @@ export default function Setup({ onOpenSettings }: SetupProps) {
               <Box key={option.model_id} sx={{ ...modelCardSx, borderColor: option.active ? 'primary.main' : 'var(--glass-border)' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, minWidth: 0 }}>
-                    <Typography sx={{ fontSize: 14, fontWeight: 500 }}>
+                    <Typography sx={{ ...typo.bodyMedium }}>
                       {option.label}{option.variant ? ` · ${option.variant}` : ''}
                     </Typography>
-                    <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                    <Typography sx={{ ...typo.caption, color: 'text.secondary' }}>
                       {`${t('setup.approxSize')} ${formatBytes(option.size_bytes)}`}
                     </Typography>
                   </Box>
@@ -332,10 +332,10 @@ export default function Setup({ onOpenSettings }: SetupProps) {
                   </Box>
                 </Box>
                 {descriptionKey ? (
-                  <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.75 }}>{t(descriptionKey)}</Typography>
+                  <Typography sx={{ ...typo.caption, color: 'text.secondary', mt: 0.75 }}>{t(descriptionKey)}</Typography>
                 ) : null}
                 {!option.active && option.detail && option.status === 'failed' ? (
-                  <Typography sx={{ fontSize: 12, color: 'error.main', mt: 0.5 }}>{option.detail}</Typography>
+                  <Typography sx={{ ...typo.caption, color: 'error.main', mt: 0.5 }}>{option.detail}</Typography>
                 ) : null}
                 {optionDownloading && !option.active ? (
                   <Box sx={{ mt: 1 }}>
@@ -344,7 +344,7 @@ export default function Setup({ onOpenSettings }: SetupProps) {
                       value={optionHasProgress ? option.progress_percent ?? 0 : undefined}
                     />
                     {optionHasProgress ? (
-                      <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
+                      <Typography sx={{ ...typo.caption, color: 'text.secondary', mt: 0.5 }}>
                         {`${option.progress_percent}% · ${formatBytes(option.downloaded_bytes)} / ${formatBytes(option.total_bytes)}`}
                       </Typography>
                     ) : null}
@@ -381,14 +381,14 @@ export default function Setup({ onOpenSettings }: SetupProps) {
 
       <Box sx={sectionSx}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-          <Typography sx={{ fontSize: 16, fontWeight: 500 }}>{t('setup.api')}</Typography>
+          <Typography sx={{ ...typo.heading }}>{t('setup.api')}</Typography>
           <Chip
             size="small"
             label={apiConfigured ? t('setup.apiReady') : t('setup.apiMissing')}
             color={apiConfigured ? 'success' : 'warning'}
           />
         </Box>
-        <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
+        <Typography sx={{ ...typo.caption, color: 'text.secondary', mb: 2 }}>
           {apiConfigured
             ? `${currentProvider?.label || 'DeepSeek'} ${t('setup.apiConfigured')}`
             : t('setup.apiRequired')}

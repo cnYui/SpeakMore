@@ -6,6 +6,7 @@
 import { Box, Button, MenuItem, Select, TextField, Typography } from '@mui/material'
 import { type LlmProvider, type LlmSettings } from '../../services/settingsStore'
 import { useI18n } from '../../i18n'
+import { typo } from '../../uiTokens'
 
 type LlmSettingsSectionProps = {
   llmView: LlmSettings
@@ -30,7 +31,7 @@ const rowSx = {
   borderBottom: '1px solid rgba(119,119,119,0.08)',
 }
 
-const sectionTitle = { fontSize: 16, fontWeight: 500 }
+const sectionTitle = { ...typo.heading }
 
 export default function LlmSettingsSection({
   llmView,
@@ -66,7 +67,7 @@ export default function LlmSettingsSection({
         )}
       </Box>
       {llmSaveMessage && (
-        <Typography sx={{ fontSize: 12, color: saveMessageColor, mb: 1 }}>
+        <Typography sx={{ ...typo.caption, color: saveMessageColor, mb: 1 }}>
           {visibleSaveMessage}
         </Typography>
       )}

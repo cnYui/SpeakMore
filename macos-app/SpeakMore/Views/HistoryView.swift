@@ -56,7 +56,7 @@ private struct HistoryRow: View {
             HStack(spacing: 8) {
                 if let date = item.createdDate {
                     Text(date, format: .dateTime.year().month().day().hour().minute())
-                        .font(.caption)
+                        .font(AppFont.caption)
                         .foregroundStyle(.secondary)
                 }
                 if item.mode != .dictate {
@@ -71,7 +71,7 @@ private struct HistoryRow: View {
             // 有润色结果且和识别原文不同时，原文用次要样式放在上面；否则只显示最终文字。
             if !item.refinedText.isEmpty && !item.rawText.isEmpty && item.rawText != item.refinedText {
                 Text(item.rawText)
-                    .font(.callout)
+                    .font(AppFont.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
