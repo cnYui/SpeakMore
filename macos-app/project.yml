@@ -24,6 +24,9 @@ targets:
           - Info.plist
     dependencies:
       - package: SpeakMoreCore
+        product: SpeakMoreCore
+      - package: SpeakMoreCore
+        product: SpeakMorePlatform
     info:
       path: SpeakMore/Info.plist
       properties:
