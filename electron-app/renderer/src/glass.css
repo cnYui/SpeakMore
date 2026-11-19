@@ -11,9 +11,9 @@
 :root {
   color-scheme: light;
   --glass-accent: #0a84ff;
-  --glass-fill: rgba(255, 255, 255, 0.46);
+  --glass-fill: rgba(255, 255, 255, 0.52);
   --glass-fill-strong: rgba(255, 255, 255, 0.66);
-  --glass-fill-flat: rgba(255, 255, 255, 0.52);
+  --glass-fill-flat: rgba(255, 255, 255, 0.58);
   --glass-border: rgba(255, 255, 255, 0.62);
   --glass-hairline: rgba(60, 70, 100, 0.10);
   --glass-blur: blur(26px) saturate(1.85);
@@ -37,12 +37,13 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(52vmax 38vmax at 6% 4%, rgba(112, 168, 255, 0.42), transparent 62%),
-    radial-gradient(46vmax 36vmax at 96% 14%, rgba(196, 150, 255, 0.32), transparent 62%),
-    radial-gradient(58vmax 42vmax at 74% 104%, rgba(96, 220, 196, 0.30), transparent 62%),
-    radial-gradient(40vmax 30vmax at 22% 92%, rgba(255, 190, 140, 0.20), transparent 62%),
-    /* 整体提亮：桌面是深色时，亚克力会把窗口压成灰黑，加一层白色薄雾让它回到玻璃的通透感。 */
-    linear-gradient(rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.26));
+    radial-gradient(52vmax 38vmax at 6% 4%, rgba(140, 190, 255, 0.55), transparent 64%),
+    radial-gradient(46vmax 36vmax at 96% 14%, rgba(214, 178, 255, 0.42), transparent 64%),
+    radial-gradient(58vmax 42vmax at 74% 104%, rgba(130, 232, 212, 0.42), transparent 64%),
+    radial-gradient(40vmax 30vmax at 22% 92%, rgba(255, 208, 168, 0.34), transparent 64%),
+    /* 整体提亮：桌面是深色时，亚克力会把窗口压成灰黑，和上面浅色的玻璃组件反差太大。
+       这层白色底把整个窗口拉到接近组件的亮度，光斑只作为淡淡的色彩叠在上面。 */
+    linear-gradient(rgba(255, 255, 255, 0.70), rgba(255, 255, 255, 0.70));
 }
 
 /* ---------- 玻璃表面 ---------- */
