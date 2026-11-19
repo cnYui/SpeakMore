@@ -14,7 +14,7 @@ struct HistoryView: View {
             HistoryRow(item: item)
         }
         .listStyle(.inset)
-        .alternatingRowBackgrounds()
+        .scrollContentBackground(.hidden)
         .overlay {
             if model.history.items.isEmpty {
                 ContentUnavailableView(model.t("history.empty"), systemImage: "clock.arrow.circlepath")

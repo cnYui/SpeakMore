@@ -22,6 +22,7 @@ struct SetupView: View {
             apiKeySection
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .task {
             // 和 Electron 版一样每秒刷新一次，下载进度才会动起来。
             while !Task.isCancelled {
@@ -76,7 +77,7 @@ struct SetupView: View {
                 } label: {
                     Label(actionTitle(isReady: isReady, isDownloaded: isDownloaded), systemImage: "arrow.down.circle")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .disabled(busy || isReady || status?.status == .unavailable)
 
                 Button {
@@ -248,7 +249,7 @@ private struct ModelRow: View {
                     Button(model.t("setup.useModel")) {
                         Task { await model.useModel(option.modelId) }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .disabled(busy || downloading || backendDown)
                 }
                 .controlSize(.small)

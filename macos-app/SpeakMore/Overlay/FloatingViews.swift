@@ -18,15 +18,16 @@ struct FloatingBarView: View {
 
     var body: some View {
         VStack(spacing: 10) {
+            // 提示文字放在带色调的玻璃胶囊里：不管背后是白色文档还是深色界面都清楚，也不用再加阴影。
             Text(overlay.barHint)
-                .font(.system(size: 12))
-                .foregroundStyle(hintColor)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .frame(maxWidth: 200, minHeight: 18)
-                // 背后可能是白色文档，加一圈深色柔光保证文字可读。
-                .shadow(color: .black.opacity(0.55), radius: 5)
-                .shadow(color: hintColor.opacity(0.35), radius: 9)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .frame(maxWidth: 210)
+                .glassEffect(.regular.tint(hintColor.opacity(0.32)), in: .capsule)
             ParticleSphereView(tone: tone, level: overlay.barState.inputLevel)
                 .frame(width: 120, height: 120)
         }
@@ -52,8 +53,7 @@ struct FloatingPanelView: View {
         .padding(.top, 16)
         .padding(.bottom, 15)
         .frame(width: OverlayLayout.panelSize.width, height: OverlayLayout.panelSize.height, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
+        .glassEffect(.regular, in: .rect(cornerRadius: 26))
     }
 }
 
@@ -64,11 +64,10 @@ private struct CloseButton: View {
         Button(action: onClose) {
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .semibold))
-                .frame(width: 22, height: 22)
-                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .controlSize(.small)
         .help("关闭")
         .accessibilityLabel("关闭")
     }
@@ -114,18 +113,19 @@ private struct ResultCard: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(spacing: 2) {
+            GlassEffectContainer(spacing: 6) {
+              HStack(spacing: 6) {
                 Button(action: onCopy) {
                     Image(systemName: "doc.on.doc")
                         .font(.system(size: 12))
-                        .frame(width: 22, height: 22)
-                        .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .controlSize(.small)
                 .help("复制结果")
                 .accessibilityLabel("复制结果")
                 CloseButton(onClose: onClose)
+              }
             }
         }
     }
