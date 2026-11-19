@@ -17,7 +17,7 @@ import {
 } from '../services/dictionaryStore'
 import { splitDictionaryAliases } from '../services/dictionaryForm'
 import { useI18n, type TranslationKey } from '../i18n'
-import { glassItemSx, pageSx, pageTitleSx } from '../uiTokens'
+import { glassItemSx, pageSx, pageTitleSx, typo } from '../uiTokens'
 
 const filters = [
   { labelKey: 'dictionary.filterAll', value: 'all' },
@@ -188,10 +188,10 @@ export default function Dictionary() {
           <Box key={candidate.id} sx={itemSx}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}>
               <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: 15, fontWeight: 500 }}>
+                <Typography sx={{ ...typo.bodyMedium }}>
                   {candidate.wrong} → {candidate.correct}
                 </Typography>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
+                <Typography sx={{ ...typo.caption, color: 'text.secondary', mt: 0.5 }}>
                   {t('dictionary.candidate')} · {t('dictionary.seenCount')} {candidate.count} {t('dictionary.times')} · {t('dictionary.lastLearned')} {new Date(candidate.lastSeenAt).toLocaleString(language)}
                 </Typography>
               </Box>
@@ -212,19 +212,19 @@ export default function Dictionary() {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}>
               <Box sx={{ minWidth: 0 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                  <Typography sx={{ fontSize: 15, fontWeight: 500 }}>{entry.phrase}</Typography>
+                  <Typography sx={{ ...typo.bodyMedium }}>{entry.phrase}</Typography>
                   <Chip size="small" label={entry.source === 'auto' ? t('dictionary.autoAdded') : t('dictionary.manualAdded')} variant="outlined" />
                   {entry.status === 'disabled' ? <Chip size="small" label={t('dictionary.disabled')} /> : null}
                 </Box>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.75 }}>
+                <Typography sx={{ ...typo.caption, color: 'text.secondary', mt: 0.75 }}>
                   {entry.aliases.length ? `${t('dictionary.aliases')}: ${entry.aliases.join('、')}` : t('dictionary.noAliases')}
                 </Typography>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25 }}>
+                <Typography sx={{ ...typo.caption, color: 'text.secondary', mt: 0.25 }}>
                   {t('dictionary.hit')} {entry.hitCount} {t('dictionary.times')} · {t('dictionary.updated')} {new Date(entry.updatedAt).toLocaleString(language)}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{t('dictionary.enabled')}</Typography>
+                <Typography sx={{ ...typo.caption, color: 'text.secondary' }}>{t('dictionary.enabled')}</Typography>
                 <Switch
                   size="small"
                   checked={entry.status === 'active'}

@@ -4,7 +4,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { listVoiceHistory, clearVoiceHistory, VOICE_HISTORY_UPDATED_EVENT } from '../services/historyStore'
 import { ipcClient } from '../services/ipc'
 import { useI18n } from '../i18n'
-import { glassItemSx, pageSx, pageTitleSx } from '../uiTokens'
+import { glassItemSx, pageSx, pageTitleSx, typo } from '../uiTokens'
 
 export default function History() {
   const { language, t } = useI18n()
@@ -60,7 +60,7 @@ export default function History() {
               sx={{ ...glassItemSx, p: 2 }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+                <Typography sx={{ ...typo.caption, color: 'text.secondary' }}>
                   {new Date(item.createdAt).toLocaleString(language)}
                 </Typography>
                 <IconButton
@@ -71,8 +71,8 @@ export default function History() {
                   <ContentCopyIcon sx={{ fontSize: 16 }} />
                 </IconButton>
               </Box>
-              <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 1 }}>{item.rawText || '-'}</Typography>
-              <Typography sx={{ fontSize: 15 }}>{item.refinedText || '-'}</Typography>
+              <Typography sx={{ ...typo.caption, color: 'text.secondary', mb: 1 }}>{item.rawText || '-'}</Typography>
+              <Typography sx={{ ...typo.body }}>{item.refinedText || '-'}</Typography>
             </Box>
           ))
         )}

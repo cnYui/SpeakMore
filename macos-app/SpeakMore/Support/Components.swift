@@ -6,7 +6,7 @@ struct KeyCap: View {
 
     var body: some View {
         Text(text)
-            .font(.system(.callout, design: .rounded).weight(.medium))
+            .font(AppFont.captionMedium)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .glassEffect(.regular, in: .rect(cornerRadius: 9))
@@ -27,18 +27,19 @@ struct KeyChips: View {
     }
 }
 
-/// 状态标签：带色调的玻璃胶囊 + 同色文字。
+/// 状态标签：色调胶囊 + 同色文字。表单行里不用 glassEffect：玻璃层在离屏渲染里会把整段行盖成空白，系统设置的表单行也是平的。
 struct StatusBadge: View {
     let text: String
     var tint: Color = .secondary
 
     var body: some View {
         Text(text)
-            .font(.caption.weight(.medium))
+            .font(AppFont.captionMedium)
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
             .foregroundStyle(tint)
-            .glassEffect(.regular.tint(tint.opacity(0.28)), in: .capsule)
+            .background(tint.opacity(0.16), in: Capsule())
+            .overlay(Capsule().strokeBorder(tint.opacity(0.28), lineWidth: 0.5))
     }
 }
 
@@ -81,7 +82,7 @@ struct GlassCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let title {
-                Text(title).font(.headline)
+                Text(title).font(AppFont.heading)
             }
             content
         }

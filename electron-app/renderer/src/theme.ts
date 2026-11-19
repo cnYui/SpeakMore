@@ -14,7 +14,12 @@ const glassPaper = {
 export const theme = createTheme({
   typography: {
     fontFamily: '"Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, -apple-system, sans-serif',
-    button: { textTransform: 'none', fontWeight: 500 },
+    // 字号规范见 uiTokens.ts：正文 14、说明 12；没写字号的 <Typography> 是 body1。
+    fontSize: 14,
+    body1: { fontSize: 14, lineHeight: 1.5 },
+    body2: { fontSize: 12, lineHeight: 1.5 },
+    caption: { fontSize: 12, lineHeight: 1.5 },
+    button: { textTransform: 'none', fontWeight: 500, fontSize: 14 },
   },
   palette: {
     background: {
@@ -103,6 +108,7 @@ export const theme = createTheme({
         text: {
           '&:hover': { background: 'rgba(255, 255, 255, 0.5)' },
         },
+        sizeSmall: { fontSize: 12 },
       },
     },
     MuiIconButton: {
@@ -117,6 +123,7 @@ export const theme = createTheme({
         root: {
           borderRadius: 9999,
           fontWeight: 500,
+          fontSize: 12,
         },
         outlined: {
           background: 'var(--glass-fill-flat)',
@@ -140,6 +147,7 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 12,
+          fontSize: 14,
           background: 'var(--glass-fill-flat)',
           WebkitBackdropFilter: 'var(--glass-blur-light)',
           backdropFilter: 'var(--glass-blur-light)',
@@ -164,6 +172,9 @@ export const theme = createTheme({
           border: 0,
           borderRadius: '9999px !important',
           paddingInline: 14,
+          // 小号分段按钮的文字是 12（规范里小按钮 = caption），默认号是 14。
+          fontSize: 14,
+          '&.MuiToggleButton-sizeSmall': { fontSize: 12 },
           '&.Mui-selected': {
             background: 'var(--glass-fill-strong)',
             boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 2px 8px rgba(30, 40, 70, 0.14)',

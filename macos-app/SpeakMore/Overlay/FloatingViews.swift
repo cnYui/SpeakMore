@@ -20,7 +20,7 @@ struct FloatingBarView: View {
         VStack(spacing: 10) {
             // 提示文字放在带色调的玻璃胶囊里：不管背后是白色文档还是深色界面都清楚，也不用再加阴影。
             Text(overlay.barHint)
-                .font(.system(size: 12, weight: .medium))
+                .font(AppFont.captionMedium)
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
@@ -52,6 +52,7 @@ struct FloatingPanelView: View {
         .padding(.horizontal, 18)
         .padding(.top, 16)
         .padding(.bottom, 15)
+        .font(AppFont.body)
         .frame(width: OverlayLayout.panelSize.width, height: OverlayLayout.panelSize.height, alignment: .topLeading)
         .glassEffect(.regular, in: .rect(cornerRadius: 26))
     }
@@ -80,9 +81,9 @@ private struct ShortcutHintCard: View {
         let shortcuts = ShortcutLabelSet.macOS
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("检测到长按快捷键").font(.headline)
+                Text("检测到长按快捷键").font(AppFont.heading)
                 Text("长按 Right Option 不会开始语音输入。请短按 Right Option，或使用 Right Option + Right Command / Right Option + Shift。")
-                    .font(.callout)
+                    .font(AppFont.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, 2)
@@ -91,7 +92,7 @@ private struct ShortcutHintCard: View {
                     KeyCap(text: ShortcutLabelSet.format(shortcuts.ask))
                     KeyCap(text: ShortcutLabelSet.format(shortcuts.translate))
                 }
-                .font(.caption)
+                .font(AppFont.caption)
             }
             Spacer(minLength: 0)
             CloseButton(onClose: onClose)
@@ -108,7 +109,7 @@ private struct ResultCard: View {
         HStack(alignment: .top, spacing: 12) {
             ScrollView {
                 Text(text)
-                    .font(.system(size: 14))
+                    .font(AppFont.body)
                     .lineSpacing(3)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)

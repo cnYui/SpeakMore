@@ -77,11 +77,11 @@ struct DictionaryView: View {
             .textFieldStyle(.roundedBorder)
 
             if !canSave {
-                Text(model.t("dictionary.correctHelper")).font(.caption).foregroundStyle(.secondary)
+                Text(model.t("dictionary.correctHelper")).font(AppFont.caption).foregroundStyle(.secondary)
             }
             if saveFailed {
                 Label(model.t("dictionary.saveError"), systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
+                    .font(AppFont.caption)
                     .foregroundStyle(.red)
             }
         }
@@ -149,7 +149,7 @@ private struct CandidateRow: View {
                 Text("\(candidate.wrong) → \(candidate.correct)").fontWeight(.medium)
                 if let date = ISO8601.date(from: candidate.lastSeenAt) {
                     Text(model.format("dictionary.seenFormat", candidate.count, date.formatted(.dateTime.year().month().day().hour().minute().locale(model.locale))))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(AppFont.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -187,9 +187,9 @@ private struct EntryRow: View {
                     StatusBadge(text: model.t(entry.source == .auto ? "dictionary.autoAdded" : "dictionary.manualAdded"))
                     if entry.status == .disabled { StatusBadge(text: model.t("dictionary.disabled"), tint: .orange) }
                 }
-                Text(aliasLine).font(.caption).foregroundStyle(.secondary)
+                Text(aliasLine).font(AppFont.caption).foregroundStyle(.secondary)
                 Text(model.format("dictionary.hitFormat", entry.hitCount, updatedText))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(AppFont.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Toggle(model.t("dictionary.enabled"), isOn: Binding(

@@ -39,6 +39,7 @@ struct SpeakMoreApp: App {
                 .environment(\.locale, model.locale)
                 .frame(width: 640, height: 640)
                 .containerBackground(.ultraThinMaterial, for: .window)
+                .font(AppFont.body)
         }
 
         // 菜单栏图标：打开主窗口、退出（和 Electron 版托盘菜单一致）。

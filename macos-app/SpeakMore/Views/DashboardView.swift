@@ -52,7 +52,7 @@ struct DashboardView: View {
                     HStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(model.t("dashboard.personalization.label"))
-                                .font(.subheadline)
+                                .font(AppFont.caption)
                                 .foregroundStyle(.secondary)
                             ProgressView(value: Double(personalization), total: 100)
                                 .tint(.blue)
@@ -61,7 +61,7 @@ struct DashboardView: View {
                             Text(model.t("dashboard.personalization.label"))
                         } currentValueLabel: {
                             Text("\(personalization)%")
-                                .font(.system(.callout, design: .rounded).weight(.semibold))
+                                .font(AppFont.bodyStrong)
                         }
                         .gaugeStyle(.accessoryCircularCapacity)
                         .tint(.blue)
@@ -132,10 +132,10 @@ private struct StatCard: View {
         GlassCard {
             VStack(alignment: .leading, spacing: 2) {
                 Text(value)
-                    .font(.title2.weight(.semibold))
+                    .font(AppFont.stat)
                     .monospacedDigit()
                 Text(label)
-                    .font(.caption)
+                    .font(AppFont.caption)
                     .foregroundStyle(.secondary)
             }
         }

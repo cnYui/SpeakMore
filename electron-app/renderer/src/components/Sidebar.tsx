@@ -6,6 +6,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload'
 import { pages, type Page } from '../navigation'
 import { useI18n } from '../i18n'
+import { typo } from '../uiTokens'
 
 const iconByPage: Record<Page, React.ReactNode> = {
   setup: <CloudDownloadIcon sx={{ fontSize: 18 }} />,
@@ -35,7 +36,7 @@ export default function Sidebar({ activePage, onNavigate }: Props) {
       sx={{ width: 202, flexShrink: 0, display: 'flex', flexDirection: 'column', p: '12px', m: '0 8px 12px 12px', borderRadius: '24px' }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, px: '4px' }}>
-        <Typography sx={{ fontSize: 16, fontWeight: 600, color: 'text.primary' }}>SpeakMore</Typography>
+        <Typography sx={{ ...typo.heading, color: 'text.primary' }}>SpeakMore</Typography>
       </Box>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -60,7 +61,7 @@ export default function Sidebar({ activePage, onNavigate }: Props) {
             }}
           >
             {item.icon}
-            <Typography sx={{ fontSize: 13, fontWeight: 500, color: 'text.primary' }}>{t(item.labelKey)}</Typography>
+            <Typography sx={{ ...typo.bodyMedium, color: 'text.primary' }}>{t(item.labelKey)}</Typography>
           </ButtonBase>
         ))}
       </Box>

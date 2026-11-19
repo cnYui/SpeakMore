@@ -21,8 +21,10 @@ enum ScreenshotTour {
         try? await Task.sleep(for: .seconds(2.5))
         // 抢到前台，窗口才是“活动”状态，控件颜色（强调色、选中态）和用户实际看到的一致。
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first(where: { $0.isVisible })?.makeKeyAndOrderFront(nil)
+        mainWindow?.makeKeyAndOrderFront(nil)
         try? await Task.sleep(for: .seconds(0.5))
+        let windowList = NSApp.windows.map { "\(type(of: $0)) visible=\($0.isVisible) titled=\($0.styleMask.contains(.titled)) frame=\($0.frame) content=\($0.contentView != nil)" }.joined(separator: "\n")
+        try? windowList.write(to: base.appendingPathComponent("windows.txt"), atomically: true, encoding: .utf8)
 
         var tree = ""
         for name in names {
@@ -36,8 +38,13 @@ enum ScreenshotTour {
         NSApp.terminate(nil)
     }
 
+    /// 主窗口：有标题栏的普通窗口。菜单栏图标（MenuBarExtra）和悬浮窗口也是可见窗口，不能误选。
+    private static var mainWindow: NSWindow? {
+        NSApp.windows.first { $0.styleMask.contains(.titled) && $0.contentView != nil && $0.frame.width > 400 }
+    }
+
     private static var frameView: NSView? {
-        NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil })?.contentView?.superview
+        mainWindow?.contentView?.superview
     }
 
     private static func save(base: URL, name: String) {

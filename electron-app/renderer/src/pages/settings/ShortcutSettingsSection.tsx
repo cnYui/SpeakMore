@@ -6,12 +6,13 @@
 import { Box, Typography } from '@mui/material'
 import { useI18n } from '../../i18n'
 import { getShortcutLabelSet } from '../../services/shortcutLabels'
+import { typo } from '../../uiTokens'
 
 const keybindChip = {
   borderRadius: '6px',
   border: '1px solid rgba(119,119,119,0.12)',
   padding: '4px 8px',
-  fontSize: '13px',
+  ...typo.caption,
   display: 'inline-block',
 }
 
@@ -23,7 +24,7 @@ const rowSx = {
   borderBottom: '1px solid rgba(119,119,119,0.08)',
 }
 
-const sectionTitle = { fontSize: 16, fontWeight: 500, mt: 3, mb: 1 }
+const sectionTitle = { ...typo.heading, mt: 3, mb: 1 }
 
 function KeyChips({ keys }: { keys: string[] }) {
   return (
