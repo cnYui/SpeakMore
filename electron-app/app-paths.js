@@ -46,7 +46,8 @@ function createAppPaths({
     recordingsDir: () => localDataPath('recordings'),
     preloadPath: () => pathApi.join(baseDir, 'preload.js'),
     iconPath: () => resourcePath('assets', 'app-icon.png'),
-    trayIconPath: () => resourcePath('assets', 'tray-icon.png'),
+    // macOS 菜单栏用黑色 + 透明的模板图标，系统会按菜单栏明暗自动着色；Windows 托盘用彩色底板图标。
+    trayIconPath: () => resourcePath('assets', processPlatform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png'),
     rightAltListenerPath: () => unpackedAppPath('right-alt-listener.ps1'),
     macosOptionListenerPath: () => unpackedAppPath('macos-option-listener.c'),
     macosPlatformHelperPath: () => unpackedAppPath('macos-platform-helper.m'),
