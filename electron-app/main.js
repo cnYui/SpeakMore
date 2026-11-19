@@ -12,6 +12,7 @@ const {
   screen,
   session,
   dialog,
+  nativeTheme,
 } = require('electron');
 const os = require('os');
 const crypto = require('crypto');
@@ -59,6 +60,9 @@ const { createMainIpcRegistry } = require('./main-ipc-registry');
 const { createMacosPlatformCapabilities } = require('./macos-platform-capabilities');
 const { createAutoLearningDebugLogger } = require('./auto-learning-debug-logger');
 const { createVoiceBackendService } = require('./voice-backend-service');
+
+// Windows 的亚克力背景会跟随系统深浅色：界面文字是按浅色玻璃设计的，系统是深色时会变成“深色底 + 深色字”看不清，所以固定浅色。
+if (process.platform === 'win32') nativeTheme.themeSource = 'light';
 
 let quitAfterBackgroundAudioRestore = false;
 let appIsQuitting = false;

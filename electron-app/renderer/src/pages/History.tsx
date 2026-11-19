@@ -4,7 +4,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { listVoiceHistory, clearVoiceHistory, VOICE_HISTORY_UPDATED_EVENT } from '../services/historyStore'
 import { ipcClient } from '../services/ipc'
 import { useI18n } from '../i18n'
-import { pageSx, pageTitleSx } from '../uiTokens'
+import { glassItemSx, pageSx, pageTitleSx } from '../uiTokens'
 
 export default function History() {
   const { language, t } = useI18n()
@@ -57,7 +57,7 @@ export default function History() {
           filteredItems.map((item) => (
             <Box
               key={item.id}
-              sx={{ bgcolor: '#fff', borderRadius: '12px', border: '1px solid rgba(119,119,119,0.08)', p: 2 }}
+              sx={{ ...glassItemSx, p: 2 }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                 <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>

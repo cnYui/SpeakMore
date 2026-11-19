@@ -22,7 +22,7 @@ import {
   type RecentDashboardResult,
 } from '../services/recentDashboardResults'
 import { useI18n } from '../i18n'
-import { cardSx, pageSx, pageTitleSx, subtlePanelSx } from '../uiTokens'
+import { cardSx, glassItemSx, pageSx, pageTitleSx, shortcutChipSx, subtlePanelSx } from '../uiTokens'
 
 const PERSONALIZATION_BLUE = '#2563eb'
 
@@ -95,17 +95,17 @@ export default function Dashboard() {
     <Box sx={{ ...pageSx, maxWidth: 980, display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Box>
         <Typography sx={pageTitleSx}>{t('dashboard.title')}</Typography>
-        <Typography sx={{ fontSize: 14, color: '#5d5d5d', mt: 0.5 }}>
+        <Typography sx={{ fontSize: 14, color: 'text.secondary', mt: 0.5 }}>
           {t('dashboard.shortcut.prefix')}{' '}
-          <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
+          <Box component="kbd" className="glass-lens" sx={{ ...shortcutChipSx, fontFamily: 'inherit' }}>
             {formatShortcut(shortcuts.dictation)}
           </Box>{' '}
           {t('dashboard.shortcut.orPress')}{' '}
-          <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
+          <Box component="kbd" className="glass-lens" sx={{ ...shortcutChipSx, fontFamily: 'inherit' }}>
             {formatShortcut(shortcuts.translate)}
           </Box>{' '}
           {t('dashboard.shortcut.orPress')}{' '}
-          <Box component="kbd" sx={{ bgcolor: 'rgba(119,119,119,0.08)', borderRadius: '5px', px: '5px', py: '2px', fontWeight: 500 }}>
+          <Box component="kbd" className="glass-lens" sx={{ ...shortcutChipSx, fontFamily: 'inherit' }}>
             {formatShortcut(shortcuts.ask)}
           </Box>{' '}
           {t('dashboard.shortcut.suffix')}
@@ -130,7 +130,7 @@ export default function Dashboard() {
             justifyContent: 'center',
             flexShrink: 0,
           }}>
-            <Box sx={{ width: 48, height: 48, borderRadius: '50%', bgcolor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Box sx={{ width: 48, height: 48, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.86)', boxShadow: 'inset 0 1px 0 #fff, 0 1px 4px rgba(30,40,70,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{personalization}%</Typography>
             </Box>
           </Box>
@@ -155,7 +155,7 @@ export default function Dashboard() {
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Typography sx={{ fontSize: 16, fontWeight: 500 }}>{t('dashboard.recentResults')}</Typography>
           </Box>
-          <Box sx={{ bgcolor: 'rgba(119,119,119,0.03)', borderRadius: '12px', minHeight: 64, overflow: 'hidden' }}>
+          <Box sx={{ ...glassItemSx, borderRadius: '16px', minHeight: 64, overflow: 'hidden' }}>
             {recentResults.length > 0 ? recentResults.map((item, index) => (
               <Box
                 key={item.id}
@@ -165,7 +165,7 @@ export default function Dashboard() {
                   alignItems: 'start',
                   gap: 1,
                   p: 1.5,
-                  borderBottom: index === recentResults.length - 1 ? 'none' : '1px solid rgba(119,119,119,0.08)',
+                  borderBottom: index === recentResults.length - 1 ? 'none' : '1px solid var(--glass-hairline)',
                 }}
               >
                 <Typography sx={{ fontSize: 15, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.text}</Typography>

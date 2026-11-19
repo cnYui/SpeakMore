@@ -17,7 +17,7 @@ import {
 } from '../services/dictionaryStore'
 import { splitDictionaryAliases } from '../services/dictionaryForm'
 import { useI18n, type TranslationKey } from '../i18n'
-import { pageSx, pageTitleSx } from '../uiTokens'
+import { glassItemSx, pageSx, pageTitleSx } from '../uiTokens'
 
 const filters = [
   { labelKey: 'dictionary.filterAll', value: 'all' },
@@ -29,9 +29,8 @@ const filters = [
 type FilterValue = (typeof filters)[number]['value']
 
 const itemSx = {
-  bgcolor: '#fff',
-  borderRadius: '8px',
-  border: '1px solid rgba(119,119,119,0.10)',
+  ...glassItemSx,
+  borderRadius: '14px',
   p: 1.5,
 }
 

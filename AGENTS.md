@@ -105,6 +105,7 @@
 ## 前端与用户体验约束
 
 - 用户可见品牌为 `SpeakMore`。
+- 主窗口是 Liquid Glass 风格（对应 macOS 原生版）：Windows 11 上窗口用亚克力材质（`window-manager-options.js` 的 `backgroundMaterial: 'acrylic'`，页面背景必须透明，`main.js` 固定 `nativeTheme` 为浅色），样式变量和玻璃类在 `electron-app/renderer/src/glass.css`（`.glass` / `.glass-flat` / `.glass-lens`，`backdrop-filter` 加 SVG 位移滤镜做边缘折射，仅 Chromium 支持），MUI 全局样式在 `theme.ts`，卡片 / 条目 / 键帽 token 在 `uiTokens.ts`；新页面用这些 token，不要再写死 `#fff` 底。成批的列表条目用 `.glass-flat`（不开 `backdrop-filter`，几十个同时模糊太费 GPU）。透明的悬浮窗口（胶囊 / 面板）拿不到窗口后面的内容，用偏实的白色填充 + 高光边 + 阴影做降级，不要给它们加 `backdrop-filter`。
 - 主窗口页面为：初始化、首页、历史记录、词典、设置。
 - 托盘菜单只保留“打开主窗口”和“退出”；悬浮胶囊由语音状态和快捷键流程驱动，不提供“显示悬浮条”手动菜单入口。
 - 主窗口四页和侧边栏的静态界面文案通过 `electron-app/renderer/src/i18n.tsx` 切换，当前支持 `zh-CN` 和 `en-US`；悬浮胶囊、悬浮面板、托盘、后端错误和用户数据内容不属于该界面语言切换范围。
