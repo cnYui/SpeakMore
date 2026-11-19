@@ -6,6 +6,7 @@
 import { ipcClient } from './ipc'
 import translationTargetLanguages from '../../../../shared/translation-target-languages.json'
 import llmProviders from '../../../../shared/llm-providers.json'
+import asrModels from '../../../../shared/asr-models.json'
 
 export type TranslationTargetLanguage = string
 export type InterfaceLanguage = 'zh-CN' | 'en-US'
@@ -26,6 +27,20 @@ export const DEFAULT_TRANSLATION_TARGET_LANGUAGE: TranslationTargetLanguage =
 const translationTargetLanguageIds = new Set(TRANSLATION_TARGET_LANGUAGES.map((language) => language.id))
 const interfaceLanguageIds = new Set<InterfaceLanguage>(['zh-CN', 'en-US'])
 const asrDeviceModes = new Set<AsrDeviceMode>(['default', 'mps', 'cuda', 'cpu'])
+
+export type AsrModelConfig = {
+  id: string
+  label: string
+  variant: string
+  repoId: string
+  runtime: string
+  sizeBytes: number
+  default: boolean
+}
+
+export const ASR_MODELS: AsrModelConfig[] = asrModels
+export const DEFAULT_ASR_MODEL_ID = (ASR_MODELS.find((model) => model.default) ?? ASR_MODELS[0]).id
+const asrModelIds = new Set(ASR_MODELS.map((model) => model.id))
 
 export type LlmProvider = {
   id: string
@@ -75,6 +90,7 @@ export type LocalSettings = {
   selectedAudioDeviceId: string
   modelCacheDir: string
   asrDeviceMode: AsrDeviceMode
+  asrModelId: string
   llm: LlmSettings
 }
 
@@ -85,6 +101,7 @@ export const defaultSettings: LocalSettings = {
   selectedAudioDeviceId: 'default',
   modelCacheDir: '',
   asrDeviceMode: 'default',
+  asrModelId: DEFAULT_ASR_MODEL_ID,
   llm: createDefaultLlmSettings(),
 }
 
@@ -139,6 +156,10 @@ function normalizeOptionalPath(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+export function normalizeAsrModelId(value: unknown): string {
+  return typeof value === 'string' && asrModelIds.has(value) ? value : DEFAULT_ASR_MODEL_ID
+}
+
 function normalizeAsrDeviceMode(value: unknown): AsrDeviceMode {
   return typeof value === 'string' && asrDeviceModes.has(value as AsrDeviceMode)
     ? value as AsrDeviceMode
@@ -176,6 +197,7 @@ function normalizeSettings(settings?: Partial<LocalSettings> | null): LocalSetti
     selectedAudioDeviceId: settings?.selectedAudioDeviceId || 'default',
     modelCacheDir: normalizeOptionalPath(settings?.modelCacheDir),
     asrDeviceMode: normalizeAsrDeviceMode(settings?.asrDeviceMode),
+    asrModelId: normalizeAsrModelId(settings?.asrModelId),
     llm: normalizeLlmSettings(settings?.llm),
   }
 }

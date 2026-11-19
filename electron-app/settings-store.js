@@ -1,10 +1,13 @@
 const TRANSLATION_TARGET_LANGUAGES = require('../shared/translation-target-languages.json');
 const DEFAULT_LLM_PROVIDERS = require('../shared/llm-providers.json');
+const ASR_MODELS = require('../shared/asr-models.json');
 
 const DEFAULT_LANGUAGE = 'zh-CN';
 const DEFAULT_LLM_PROVIDER_ID = 'deepseek';
 const DEFAULT_TRANSLATION_TARGET_LANGUAGE = TRANSLATION_TARGET_LANGUAGES[0]?.id || 'en';
 const DEFAULT_ASR_DEVICE_MODE = 'default';
+const DEFAULT_ASR_MODEL_ID = (ASR_MODELS.find((model) => model.default) || ASR_MODELS[0]).id;
+const SUPPORTED_ASR_MODEL_IDS = new Set(ASR_MODELS.map((model) => model.id));
 const SUPPORTED_INTERFACE_LANGUAGES = new Set(['zh-CN', 'en-US']);
 const SUPPORTED_ASR_DEVICE_MODES = new Set(['default', 'mps', 'cuda', 'cpu']);
 const SUPPORTED_TRANSLATION_TARGET_LANGUAGES = new Set(
@@ -101,6 +104,10 @@ function normalizeLlmRequestConfig(value) {
   };
 }
 
+function normalizeAsrModelId(value) {
+  return SUPPORTED_ASR_MODEL_IDS.has(value) ? value : DEFAULT_ASR_MODEL_ID;
+}
+
 function normalizeLocalSettings(value = {}) {
   const settings = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
@@ -116,6 +123,7 @@ function normalizeLocalSettings(value = {}) {
       : 'default',
     modelCacheDir: normalizeOptionalPath(settings.modelCacheDir),
     asrDeviceMode: normalizeAsrDeviceMode(settings.asrDeviceMode),
+    asrModelId: normalizeAsrModelId(settings.asrModelId),
     llm: normalizeLlmSettings(settings.llm),
   };
 }
@@ -172,10 +180,12 @@ function createSettingsStore({
 module.exports = {
   DEFAULT_LANGUAGE,
   DEFAULT_ASR_DEVICE_MODE,
+  DEFAULT_ASR_MODEL_ID,
   DEFAULT_LLM_PROVIDER_ID,
   DEFAULT_LLM_PROVIDERS,
   DEFAULT_TRANSLATION_TARGET_LANGUAGE,
   SUPPORTED_ASR_DEVICE_MODES,
+  SUPPORTED_ASR_MODEL_IDS,
   SUPPORTED_INTERFACE_LANGUAGES,
   SUPPORTED_TRANSLATION_TARGET_LANGUAGES,
   createDefaultLlmSettings,
@@ -183,6 +193,7 @@ module.exports = {
   normalizeStringMap,
   normalizeOptionalPath,
   normalizeAsrDeviceMode,
+  normalizeAsrModelId,
   normalizeLlmProvider,
   normalizeLlmSettings,
   normalizeLlmRequestConfig,

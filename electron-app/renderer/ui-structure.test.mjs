@@ -1020,13 +1020,33 @@ test('P1 旧模型管理能力已删除，只保留单模型初始化入口', as
   assert.match(setupPage, /voice-model:get-status|voice-model:start-download|getVoiceModelStatus|startVoiceModelDownload/);
 });
 
-test('初始化页只在模型未下载且空闲时允许选择模型保存路径', async () => {
+test('初始化页只在没有任何模型下载且空闲时允许选择模型保存路径', async () => {
   const setupPage = await readProjectFile('src/pages/Setup.tsx');
 
   assert.match(setupPage, /const\s+isDownloaded\s*=\s*Boolean\(modelStatus\?\.cached\)/);
+  assert.match(setupPage, /const\s+hasAnyDownloadedModel\s*=\s*isDownloaded\s*\|\|\s*modelOptions\.some\(\(option\)\s*=>\s*option\.cached\)/);
   assert.match(setupPage, /const\s+isReady\s*=\s*Boolean\(modelStatus\?\.ready\s*\|\|\s*modelStatus\?\.status\s*===\s*['"]ready['"]\)/);
-  assert.match(setupPage, /const\s+canChooseCacheDir\s*=\s*!isDownloaded\s*&&\s*!isReady\s*&&\s*!busy/);
+  assert.match(setupPage, /const\s+canChooseCacheDir\s*=\s*!hasAnyDownloadedModel\s*&&\s*!isReady\s*&&\s*!busy\s*&&\s*!anyModelDownloading/);
   assert.match(setupPage, /\{canChooseCacheDir\s*\?\s*\(\s*<Button[\s\S]*setup\.chooseCacheDir[\s\S]*<\/Button>\s*\)\s*:\s*null\}/);
+});
+
+test('初始化页列出 PyTorch 版和 int8 版模型，可单独下载、全部下载和切换', async () => {
+  const setupPage = await readProjectFile('src/pages/Setup.tsx');
+  const setupStore = await readProjectFile('src/services/modelSetupStore.ts');
+  const settingsStore = await readProjectFile('src/services/settingsStore.ts');
+  const i18n = await readProjectFile('src/i18n.tsx');
+
+  assert.match(settingsStore, /shared\/asr-models\.json/);
+  assert.match(settingsStore, /asrModelId:\s*normalizeAsrModelId\(settings\?\.asrModelId\)/);
+  assert.match(setupStore, /models\?:\s*VoiceModelOption\[\]/);
+  assert.match(setupStore, /voice-model:start-download['"],\s*\{\s*cacheDir,\s*modelId,\s*load:\s*false\s*\}/);
+  assert.match(setupPage, /downloadVoiceModelOnly\(option\.model_id/);
+  assert.match(setupPage, /handleDownloadAll/);
+  assert.match(setupPage, /saveSettings\(\{\s*\.\.\.settings,\s*asrModelId:\s*modelId\s*\}\)/);
+  assert.match(setupPage, /startVoiceModelDownload\(effectiveModelCacheDir,\s*modelId\)/);
+  for (const key of ['setup.downloadAll', 'setup.useModel', 'setup.modelInUse', 'setup.modelDesc.sensevoice-small-int8']) {
+    assert.ok(i18n.split(`'${key}'`).length - 1 === 2, `${key} 需要中英文两份文案`);
+  }
 });
 
 test('初始化页下载模型时显示真实百分比进度', async () => {

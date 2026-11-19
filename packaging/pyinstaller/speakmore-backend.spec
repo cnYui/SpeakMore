@@ -18,6 +18,7 @@ for package_name in [
     "kaldiio",
     "omegaconf",
     "hydra",
+    "sherpa_onnx",
 ]:
     package_datas, package_binaries, package_hiddenimports = collect_all(package_name)
     datas += package_datas
@@ -27,6 +28,7 @@ for package_name in [
 datas += [
     (str(ROOT / "server" / "index.html"), "."),
     (str(ROOT / "shared" / "translation-target-languages.json"), "shared"),
+    (str(ROOT / "shared" / "asr-models.json"), "shared"),
 ]
 
 # 运行时用不到的编译期文件：C/C++ 头文件、静态/导入库、CMake 配置。

@@ -2,7 +2,14 @@
 
 SpeakMore 是一个本地语音输入工具。Electron 负责桌面壳、固定快捷键、托盘、本地数据和结果交付；本地 FastAPI 后端负责音频转写和大模型文本处理。Windows 是当前稳定版，macOS 已支持本地 `.app` / DMG 构建，签名和公证仍需要发布凭证。
 
-当前正式 ASR 模型只支持 `FunAudioLLM/SenseVoiceSmall`。发布包不内置模型；首次运行进入“初始化”页后，由用户点击下载并加载 SenseVoiceSmall，下载失败时会显示明确错误。
+支持两个 ASR 模型，可在“初始化”页单独下载或全部下载，并随时切换：
+
+| 模型 | 下载体积 | 运行内存 | 说明 |
+| --- | --- | --- | --- |
+| SenseVoiceSmall · PyTorch（默认） | 约 900 MB | 约 3 GB | FunASR 原版权重，可用 CUDA / MPS |
+| SenseVoiceSmall int8 · ONNX | 约 229 MB | 约 0.5 GB | 同一权重的 int8 量化版，sherpa-onnx 推理，只用 CPU，速度约快一倍 |
+
+发布包不内置模型；首次运行进入“初始化”页后，由用户选择下载并加载，下载失败时会显示明确错误。
 
 ## 功能
 
@@ -216,7 +223,9 @@ npm start
 4. `%USERPROFILE%\.cache\huggingface\hub` 或当前用户的 Hugging Face cache
 5. 都未命中时，初始化页点击下载后保存到用户设置的 `modelCacheDir`，未设置时保存到平台默认模型目录
 
-如果手动配置 `SENSEVOICE_SMALL_MODEL_DIR`，目录内必须包含 SenseVoiceSmall 所需文件。
+如果手动配置 `SENSEVOICE_SMALL_MODEL_DIR`，目录内必须包含 SenseVoiceSmall 所需文件；int8 版对应 `SENSEVOICE_SMALL_INT8_MODEL_DIR`，目录内需要 `model.int8.onnx` 和 `tokens.txt`。
+
+当前模型由设置里的 `asrModelId` 决定，单独运行后端时也可以用环境变量 `SPEAKMORE_ASR_MODEL_ID=sensevoice-small-int8` 指定。
 
 ### ASR 运行设备
 
@@ -304,8 +313,8 @@ Electron userData/local-data/
 ## 后端接口
 
 - `GET /health`：后端进程存活检查。
-- `GET /model/status`：查询 SenseVoiceSmall 初始化状态。
-- `POST /model/download`：启动 SenseVoiceSmall 下载/加载任务。
+- `GET /model/status`：查询当前模型初始化状态和 `models` 列表；带 `model_id` 时在空闲状态下切换当前模型。
+- `POST /model/download`：下载并加载 `model_id` 指定的模型（省略时为当前模型）；`load: false` 只下载不切换。
 - `GET /ready`：语音链路就绪检查。
 - `POST /config/reload`：刷新后端回退配置。
 - `POST /ai/voice_flow`：上传完整音频并返回处理结果。

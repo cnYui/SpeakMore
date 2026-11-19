@@ -23,6 +23,7 @@ const {
   DEFAULT_LANGUAGE,
   DEFAULT_TRANSLATION_TARGET_LANGUAGE,
   createSettingsStore,
+  normalizeAsrModelId,
   normalizeLlmRequestConfig,
 } = require('./settings-store');
 const { createVoiceBackendClient } = require('./voice-backend-client');
@@ -153,9 +154,23 @@ function getConfiguredAsrDeviceMode(settings = readLocalSettings()) {
   return ['mps', 'cuda', 'cpu'].includes(settings.asrDeviceMode) ? settings.asrDeviceMode : 'default';
 }
 
+function getConfiguredAsrModelId(settings = readLocalSettings()) {
+  return normalizeAsrModelId(settings.asrModelId);
+}
+
 function resolveModelCacheDirOption(options = {}) {
   const requestedCacheDir = typeof options.cacheDir === 'string' ? options.cacheDir.trim() : '';
   return requestedCacheDir || getConfiguredModelCacheDir();
+}
+
+// 渲染进程可以指定模型（下载某一个 / 全部下载），否则按设置里当前选用的模型。
+function resolveModelRequestOptions(options = {}) {
+  const requestedModelId = typeof options.modelId === 'string' ? options.modelId.trim() : '';
+  return {
+    cacheDir: resolveModelCacheDirOption(options),
+    modelId: requestedModelId || getConfiguredAsrModelId(),
+    ...(options.load === false ? { load: false } : {}),
+  };
 }
 
 const voiceBackendService = createVoiceBackendService({
@@ -164,10 +179,11 @@ const voiceBackendService = createVoiceBackendService({
   ffmpegBinDir: () => path.dirname(appPaths.ffmpegExecutablePath()),
   getModelCacheDir: () => getConfiguredModelCacheDir(),
   getAsrDeviceMode: () => getConfiguredAsrDeviceMode(),
+  getAsrModelId: () => getConfiguredAsrModelId(),
   spawnProcess: spawn,
   probeReady: () => voiceBackendClient.checkVoiceServerReady(),
-  probeModelStatus: () => voiceBackendClient.getVoiceModelStatus({ cacheDir: getConfiguredModelCacheDir() }),
-  startModelLoad: () => voiceBackendClient.startVoiceModelDownload({ cacheDir: getConfiguredModelCacheDir() }),
+  probeModelStatus: () => voiceBackendClient.getVoiceModelStatus(resolveModelRequestOptions()),
+  startModelLoad: () => voiceBackendClient.startVoiceModelDownload(resolveModelRequestOptions()),
   processEnv: process.env,
   logger: console,
 });
@@ -394,11 +410,12 @@ async function ensureVoiceBackendStarted() {
 }
 
 async function getVoiceModelStatus(options = {}) {
-  return voiceBackendClient.getVoiceModelStatus({ cacheDir: resolveModelCacheDirOption(options) });
+  // 状态查询总是带上设置里选用的模型，后端空闲时据此切换当前模型。
+  return voiceBackendClient.getVoiceModelStatus(resolveModelRequestOptions({ cacheDir: options.cacheDir }));
 }
 
 async function startVoiceModelDownload(options = {}) {
-  return voiceBackendClient.startVoiceModelDownload({ cacheDir: resolveModelCacheDirOption(options) });
+  return voiceBackendClient.startVoiceModelDownload(resolveModelRequestOptions(options));
 }
 
 async function reloadVoiceServerConfig() {
