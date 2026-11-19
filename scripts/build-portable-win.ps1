@@ -14,7 +14,7 @@ try {
     Remove-Item -LiteralPath $assetsDir -Recurse -Force
   }
   New-Item -ItemType Directory -Force -Path $assetsDir | Out-Null
-  Copy-Item -LiteralPath 'electron-app\assets\tray-placeholder.png' -Destination (Join-Path $assetsDir 'tray-placeholder.png')
+  Copy-Item -LiteralPath 'electron-app\assets\app-icon.png', 'electron-app\assets\tray-icon.png' -Destination $assetsDir
 
   if (!(Test-Path (Join-Path $ffmpegDir 'ffmpeg.exe'))) {
     throw "缺少 ffmpeg.exe，请把 ffmpeg.exe 放到 $ffmpegDir"

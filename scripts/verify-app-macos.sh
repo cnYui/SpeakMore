@@ -26,6 +26,12 @@ PLATFORM_HELPER="$RESOURCES/app.asar.unpacked/electron-app/macos-platform-helper
 [[ -f "$OPTION_LISTENER" ]] || fail "打包产物缺少 macOS Option helper 源码: $OPTION_LISTENER"
 [[ -f "$PLATFORM_HELPER" ]] || fail "打包产物缺少 macOS 平台 helper 源码: $PLATFORM_HELPER"
 
+# app.asar 只应包含主进程 JS 和 renderer 构建产物（约 2 MB）；超过 10 MB 通常是误打包了 node_modules 或源码
+ASAR="$RESOURCES/app.asar"
+[[ -f "$ASAR" ]] || fail "打包产物缺少 app.asar: $ASAR"
+ASAR_BYTES="$(stat -f%z "$ASAR")"
+(( ASAR_BYTES <= 10485760 )) || fail "app.asar 体积异常：${ASAR_BYTES} 字节，请检查 packaging/electron-builder.yml 的 files 配置"
+
 if find "$APP_PATH" -path '*/docs/ai/context/*' -print -quit | grep -q .; then
   fail "打包产物包含 docs/ai/context"
 fi

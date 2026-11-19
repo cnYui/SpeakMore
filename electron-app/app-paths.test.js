@@ -16,8 +16,8 @@ test('createAppPaths 生成本地数据和辅助路径', () => {
   assert.equal(appPaths.logFilePath(), winPath.join('C:\\Users\\tester\\AppData\\Roaming\\SpeakMore', 'local-data', 'recording.log'));
   assert.equal(appPaths.recordingsDir(), winPath.join('C:\\Users\\tester\\AppData\\Roaming\\SpeakMore', 'local-data', 'recordings'));
   assert.equal(appPaths.preloadPath(), winPath.join('C:\\repo\\SpeakMore\\electron-app', 'preload.js'));
-  assert.equal(appPaths.iconPath(), winPath.join('C:\\repo\\SpeakMore\\release-artifacts', 'assets', 'tray-placeholder.png'));
-  assert.equal(appPaths.trayIconPath(), winPath.join('C:\\repo\\SpeakMore\\release-artifacts', 'assets', 'tray-placeholder.png'));
+  assert.equal(appPaths.iconPath(), winPath.join('C:\\repo\\SpeakMore\\electron-app', 'assets', 'app-icon.png'));
+  assert.equal(appPaths.trayIconPath(), winPath.join('C:\\repo\\SpeakMore\\electron-app', 'assets', 'tray-icon.png'));
   assert.equal(appPaths.rightAltListenerPath(), winPath.join('C:\\repo\\SpeakMore\\electron-app', 'right-alt-listener.ps1'));
   assert.equal(appPaths.macosOptionListenerPath(), winPath.join('C:\\repo\\SpeakMore\\electron-app', 'macos-option-listener.c'));
   assert.equal(appPaths.macosPlatformHelperPath(), winPath.join('C:\\repo\\SpeakMore\\electron-app', 'macos-platform-helper.m'));
@@ -36,8 +36,8 @@ test('createAppPaths 在打包态使用 resources 目录中的发布资源', () 
     processPlatform: 'win32',
   });
 
-  assert.equal(appPaths.iconPath(), winPath.join('C:\\Program Files\\SpeakMore\\resources', 'assets', 'tray-placeholder.png'));
-  assert.equal(appPaths.trayIconPath(), winPath.join('C:\\Program Files\\SpeakMore\\resources', 'assets', 'tray-placeholder.png'));
+  assert.equal(appPaths.iconPath(), winPath.join('C:\\Program Files\\SpeakMore\\resources', 'assets', 'app-icon.png'));
+  assert.equal(appPaths.trayIconPath(), winPath.join('C:\\Program Files\\SpeakMore\\resources', 'assets', 'tray-icon.png'));
   assert.equal(appPaths.backendExecutablePath(), winPath.join('C:\\Program Files\\SpeakMore\\resources', 'backend', 'speakmore-backend.exe'));
   assert.equal(appPaths.ffmpegExecutablePath(), winPath.join('C:\\Program Files\\SpeakMore\\resources', 'ffmpeg', 'bin', 'ffmpeg.exe'));
   assert.equal(appPaths.textObserverExecutablePath(), winPath.join('C:\\Program Files\\SpeakMore\\resources', 'helper', 'WindowsTextObserver.exe'));

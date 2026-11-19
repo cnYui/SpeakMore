@@ -33,6 +33,15 @@ try {
     Fail '便携包缺少 SpeakMore.exe'
   }
 
+  # app.asar 只应包含主进程 JS 和 renderer 构建产物（约 2 MB）；超过 10 MB 通常是误打包了 node_modules 或源码
+  $asar = $allFiles | Where-Object { $_.Name -eq 'app.asar' } | Select-Object -First 1
+  if (!$asar) {
+    Fail '便携包缺少 app.asar'
+  }
+  if ($asar.Length -gt 10MB) {
+    Fail ("app.asar 体积异常：{0:N1} MB，请检查 packaging/electron-builder.yml 的 files 配置" -f ($asar.Length / 1MB))
+  }
+
   $backend = $allFiles | Where-Object { $_.Name -eq 'speakmore-backend.exe' } | Select-Object -First 1
   if (!$backend) {
     Fail '便携包缺少 speakmore-backend.exe'
@@ -49,9 +58,12 @@ try {
   }
 
   $secretPattern = 'sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY'
-  foreach ($file in $allFiles | Where-Object { $_.Length -lt 5MB }) {
+  # 后端 onedir 会展开成上千个第三方库文件；*.dist-info\RECORD 只是 base64 哈希清单，容易误命中，跳过。
+  # 密钥前缀区分大小写，必须用 -cmatch，否则 RECORD 里的 “Sk-…”“GhP_…” 也会被当成密钥。
+  $scanFiles = $allFiles | Where-Object { $_.Length -lt 5MB -and !($_.Name -eq 'RECORD' -and $_.DirectoryName -match '\.dist-info$') }
+  foreach ($file in $scanFiles) {
     $content = Get-Content -Raw -ErrorAction SilentlyContinue $file.FullName
-    if ($content -match $secretPattern) {
+    if ($content -cmatch $secretPattern) {
       Fail "便携包疑似包含密钥: $($file.FullName)"
     }
   }

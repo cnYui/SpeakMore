@@ -88,7 +88,8 @@ test('Electron 悬浮条加载本地 renderer 构建产物', async () => {
   assert.doesNotMatch(main, /defaultFloatingBarX\s*=\s*660/);
   assert.doesNotMatch(main, /defaultFloatingBarY\s*=\s*739/);
   assert.match(main, /payload\?\.positions/);
-  assert.match(floatingBar, /src=["']\.\/lib\/three\.min\.js["']/);
+  assert.doesNotMatch(floatingBar, /three\.min\.js/);
+  assert.match(floatingBar, /getContext\(['"]2d['"]\)/);
   assert.match(floatingBar, /id=["']particle-sphere-container["']/);
   assert.match(floatingBar, /id=["']particle-canvas["']/);
   assert.match(floatingBar, /id=["']hint-text["']/);
