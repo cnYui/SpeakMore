@@ -159,6 +159,7 @@
 - 历史统计测试：`node --test electron-app/history-stats-store.test.mjs`
 - 后端核心语音协议验证：`npm run verify:voice`
 - 后端全部测试：`cd server; python -m pytest -q`
+- Windows 本机一键启动图标：`npm run install:shortcut:win`（桌面 + 开始菜单的 SpeakMore 图标，指向 `scripts/launch-speakmore-win.vbs` → `launch-speakmore-win.ps1`：8000 没有后端就用 `server/.venv` 拉起，已有就复用；已在运行时不再起第二个；Electron 退出后只关自己拉起的后端）；`npm run launch:win` 等价于点图标；卸载加 `-Uninstall`。图标指向当前仓库检出，目录移动后要重新安装。
 - macOS 本地打包验证：`npm run build:app:mac`
 - macOS 打包内容检查：`npm run verify:app:mac`
 - macOS MPS 重启生效烟测：`npm run smoke:app-mps:mac`
