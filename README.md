@@ -1,8 +1,13 @@
 # SpeakMore
 
-SpeakMore 是一个本地语音输入工具。Electron 负责桌面壳、固定快捷键、托盘、本地数据和结果交付；本地 FastAPI 后端负责音频转写和大模型文本处理。Windows 是当前稳定版，macOS 已支持本地 `.app` / DMG 构建，签名和公证仍需要发布凭证。
+SpeakMore 是一个本地语音输入工具。本地 FastAPI 后端负责音频转写和大模型文本处理，桌面端有两个版本，连同一个后端、读写同一份本地数据：
 
-支持两个 ASR 模型，可在“初始化”页单独下载或全部下载，并随时切换：
+- **Electron 版**（`electron-app/`）：Windows 是当前稳定版；macOS 已支持本地 `.app` / DMG 构建，签名和公证仍需要发布凭证。
+- **原生 macOS 版**（`macos-app/`）：用 Xcode / SwiftUI 重写，不依赖 Electron，详见 [`macos-app/README.md`](macos-app/README.md)。
+
+两个版本的主窗口都是 Liquid Glass 风格（半透明玻璃窗口、卡片和按钮），字号和文案共用同一套规范。
+
+支持两个 ASR 模型，可在“初始化”页单独下载、全部下载、切换或删除：
 
 | 模型 | 下载体积 | 运行内存 | 说明 |
 | --- | --- | --- | --- |
@@ -14,14 +19,37 @@ SpeakMore 是一个本地语音输入工具。Electron 负责桌面壳、固定�
 ## 功能
 
 - Windows `Right Alt` / macOS `Option`：听写，结果自动粘贴；无法确认可信输入目标时显示悬浮面板。
-- Windows `Right Alt + Space` / macOS `Option + Space`：自由提问，结果显示在悬浮面板，不自动粘贴；有可信选区时携带选区上下文。
-- Windows `Right Alt + Right Shift` / macOS `Option + Shift`：语音翻译，结果粘贴到当前光标位置；无法确认可信输入目标时显示悬浮面板。
+- Windows `Right Alt + Space` / macOS 右侧 `Option + 右侧 Command`：自由提问，结果显示在悬浮面板，不自动粘贴；有可信选区时携带选区上下文。
+- Windows `Right Alt + Right Shift` / macOS 右侧 `Option + Shift`：语音翻译，结果粘贴到当前光标位置；无法确认可信输入目标时显示悬浮面板。
 - `Escape`：取消当前未完成语音会话，或关闭当前悬浮面板。
 - 录音时显示悬浮胶囊和麦克风音量。
 - 主窗口包含初始化、首页、历史记录、词典和设置。
+- 点主窗口的关闭按钮只会最小化，不退出应用，快捷键和语音链路继续在后台可用；从托盘“打开主窗口”或再次启动会先还原窗口，托盘“退出”才真正结束。
+- 初始化页的已下载模型有“删除”按钮，弹确认框后删除，释放磁盘空间；下载或加载中不能删。
 - 历史、设置、词典和自动学习候选只保存在本机。
 
-自动粘贴必须先确认可信文本输入目标；不满足条件时显示悬浮卡片，不静默写剪贴板和发送粘贴快捷键。macOS 自动学习只在自动粘贴成功后短时观察本轮目标，选区上下文只服务自由提问。
+自动粘贴必须先确认可信文本输入目标；不满足条件时显示悬浮卡片，不静默写剪贴板和发送粘贴快捷键。如果录音期间焦点被别的窗口抢走，会先把录音开始时锁定的窗口还原到前台再粘贴，还原失败才显示悬浮卡片。粘贴完成后会恢复你原来的剪贴板。macOS 自动学习只在自动粘贴成功后短时观察本轮目标，选区上下文只服务自由提问。
+
+## 从源码开始用
+
+拉下仓库后，按系统选入口（根目录的 `npm start` 启动的是 Electron 版，**不会**自动启动原生 macOS 版）：
+
+| 系统 | 版本 | 入口 |
+| --- | --- | --- |
+| Windows | Electron 版 | 准备好后端后运行 `npm run install:shortcut:win`，桌面和开始菜单出现 SpeakMore 图标，点一下就启动 |
+| macOS | 原生 SwiftUI 版 | 准备好后端后运行 `bash macos-app/Tools/install-local.sh`，装到 `/Applications`，点图标启动 |
+| macOS | Electron 版（备选） | 按下面“开发安装”和“启动”章节运行 `npm start` |
+
+两种 macOS 版本读写同一份本地数据、连同一个后端，可以互换使用，但同一时间只开一个（快捷键会冲突）。
+
+原生 macOS 版的完整步骤：
+
+1. 装 Xcode 26+ 和 XcodeGen（`brew install xcodegen`）。
+2. 按下面“开发安装”章节的“安装后端依赖”建好 `server/.venv`（App 会用它拉起后端）。
+3. 运行 `bash macos-app/Tools/install-local.sh`。
+4. 第一次打开时，在系统设置里给 SpeakMore 授权麦克风、输入监控和辅助功能；之后在“初始化”页下载模型、在设置页填大模型 API Key。
+
+本机安装版依赖当前仓库检出，仓库目录不要移动或删除。其它用法（Xcode 调试、打包 zip / DMG、测试）见 [`macos-app/README.md`](macos-app/README.md)。
 
 ## 发布包
 
@@ -66,9 +94,14 @@ Windows x64 当前生成解压即用 zip。macOS 当前可生成本地 `.app`、
 │   ├── audio-session-control.ps1   # Windows 后台音频会话静音/恢复
 │   ├── windows-text-observer/      # UIA 文本观察 helper
 │   └── renderer/                   # Vite + React + MUI + TypeScript 前端
+├── macos-app/                      # 原生 macOS 版（SwiftUI，不依赖 Electron）
+│   ├── Packages/SpeakMoreCore/     # 与界面无关的逻辑（协议、会话状态机、后端客户端等）
+│   ├── Packages/SpeakMorePlatform/ # 系统接口（快捷键、录音、辅助功能、粘贴）
+│   ├── SpeakMore/                  # 主窗口、菜单栏和悬浮窗口
+│   └── Tools/                      # 端到端、打包和资源生成脚本
 ├── shared/                         # 前后端共享元数据
-├── scripts/                        # 验证和发布脚本
-├── packaging/                      # 打包配置
+├── scripts/                        # 验证、发布和 Windows 启动脚本
+├── packaging/                      # 打包配置和应用图标
 ├── package.json                    # 根启动、构建和验证脚本
 └── AGENTS.md                       # 项目协作约定
 ```
@@ -76,7 +109,7 @@ Windows x64 当前生成解压即用 zip。macOS 当前可生成本地 `.app`、
 ## 环境要求
 
 - Windows 10/11 x64。
-- macOS 15+ arm64 当前按开发态 MVP 验证。
+- macOS 15+ arm64 当前按开发态 MVP 验证；原生 macOS 版还需要 Xcode 和 XcodeGen（见 `macos-app/README.md`）。
 - Node.js 24 推荐。
 - Python 3.10+。
 - Windows 需要 PowerShell；macOS Option 监听器需要 Xcode Command Line Tools 提供的 `clang`。
@@ -227,6 +260,8 @@ npm start
 
 当前模型由设置里的 `asrModelId` 决定，单独运行后端时也可以用环境变量 `SPEAKMORE_ASR_MODEL_ID=sensevoice-small-int8` 指定。
 
+“初始化”页可以删除已下载的模型（包括当前模型），只会删应用自己下载到模型目录里的那一份；`SENSEVOICE_SMALL_MODEL_DIR` 指定的目录和 Hugging Face 缓存可能被别的程序共用，页面只提示它们的位置，不会删除。
+
 ### ASR 运行设备
 
 后端通过 `FUNASR_DEVICE` 选择 FunASR 运行设备：
@@ -315,6 +350,7 @@ Electron userData/local-data/
 - `GET /health`：后端进程存活检查。
 - `GET /model/status`：查询当前模型初始化状态和 `models` 列表；带 `model_id` 时在空闲状态下切换当前模型。
 - `POST /model/download`：下载并加载 `model_id` 指定的模型（省略时为当前模型）；`load: false` 只下载不切换。
+- `POST /model/delete`：删除 `model_id` 指定的已下载模型（必须明确给出）。下载或加载中返回 409；删的是当前模型时先卸载并回到“未下载”。只删应用自己下载的缓存目录，显式目录环境变量和 Hugging Face 缓存只在 `external_locations` 里报告位置，不会删。
 - `GET /ready`：语音链路就绪检查。
 - `POST /config/reload`：刷新后端回退配置。
 - `POST /ai/voice_flow`：上传完整音频并返回处理结果。
@@ -372,6 +408,13 @@ npm run verify:open-source
 ```powershell
 cd server
 python -m pytest -q
+```
+
+原生 macOS 版测试（在 macOS 上）：
+
+```bash
+cd macos-app/Packages/SpeakMoreCore
+swift test
 ```
 
 ## 常见问题
