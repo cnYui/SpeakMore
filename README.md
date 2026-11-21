@@ -16,6 +16,26 @@ SpeakMore 是一个本地语音输入工具。本地 FastAPI 后端负责音频�
 
 发布包不内置模型；首次运行进入“初始化”页后，由用户选择下载并加载，下载失败时会显示明确错误。
 
+## 界面预览
+
+下面是 Windows（Electron）版的主窗口，截图里的历史、词典和统计都是演示数据。原生 macOS 版是同样的五个页面。
+
+<p align="center">
+  <img src="docs/images/win-home.jpg" alt="首页：累计听写统计和最近结果" width="820">
+</p>
+<p align="center"><sub>首页——个性化进度、累计听写时长 / 字数、最近结果</sub></p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/win-setup.jpg" alt="初始化页：下载、切换和删除语音模型"><br><sub>初始化——下载、切换、删除语音模型，填写 API Key</sub></td>
+    <td width="50%"><img src="docs/images/win-history.jpg" alt="历史记录页"><br><sub>历史记录——原始转写和润色结果，可搜索、复制</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/win-dictionary.jpg" alt="词典页"><br><sub>词典——手动词条、自动学习的候选词条</sub></td>
+    <td width="50%"><img src="docs/images/win-settings.jpg" alt="设置页"><br><sub>设置——快捷键、麦克风、运行设备、语言和大模型</sub></td>
+  </tr>
+</table>
+
 ## 功能
 
 - Windows `Right Alt` / macOS `Option`：听写，结果自动粘贴；无法确认可信输入目标时显示悬浮面板。

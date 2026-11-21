@@ -151,10 +151,30 @@ export const theme = createTheme({
           border: '1px solid var(--glass-border)',
           boxShadow: 'var(--glass-highlight)',
         },
+        // 状态徽章（已就绪 / 已填写 / 未授权…）：上面的 filled 把底改成了近白的玻璃色，
+        // 这里必须给带颜色的 filled 徽章单独上色，否则白字落在近白底上看不见。
         colorPrimary: {
           '&.MuiChip-filled': {
             color: '#fff',
             background: 'linear-gradient(180deg, rgba(86, 170, 255, 0.96), rgba(10, 132, 255, 0.90))',
+          },
+        },
+        colorSuccess: {
+          '&.MuiChip-filled': {
+            color: '#fff',
+            background: 'linear-gradient(180deg, rgba(80, 210, 120, 0.96), rgba(40, 180, 90, 0.92))',
+          },
+        },
+        colorWarning: {
+          '&.MuiChip-filled': {
+            color: '#fff',
+            background: 'linear-gradient(180deg, rgba(255, 184, 77, 0.98), rgba(255, 149, 0, 0.92))',
+          },
+        },
+        colorError: {
+          '&.MuiChip-filled': {
+            color: '#fff',
+            background: 'linear-gradient(180deg, rgba(255, 105, 97, 0.96), rgba(255, 59, 48, 0.90))',
           },
         },
       },
