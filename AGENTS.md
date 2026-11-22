@@ -44,7 +44,8 @@
 - `electron-app/renderer/src/components/AppShell.tsx` 只承担全局壳层和持久化订阅，页面状态拆到 `useGlobalShortcutBridge`、`useVoiceHistoryPersistence` 和 `useSettingsPageState` 之类的专用 hook。
 - 前端修改后必须在 `electron-app/renderer/` 下运行 `npm run build`，再重启 Electron 验证。
 - macOS 本地打包入口为 `npm run build:app:mac`，内容检查为 `npm run verify:app:mac`，MPS 重启生效烟测为 `npm run smoke:app-mps:mac`；公开 release 入口为 `npm run build:release:mac`，必须提供 Developer ID 签名和 Apple notarization 凭证。
-- 主窗口关闭按钮（Windows 与 macOS 原生版一致）默认只最小化窗口、不退出应用，语音链路继续在后台运行；再次打开时（托盘“打开主窗口”、再次启动）要先还原最小化的窗口；托盘“退出”或真实应用退出才结束 Electron。Windows 在 `window-manager.js` 的 `close` 事件里 `preventDefault()` + `minimize()`，macOS 在 `MinimizeOnClose.swift` 里拦截关闭改成 `miniaturize`。
+- 主窗口关闭按钮默认不退出应用，语音链路继续在后台运行；托盘“退出”或真实应用退出才结束 Electron。Windows 在 `window-manager.js` 的 `close` 事件里 `preventDefault()` + `setSkipTaskbar(true)` + `hide()`，任务栏图标随之消失、只留托盘图标，托盘“打开主窗口”时先 `setSkipTaskbar(false)`、必要时 `restore()` 再 `show()` / `focus()`；macOS Electron 开发态和原生版仍是最小化（原生版在 `MinimizeOnClose.swift` 里拦截关闭改成 `miniaturize`），再次打开时要先还原最小化的窗口。
+- `electron-app/right-alt-listener.ps1` 在 Right Alt 抬起事件放行前必须先注入一次未分配键 `0xE8` 的按下 / 抬起（`SuppressMenuActivation`），否则单独按松 Alt 会让 Chrome、VS Code、记事本等进入菜单模式，键盘焦点从文本框移到菜单栏，自动粘贴的 Ctrl+V 会被吞掉且主进程仍判定成功；改这个钩子时不要去掉该屏蔽。
 - 历史、设置、统计、日志和录音相关本地数据由 Electron 主进程写入 `app.getPath('userData')/local-data/`。
 - 词典和自动学习候选也属于本地数据，由 Electron 主进程写入 `app.getPath('userData')/local-data/`，renderer 只能通过 IPC 访问。
 - `electron-app/renderer/src/services/recorder.ts` 是语音状态机 facade 和唯一对外入口；会话状态、音频运行时和生命周期边界分别拆到 `electron-app/renderer/src/services/voice/voiceSessionStore.ts`、`recordingTransportRuntime.ts` 和 `voiceSessionLifecycle.ts`，其余语音链路内部模块仍放在 `electron-app/renderer/src/services/voice/` 下的 `recordingStartup.ts`、`voiceSocket.ts`、`voiceResultDelivery.ts`、`voiceSessionUtils.ts`、`backgroundAudio.ts`、`audioCapture.ts` 和 `audioLevelMonitor.ts`。

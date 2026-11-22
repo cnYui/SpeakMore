@@ -74,6 +74,10 @@ function createFakeBrowserWindowClass() {
       this.minimized = true;
     }
 
+    setSkipTaskbar(value) {
+      this.skipTaskbar = Boolean(value);
+    }
+
     restore() {
       this.minimized = false;
       this.restoreCallCount = (this.restoreCallCount || 0) + 1;
@@ -176,10 +180,11 @@ test('createWindowManager 构造阶段不读取 Electron screen 方法', () => {
   }));
 });
 
-test('createWindowManager 创建主窗口并在关闭时最小化而不是退出或隐藏', () => {
+function createMainWindowManagerForCloseTest(processPlatform) {
   const BrowserWindow = createFakeBrowserWindowClass();
   const trayActions = [];
   const manager = createWindowManager({
+    processPlatform,
     app: {
       quit: () => trayActions.push('quit'),
     },
@@ -213,15 +218,52 @@ test('createWindowManager 创建主窗口并在关闭时最小化而不是退出
   assert.equal(mainWindow.loadFilePath, path.join('C:\\repo\\SpeakMore\\electron-app', 'renderer', 'dist', 'index.html'));
   assert.equal(manager.getMainWindow(), mainWindow);
 
+  return { manager, mainWindow, trayActions };
+}
+
+test('Windows 关闭主窗口：藏起来并移出任务栏，只留托盘图标，应用不退出', () => {
+  const { manager, mainWindow, trayActions } = createMainWindowManagerForCloseTest('win32');
+
   mainWindow.close();
 
-  // 关闭按钮 = 最小化：窗口没有销毁、也没有藏起来（任务栏里还在），应用不退出。
-  assert.equal(mainWindow.minimized, true);
-  assert.notEqual(mainWindow.hidden, true);
+  assert.equal(mainWindow.hidden, true);
+  assert.equal(mainWindow.skipTaskbar, true);
+  assert.notEqual(mainWindow.minimized, true);
   assert.equal(mainWindow.destroyed, false);
   assert.deepEqual(trayActions, [{ channel: 'page-event--hub--window-blurred', payload: undefined }]);
 
-  // 从托盘“打开主窗口”会还原并聚焦同一个窗口，而不是新建。
+  // 从托盘“打开主窗口”会把任务栏图标加回来，显示并聚焦同一个窗口，而不是新建。
+  assert.equal(manager.createMainWindow(), mainWindow);
+  assert.equal(mainWindow.skipTaskbar, false);
+  assert.equal(mainWindow.hidden, false);
+  assert.equal(mainWindow.focused, true);
+});
+
+test('Windows 关闭前已被最小化的主窗口，从托盘再打开时先还原', () => {
+  const { manager, mainWindow } = createMainWindowManagerForCloseTest('win32');
+
+  mainWindow.minimize();
+  mainWindow.close();
+  assert.equal(mainWindow.hidden, true);
+  assert.equal(mainWindow.skipTaskbar, true);
+
+  assert.equal(manager.createMainWindow(), mainWindow);
+  assert.equal(mainWindow.minimized, false);
+  assert.equal(mainWindow.restoreCallCount, 1);
+  assert.equal(mainWindow.skipTaskbar, false);
+  assert.equal(mainWindow.hidden, false);
+});
+
+test('非 Windows 平台关闭主窗口仍然是最小化，不改任务栏状态', () => {
+  const { manager, mainWindow } = createMainWindowManagerForCloseTest('darwin');
+
+  mainWindow.close();
+
+  assert.equal(mainWindow.minimized, true);
+  assert.notEqual(mainWindow.hidden, true);
+  assert.equal(mainWindow.skipTaskbar, undefined);
+  assert.equal(mainWindow.destroyed, false);
+
   assert.equal(manager.createMainWindow(), mainWindow);
   assert.equal(mainWindow.minimized, false);
   assert.equal(mainWindow.restoreCallCount, 1);

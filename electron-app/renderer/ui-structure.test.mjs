@@ -71,7 +71,7 @@ test('Electron 关闭主窗口时最小化（不退出）并保留语音识别�
 
   assert.match(main, /let\s+appIsQuitting\s*=\s*false/);
   assert.match(main, /if\s*\(mainWindow\s*&&\s*!mainWindow\.isDestroyed\(\)\)[\s\S]*mainWindow\.show\(\)[\s\S]*mainWindow\.focus\(\)/);
-  assert.match(main, /mainWindow\.on\(['"]close['"],\s*\(event\)\s*=>\s*\{[\s\S]*if\s*\(getAppIsQuitting\(\)\)\s*return[\s\S]*event\.preventDefault\(\)[\s\S]*mainWindow\.minimize\(\)/);
+  assert.match(main, /mainWindow\.on\(['"]close['"],\s*\(event\)\s*=>\s*\{[\s\S]*if\s*\(getAppIsQuitting\(\)\)\s*return[\s\S]*event\.preventDefault\(\)[\s\S]*mainWindow\.setSkipTaskbar\(true\)[\s\S]*mainWindow\.hide\(\)[\s\S]*mainWindow\.minimize\(\)/);
   assert.match(main, /backgroundThrottling:\s*false/);
   assert.match(main, /app\.on\(['"]before-quit['"],\s*\(event\)\s*=>\s*\{[\s\S]*appIsQuitting\s*=\s*true/);
 });
@@ -459,6 +459,10 @@ test('Right Alt 通过 Windows 低级键盘监听器转发真实 bundle 需要�
   assert.match(main, /spawnProcess\(/);
   assert.match(main, /right-alt-listener\.ps1/);
   assert.match(listener, /VK_RMENU\s*=\s*165/);
+  // Right Alt 单独松开不能让目标应用进入菜单模式（否则焦点离开文本框、自动粘贴失效）。
+  assert.match(listener, /VK_MENU_MASK\s*=\s*0xE8/);
+  assert.match(listener, /if\s*\(vkCode == VK_RMENU\)\s*SuppressMenuActivation\(\);[\s\S]*CallNextHookEx\(hookId/);
+  assert.match(listener, /static void SuppressMenuActivation\(\)[\s\S]*keybd_event\(VK_MENU_MASK, 0, 0[\s\S]*keybd_event\(VK_MENU_MASK, 0, KEYEVENTF_KEYUP/);
   assert.match(listener, /VK_RSHIFT\s*=\s*161/);
   assert.match(listener, /VK_SPACE\s*=\s*32/);
   assert.doesNotMatch(main, /globalShortcut\.register\(['"]Alt\+Shift['"]/);

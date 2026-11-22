@@ -11,6 +11,11 @@ public static class RightAltKeyboardHook
     public const int VK_RSHIFT = 161;
     public const int VK_SPACE = 32;
     public const int VK_ESCAPE = 27;
+    // 未分配的虚拟键码。Right Alt 单独按下再松开时，Windows 应用（Chrome、VS Code、记事本等）会进入菜单模式，
+    // 把键盘焦点从文本框移到菜单栏，之后的 Ctrl+V 就贴不进输入框。在 Alt 松开前插入一次这个键的按下 / 抬起，
+    // 系统就认为“Alt 期间按过别的键”，不再激活菜单（AutoHotkey 的 #MenuMaskKey 也是这个办法）。
+    private const byte VK_MENU_MASK = 0xE8;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
 
     private const int WH_KEYBOARD_LL = 13;
     private const int WM_KEYDOWN = 0x0100;
@@ -73,6 +78,7 @@ public static class RightAltKeyboardHook
                 }
                 else if (isUpMessage && isCurrentlyDown)
                 {
+                    if (vkCode == VK_RMENU) SuppressMenuActivation();
                     if (vkCode == VK_RMENU) rightAltIsDown = false;
                     else if (vkCode == VK_RSHIFT) rightShiftIsDown = false;
                     else if (vkCode == VK_SPACE) spaceIsDown = false;
@@ -86,7 +92,17 @@ public static class RightAltKeyboardHook
         return CallNextHookEx(hookId, nCode, wParam, lParam);
     }
 
+    // 必须在 Alt 抬起事件放行之前调用；注入的事件会同步经过钩子链，所以到达应用时先于 Alt 抬起。
+    private static void SuppressMenuActivation()
+    {
+        keybd_event(VK_MENU_MASK, 0, 0, UIntPtr.Zero);
+        keybd_event(VK_MENU_MASK, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    }
+
     private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
