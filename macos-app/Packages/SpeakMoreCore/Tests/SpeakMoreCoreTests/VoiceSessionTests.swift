@@ -302,13 +302,13 @@ final class VoiceSessionTests: XCTestCase {
     func testRecordingLimitWarningAndAutoStop() async throws {
         let harness = VoiceHarness()
         await harness.startAndRecord()
-        XCTAssertEqual(Set(harness.scheduler.pendingDelays()), [50, 60])
+        XCTAssertEqual(Set(harness.scheduler.pendingDelays()), [29 * 60, 30 * 60])
 
-        harness.scheduler.fire(delay: 50)
-        XCTAssertEqual(harness.controller.session.noticeText, "录音将在 10 秒后自动结束")
-        XCTAssertEqual(harness.controller.floatingBarState.displayText, "录音将在 10 秒后自动结束")
+        harness.scheduler.fire(delay: 29 * 60)
+        XCTAssertEqual(harness.controller.session.noticeText, "录音将在 1 分钟后自动结束")
+        XCTAssertEqual(harness.controller.floatingBarState.displayText, "录音将在 1 分钟后自动结束")
 
-        harness.scheduler.fire(delay: 60)
+        harness.scheduler.fire(delay: 30 * 60)
         await harness.eventually("自动停止进入转写") { harness.status == .transcribing }
         XCTAssertTrue(harness.transport.texts.contains { $0.contains("end_audio") })
         XCTAssertEqual(harness.controller.session.noticeText, "")

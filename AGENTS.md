@@ -96,6 +96,8 @@
 - 悬浮胶囊和悬浮面板每次唤醒或显示时都必须重新提升置顶层级；macOS 需要刷新 `alwaysOnTop` 层级状态后再 `moveTop()`，但不能调用 `focus()` 抢走当前输入焦点。
 - 悬浮胶囊外层透明窗口大小应贴合 `floating-bar.html` 中文字加粒子球的可见布局，当前为 `220x224`；不要恢复大面积透明背景，否则会拦截背后应用点击。
 - WebSocket 语音流固定输入来自 `16kHz`、单声道、`pcm_s16le` 二进制 chunk，并在 `start_audio.parameters.audio_format` 声明 `{ type: "pcm_s16le", sample_rate: 16000, channels: 1 }`；`/ai/voice_flow` 兼容入口可以接受上传音频，但后端也必须先转成 PCM16 再喂给 SenseVoiceSmall。
+- 长录音按 30 秒一段处理（`server/asr.py` 的 `StreamingAsrSession`，`SEGMENT_MAX_MS`）：段内每个识别周期都从段头重新识别到现在（成本封顶在 30 秒音频，与录音总长无关），满 30 秒就在最后 5 秒里最安静的地方封口，多出来的音频作为新的一段重新开始；`StreamingAsrResult.closed_segments` 带出新封口的原文，`text` 仍是到目前为止的累计文字，所以 WebSocket 协议和 `transcription` 消息不变。`/ws/rt_voice_flow` 里听写和翻译（不带选区）的封口段立刻交给 `server/segment_polish.py` 的 `SegmentPolisher` 在后台润色，说完（`end_audio`）只补最后一段，再按顺序拼成完整结果一次交付；自由提问和带选区的整体只润色一次（识别照样分段）；说完前切了模式或翻译目标语言，之前润色好的段作废、按新设置重新润色；某一段润色失败沿用原规则（听写回退这一段的原文，其他模式报错并取消其余段）。识别变慢时重识别间隔自动拉长（`DECODE_LOAD_BUDGET`，识别负载不超过实时音频的一半），避免慢机器上音频越积越多、说完要等很久。
+- 录音上限是 30 分钟（29 分钟提醒“1 分钟后自动结束”），Electron 在 `recorder.ts`、macOS 原生版在 `VoiceTimings`；说完等结果的超时仍是 60 秒，因为说完只剩最后一段（最长 30 秒）要识别和润色。改分段长度或上限时两端和后端要一起看。
 - WebSocket 协议入口必须防御非法 JSON 和非对象参数；`parameters`、`audio_context` 等输入进入业务逻辑前必须归一化为对象。
 - WebSocket 单轮音频处理失败也必须清空本轮音频块，不能让下一次 `end_audio` 重复处理旧音频。
 - ASR 后端只支持 `shared/asr-models.json` 里列出的模型，不要恢复旧模型兼容逻辑；新增模型先改共享元数据和后端注册表。

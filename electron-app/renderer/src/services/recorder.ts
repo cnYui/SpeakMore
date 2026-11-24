@@ -25,10 +25,12 @@ import {
   type VoiceStatus,
 } from './voice/voiceTypes'
 
+// 说完（end_audio）以后只剩最后一段（最长 30 秒）要识别和润色，前面的段后端已经边说边处理好了，所以等结果的超时不用跟着录音长度走。
 const TRANSCRIBE_TIMEOUT_MS = 60000
-const RECORDING_LIMIT_WARNING_MS = 50000
-const RECORDING_LIMIT_MS = 60000
-const RECORDING_LIMIT_WARNING_TEXT = '录音将在 10 秒后自动结束'
+// 后端按 30 秒一段识别并润色，录音长度不再受单次识别能力限制，上限放宽到 30 分钟（到点前 1 分钟提醒）。
+const RECORDING_LIMIT_MS = 30 * 60 * 1000
+const RECORDING_LIMIT_WARNING_MS = RECORDING_LIMIT_MS - 60 * 1000
+const RECORDING_LIMIT_WARNING_TEXT = '录音将在 1 分钟后自动结束'
 // 只有这些状态代表本轮语音还没有产出最终结果，Escape 才允许取消。
 const CANCELABLE_STATUSES = new Set<VoiceStatus>(['connecting', 'recording', 'stopping', 'transcribing'])
 

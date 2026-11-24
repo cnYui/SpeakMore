@@ -158,7 +158,8 @@ class AsrRuntimeTest(unittest.TestCase):
             generate_options={"language": "auto", "use_itn": True, "ban_emo_unk": False},
             postprocess="rich_transcription",
         )
-        session = asr.StreamingAsrSession(runtime, sample_rate=1000, chunk_ms=2)
+        # 固定时钟：这个测试只看累计识别的语义，不看“识别变慢就拉长间隔”。
+        session = asr.StreamingAsrSession(runtime, sample_rate=1000, chunk_ms=2, clock=lambda: 0.0)
 
         first = session.append_pcm16(b"\x01\x00\x02\x00")
         second = session.append_pcm16(b"\x03\x00\x04\x00")
