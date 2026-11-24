@@ -69,6 +69,7 @@ function createWindowManager({
   let tray = null;
   let floatingWindowController = null;
   const shouldRefreshFloatingWindowLayer = processPlatform === 'darwin';
+  const shouldHideMainWindowOnClose = processPlatform === 'win32';
 
   function getCurrentFloatingWorkArea() {
     try {
@@ -165,7 +166,9 @@ function createWindowManager({
 
   function createMainWindow() {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      // 关闭按钮把窗口最小化到任务栏（见下面的 close 处理），所以从托盘 / 任务栏再打开时要先还原。
+      // 关闭按钮在 Windows 上会把窗口藏起来并移出任务栏、其它平台是最小化（见下面的 close 处理），
+      // 所以从托盘再打开时要先把任务栏图标加回来、还原最小化。
+      if (shouldHideMainWindowOnClose) mainWindow.setSkipTaskbar(false);
       if (typeof mainWindow.isMinimized === 'function' && mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
@@ -185,9 +188,15 @@ function createWindowManager({
     mainWindow.loadFile(mainRendererPath());
     mainWindow.on('close', (event) => {
       if (getAppIsQuitting()) return;
-      // 点关闭按钮不退出，也不藏进后台，而是最小化到任务栏；真正退出走托盘“退出”。
+      // 点关闭按钮不退出应用，语音链路继续在后台运行；真正退出走托盘“退出”。
+      // Windows：窗口藏起来并移出任务栏，只在通知区域（托盘）留图标；其它平台沿用最小化。
       event.preventDefault();
-      mainWindow.minimize();
+      if (shouldHideMainWindowOnClose) {
+        mainWindow.setSkipTaskbar(true);
+        mainWindow.hide();
+      } else {
+        mainWindow.minimize();
+      }
       sendToMain('page-event--hub--window-blurred');
     });
     mainWindow.on('closed', () => {
