@@ -675,7 +675,7 @@ test('SenseVoiceSmall 模型启动时通过 WebSocket 发送 PCM16 音频块', a
   }
 })
 
-test('录音达到 50 秒时通过 voice-state 提示即将自动结束', async () => {
+test('录音达到 29 分钟时通过 voice-state 提示即将自动结束', async () => {
   const env = createTestEnvironment()
   let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
 
@@ -683,7 +683,7 @@ test('录音达到 50 秒时通过 voice-state 提示即将自动结束', async 
     recorder = await loadRecorderModule('recording-limit-warning')
     await recorder.startRecording('Dictate')
 
-    env.runTimeoutByDelay(50000)
+    env.runTimeoutByDelay(29 * 60 * 1000)
 
     const voiceStates = env.sendCalls
       .filter((call) => call.channel === 'voice-state')
@@ -695,7 +695,7 @@ test('录音达到 50 秒时通过 voice-state 提示即将自动结束', async 
       status: 'recording',
       mode: 'Dictate',
       inputLevel: 0,
-      displayText: '录音将在 10 秒后自动结束',
+      displayText: '录音将在 1 分钟后自动结束',
       errorMessage: undefined,
     })
   } finally {
@@ -704,7 +704,7 @@ test('录音达到 50 秒时通过 voice-state 提示即将自动结束', async 
   }
 })
 
-test('录音达到 60 秒时自动停止并发送 end_audio 进入转写', async () => {
+test('录音达到 30 分钟时自动停止并发送 end_audio 进入转写', async () => {
   const env = createTestEnvironment()
   let recorder: Awaited<ReturnType<typeof loadRecorderModule>> | null = null
 
@@ -712,7 +712,7 @@ test('录音达到 60 秒时自动停止并发送 end_audio 进入转写', async
     recorder = await loadRecorderModule('recording-limit-stop')
     await recorder.startRecording('Dictate')
 
-    env.runTimeoutByDelay(60000)
+    env.runTimeoutByDelay(30 * 60 * 1000)
 
     const messages = env.sentPayloads
       .filter((payload): payload is string => typeof payload === 'string')

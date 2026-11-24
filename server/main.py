@@ -38,6 +38,7 @@ from model_manager import (
     set_active_asr_model_id,
 )
 from refiner import refine_text, reload_refiner_runtime_config
+from segment_polish import SegmentPolisher, supports_segment_polish
 from runtime_config import (
     get_cors_allowed_origins,
     get_server_host,
@@ -592,6 +593,8 @@ async def ws_voice_flow(websocket: WebSocket, app_instance: FastAPI | None = Non
     audio_chunks: list[bytes] = []
     streaming_session = None
     streaming_chunk_index = 0
+    # 长录音：识别会话每封口一段（最长 30 秒）就在后台润色，说完只补最后一段。
+    polisher = SegmentPolisher(lambda **kwargs: refine_text(**kwargs))
 
     try:
         while True:
@@ -612,6 +615,7 @@ async def ws_voice_flow(websocket: WebSocket, app_instance: FastAPI | None = Non
                     except Exception as error:
                         streaming_session = None
                         audio_chunks = []
+                        polisher.cancel()
                         await send_ws_error_message(
                             websocket,
                             "transcription_error",
@@ -622,6 +626,14 @@ async def ws_voice_flow(websocket: WebSocket, app_instance: FastAPI | None = Non
                         continue
 
                     for result in results:
+                        for closed_text in getattr(result, "closed_segments", ()):
+                            polisher.add(
+                                closed_text,
+                                mode,
+                                context,
+                                parameters,
+                                polish_now=supports_segment_polish(mode, parameters),
+                            )
                         streaming_chunk_index += 1
                         if result.text:
                             await send_ws_message(
@@ -667,6 +679,7 @@ async def ws_voice_flow(websocket: WebSocket, app_instance: FastAPI | None = Non
                 audio_chunks = []
                 streaming_session = None
                 streaming_chunk_index = 0
+                polisher.cancel()
                 sample_rate = get_pcm_streaming_sample_rate(parameters)
                 if sample_rate:
                     try:
@@ -691,7 +704,16 @@ async def ws_voice_flow(websocket: WebSocket, app_instance: FastAPI | None = Non
                     try:
                         final_result = await asyncio.to_thread(current_streaming_session.finalize)
                         raw_text = final_result.text
+                        for closed_text in getattr(final_result, "closed_segments", ()):
+                            polisher.add(
+                                closed_text,
+                                mode,
+                                context,
+                                parameters,
+                                polish_now=supports_segment_polish(mode, parameters),
+                            )
                     except Exception as error:
+                        polisher.cancel()
                         await send_ws_error_message(
                             websocket,
                             "transcription_error",
@@ -709,13 +731,20 @@ async def ws_voice_flow(websocket: WebSocket, app_instance: FastAPI | None = Non
                             {"text": raw_text, "audio_id": audio_id, "chunk_index": streaming_chunk_index},
                         )
                         try:
-                            refined = await refine_text(
-                                raw_text=raw_text,
-                                mode=mode,
-                                context=context,
-                                parameters=parameters,
-                            )
+                            if supports_segment_polish(mode, parameters) and polisher.raw_segments:
+                                # 前面的段已经在后台润色好了，这里只等最后一段，再按顺序接起来。
+                                refined = await polisher.finish(mode, context, parameters)
+                            else:
+                                # 自由提问 / 带选区：整句话放在一起润色一次。
+                                polisher.cancel()
+                                refined = await refine_text(
+                                    raw_text=raw_text,
+                                    mode=mode,
+                                    context=context,
+                                    parameters=parameters,
+                                )
                         except Exception as error:
+                            polisher.cancel()
                             await send_ws_error_message(
                                 websocket,
                                 get_ws_refine_error_message_type(mode, parameters),
@@ -857,6 +886,8 @@ async def ws_voice_flow(websocket: WebSocket, app_instance: FastAPI | None = Non
 
     except WebSocketDisconnect:
         pass
+    finally:
+        polisher.cancel()
 
 
 def create_app(

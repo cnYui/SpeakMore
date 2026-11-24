@@ -66,11 +66,12 @@ public struct TaskScheduler: VoiceScheduler {
 
 public struct VoiceTimings: Sendable {
     /// end_audio 后必须有最终结果或错误，否则按 WebSocket 超时处理。
+    /// 后端按 30 秒一段边说边识别、润色，说完只剩最后一段，所以不用跟着录音长度走。
     public var transcribeTimeout: TimeInterval = 60
-    /// 录音到这个时长弹“10 秒后自动结束”。
-    public var recordingLimitWarning: TimeInterval = 50
-    /// 录音到这个时长自动停止。
-    public var recordingLimit: TimeInterval = 60
+    /// 录音到这个时长弹“1 分钟后自动结束”（上限前 1 分钟）。
+    public var recordingLimitWarning: TimeInterval = 29 * 60
+    /// 录音到这个时长自动停止：30 分钟（后端分段处理，长度不再受单次识别能力限制）。
+    public var recordingLimit: TimeInterval = 30 * 60
     public var connectTimeout: TimeInterval = 2.5
 
     public init() {}
@@ -125,7 +126,7 @@ public struct VoiceDependencies {
 @MainActor
 @Observable
 public final class VoiceSessionController {
-    public static let recordingLimitWarningText = "录音将在 10 秒后自动结束"
+    public static let recordingLimitWarningText = "录音将在 1 分钟后自动结束"
 
     public private(set) var session = VoiceSession.initial
 

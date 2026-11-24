@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -69,7 +70,10 @@ class StreamingAsrRuntime:
 
 @dataclass(frozen=True)
 class StreamingAsrResult:
+    # 到目前为止的全部文字（已封口的段 + 当前段的最新识别）。
     text: str
+    # 这一次新封口的段（原文）。封口后的内容不会再变，调用方可以先拿去润色。
+    closed_segments: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -579,22 +583,85 @@ def generate_streaming_asr_chunk(
     return postprocess_asr_text(extract_funasr_text(result), runtime.postprocess)
 
 
+# 长录音分段：每段最长 30 秒。段内每个识别周期都从段头重新识别到现在（成本封顶在 30 秒音频），
+# 满 30 秒就封口，剩下的音频作为新的一段重新开始。SenseVoice 在 30 秒以内的识别质量有保证，
+# 封口后的段不会再变，可以直接拿去润色。
+SEGMENT_MAX_MS = 30_000
+# 满 30 秒时不在第 30 秒硬切，而是在最后这段时间里找最安静的地方切，避免把一个字切成两半。
+SEGMENT_SNAP_MS = 5_000
+SEGMENT_FRAME_MS = 50
+# 识别耗时占实时音频的比例上限：重识别一次要 d 秒，就至少隔 d / 0.5 秒的音频再识别下一次，
+# 否则慢机器上积压越来越多，说完要等很久才出结果。
+DECODE_LOAD_BUDGET = 0.5
+
+
+def _is_ascii_word_char(char: str) -> bool:
+    return char.isascii() and char.isalnum()
+
+
+def join_segment_texts(parts: list[str]) -> str:
+    """把各段文字接成一整段：中文直接相连，英文单词 / 句号后面补空格。"""
+    joined = ""
+    for part in parts:
+        part = (part or "").strip()
+        if not part:
+            continue
+        if joined and _is_ascii_word_char(part[0]) and (_is_ascii_word_char(joined[-1]) or joined[-1] in ".,!?;:"):
+            joined += " "
+        joined += part
+    return joined
+
+
+def find_segment_cut(pcm: bytes, sample_rate: int, snap_ms: int = SEGMENT_SNAP_MS) -> int:
+    """在 pcm 末尾 snap_ms 内找能量最低的一帧，返回切点（字节偏移，按 2 字节对齐）。找不到就在末尾切。"""
+    import numpy as np
+
+    total = len(pcm) - (len(pcm) % 2)
+    frame_samples = max(1, int(sample_rate * SEGMENT_FRAME_MS / 1000))
+    window_samples = min(total // 2, int(sample_rate * snap_ms / 1000))
+    if window_samples < frame_samples * 2:
+        return total
+
+    samples = np.frombuffer(pcm[:total], dtype="<i2")[-window_samples:].astype("float32")
+    frame_count = window_samples // frame_samples
+    frames = samples[: frame_count * frame_samples].reshape(frame_count, frame_samples)
+    energy = np.sqrt((frames ** 2).mean(axis=1))
+    # 多个帧能量一样低（整段静音）时取最靠后的，让这一段尽量长。
+    lowest = float(energy.min())
+    quietest = int(np.flatnonzero(energy <= lowest * 1.0001 + 1e-6)[-1])
+    cut_sample = total // 2 - window_samples + quietest * frame_samples + frame_samples // 2
+    return max(2, cut_sample * 2)
+
+
 class StreamingAsrSession:
     def __init__(
         self,
         runtime: StreamingAsrRuntime,
         sample_rate: int = 16000,
         chunk_ms: int | None = None,
+        segment_ms: int | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.runtime = runtime
         self.sample_rate = sample_rate
         self.chunk_ms = runtime.chunk_ms if chunk_ms is None else chunk_ms
         self.cache: dict[str, Any] = {}
         self.pcm_buffer = bytearray()
+        # 当前段的音频（累计识别的运行时才保留）；封口的段已经识别完，音频不再保存。
         self.full_pcm = bytearray()
         self.chunk_bytes = max(1, int(self.sample_rate * self.chunk_ms / 1000) * 2)
         self.text_parts: list[str] = []
         self.has_audio = False
+        self.clock = clock
+        self.segment_ms = SEGMENT_MAX_MS if segment_ms is None else segment_ms
+        self.segment_bytes = max(2, int(self.sample_rate * self.segment_ms / 1000) * 2)
+        self.segments: list[str] = []
+        # 下一次重识别之前至少要累积的音频字节数；识别变慢时自动拉长，见 DECODE_LOAD_BUDGET。
+        self.decode_interval_bytes = self.chunk_bytes
+
+    @property
+    def segmenting(self) -> bool:
+        return self.runtime.accumulate_audio and self.segment_ms > 0
 
     def append_pcm16(self, chunk: bytes) -> list[StreamingAsrResult]:
         if not chunk:
@@ -604,22 +671,82 @@ class StreamingAsrSession:
         self.pcm_buffer.extend(chunk)
         if self.runtime.accumulate_audio:
             self.full_pcm.extend(chunk)
+        if not self.segmenting:
+            return self._append_without_segments()
+
+        closed = self._close_full_segments()
         results: list[StreamingAsrResult] = []
-
-        while len(self.pcm_buffer) >= self.chunk_bytes:
-            pcm_chunk = bytes(self.pcm_buffer[: self.chunk_bytes])
-            del self.pcm_buffer[: self.chunk_bytes]
-            results.append(self._generate(pcm_chunk, False))
-
+        if len(self.pcm_buffer) >= self.decode_interval_bytes:
+            self.pcm_buffer.clear()
+            results.append(self._decode_current_segment(closed))
+            closed = []
+        if closed:
+            results.append(StreamingAsrResult(text=self._current_text(), closed_segments=tuple(closed)))
         return results
 
     def finalize(self) -> StreamingAsrResult:
         if not self.has_audio and not self.pcm_buffer:
-            return StreamingAsrResult(text="".join(self.text_parts))
+            return StreamingAsrResult(text=self._current_text())
 
-        final_chunk = bytes(self.full_pcm if self.runtime.accumulate_audio else self.pcm_buffer)
+        if not self.segmenting:
+            final_chunk = bytes(self.full_pcm if self.runtime.accumulate_audio else self.pcm_buffer)
+            self.pcm_buffer.clear()
+            return self._generate(final_chunk, True)
+
         self.pcm_buffer.clear()
-        return self._generate(final_chunk, True)
+        if not self.full_pcm:
+            return StreamingAsrResult(text=self._current_text())
+        last = self._decode(bytes(self.full_pcm), True)
+        self.full_pcm.clear()
+        self.segments.append(last)
+        self.text_parts = []
+        return StreamingAsrResult(text=self._current_text(), closed_segments=(last,))
+
+    # MARK: 分段
+
+    def _current_text(self) -> str:
+        if not self.segmenting:
+            return "".join(self.text_parts)
+        return join_segment_texts([*self.segments, *self.text_parts])
+
+    def _close_full_segments(self) -> list[str]:
+        """当前段满 30 秒就封口（在最后 5 秒里最安静的地方切），多出来的音频留给新的一段。"""
+        closed: list[str] = []
+        while len(self.full_pcm) >= self.segment_bytes:
+            cut = find_segment_cut(bytes(self.full_pcm[: self.segment_bytes]), self.sample_rate)
+            segment_pcm = bytes(self.full_pcm[:cut])
+            del self.full_pcm[:cut]
+            text = self._decode(segment_pcm, True)
+            self.segments.append(text)
+            closed.append(text)
+            self.cache = {}
+            self.text_parts = []
+            # 新的一段已经有音频了，下一次识别判断从它的长度算起。
+            self.pcm_buffer = bytearray(len(self.full_pcm))
+        return closed
+
+    def _decode_current_segment(self, closed: list[str]) -> StreamingAsrResult:
+        text = self._decode(bytes(self.full_pcm), False)
+        if text:
+            self.text_parts = [text]
+        return StreamingAsrResult(text=self._current_text(), closed_segments=tuple(closed))
+
+    def _decode(self, pcm: bytes, is_final: bool) -> str:
+        started = self.clock()
+        text = generate_streaming_asr_chunk(self.runtime, pcm, self.cache, is_final)
+        elapsed = max(0.0, self.clock() - started)
+        # 识别一次要 elapsed 秒，下一次至少隔 elapsed / 预算 秒的音频，识别负载才不会超过预算。
+        needed = int(elapsed / DECODE_LOAD_BUDGET * self.sample_rate) * 2
+        self.decode_interval_bytes = max(self.chunk_bytes, needed)
+        return text
+
+    def _append_without_segments(self) -> list[StreamingAsrResult]:
+        results: list[StreamingAsrResult] = []
+        while len(self.pcm_buffer) >= self.chunk_bytes:
+            pcm_chunk = bytes(self.pcm_buffer[: self.chunk_bytes])
+            del self.pcm_buffer[: self.chunk_bytes]
+            results.append(self._generate(pcm_chunk, False))
+        return results
 
     def _generate(self, pcm_chunk: bytes, is_final: bool) -> StreamingAsrResult:
         source_pcm = bytes(self.full_pcm) if self.runtime.accumulate_audio else pcm_chunk
